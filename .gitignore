@@ -19,3 +19,6 @@ web/*.log
 
 # subagent-driven-development scratch (briefs/reports/diffs/ledger)
 .superpowers/
+
+# git worktrees for isolated plan execution
+.worktrees/
