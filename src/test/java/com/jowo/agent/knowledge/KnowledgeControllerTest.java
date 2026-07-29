@@ -23,6 +23,7 @@ import com.jowo.agent.config.KnowledgeProperties;
 import com.jowo.agent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import com.jowo.agent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
 import com.jowo.agent.service.AuthSessionStore;
+import com.jowo.agent.service.OAuth2Client;
 import com.jowo.agent.web.AuthExceptionHandler;
 import com.jowo.agent.web.CurrentUserArgumentResolver;
 import com.jowo.agent.web.WebConfig;
@@ -38,6 +39,7 @@ class KnowledgeControllerTest {
     @MockBean KnowledgeDocumentService service;
     @MockBean KnowledgeProperties props;
     @MockBean AuthSessionStore sessions;
+    @MockBean OAuth2Client oauth2;
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(

@@ -19,6 +19,7 @@ import com.jowo.agent.repository.SessionRepository.SessionRow;
 import com.jowo.agent.service.AuthSessionStore;
 import com.jowo.agent.service.ChatMemory;
 import com.jowo.agent.service.LlmClient;
+import com.jowo.agent.service.OAuth2Client;
 import com.jowo.agent.service.SessionService;
 import com.jowo.agent.web.AuthExceptionHandler;
 import com.jowo.agent.web.CurrentUserArgumentResolver;
@@ -36,6 +37,7 @@ class ChatControllerTest {
     @MockBean SessionService sessionService;
     @MockBean ChatMemory chatMemory;
     @MockBean AuthSessionStore sessions;
+    @MockBean OAuth2Client oauth2;
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(
