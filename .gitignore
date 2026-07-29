@@ -1,0 +1,21 @@
+target/
+*.class
+*.jar
+.idea/
+*.iml
+.vscode/
+.DS_Store
+application-local.yml
+
+# start.sh 运行时产物
+logs/
+
+# web/ 前端构建产物
+web/node_modules/
+web/dist/
+web/dist-ssr/
+web/.next/
+web/*.log
+
+# subagent-driven-development scratch (briefs/reports/diffs/ledger)
+.superpowers/

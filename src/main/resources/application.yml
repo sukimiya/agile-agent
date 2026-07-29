@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: l7-skill-backend
+  cloud:
+    nacos:
+      config:
+        import-check:
+          enabled: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration, classpath:db/sql/${spring.profiles.active}
+    baselineOnMigrate: true
+    baselineVersion: 0
+    table: l7_skill_flyway_schema_history
+    cleanDisabled: true
+
+server:
+  port: 8088
+
+deepseek:
+  base-url: https://api.deepseek.com
+  api-key: ${DEEPSEEK_API_KEY:}
+  model: deepseek-chat
+
+enterprise-api:
+  services:
+    MES:
+      base-url: ${MES_BASE_URL:http://CHANGE_ME}
+    CRM:
+      base-url: ${CRM_BASE_URL:http://CHANGE_ME}
+    WMS:
+      base-url: ${WMS_BASE_URL:http://CHANGE_ME}
+    QMS:
+      base-url: ${QMS_BASE_URL:http://CHANGE_ME}
+    SRM:
+      base-url: ${SRM_BASE_URL:http://CHANGE_ME}
+
+smartlink:
+  base-url: ${SMARTLINK_BASE_URL:http://CHANGE_ME}
+
+app:
+  data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
+  upload:
+    dir: ${app.data-dir}/uploads
+    ttl-hours: 24
+    max-size-mb: 10
+    max-files-per-request: 10
+    allowed-content-types:
+      - image/jpeg
+      - image/png
+      - image/gif
+      - image/webp
+      - application/pdf
+  knowledge:
+    temp-dir: ${app.data-dir}/knowledge-pending
+    lib-dir: ${app.data-dir}/lib
+    max-size-mb: 5
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+    import:
+      - nacos:${spring.application.name}-${spring.profiles.active}.yaml?group=${spring.cloud.nacos.config.group}&refreshEnabled=true
+  cloud:
+    nacos:
+      config:
+        server-addr: 192.168.3.232:8848
+        namespace: jowo-im-${spring.profiles.active}
+        group: jowo-im-group
+debug: ${DEBUG:-false}

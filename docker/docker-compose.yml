@@ -1,0 +1,16 @@
+services:
+  l7-skill-backend:
+    image: ${DOCKER_REGISTRY_URL}/jowosmart/l7-skill-backend:${IMAGE_TAG}
+    container_name: l7-skill-backend
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      APP_DATA_DIR: /data
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - l7-skill-data:/data
+
+volumes:
+  l7-skill-data:
+    external: true
