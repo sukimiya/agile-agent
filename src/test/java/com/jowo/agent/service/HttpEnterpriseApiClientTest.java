@@ -48,7 +48,7 @@ class HttpEnterpriseApiClientTest {
         var req = server.takeRequest();
         assertThat(req.getMethod()).isEqualTo("GET");
         assertThat(req.getPath()).isEqualTo("/api/mes/work-orders/page?status=%E6%9C%AA%E5%AE%8C%E6%88%90");
-        assertThat(req.getHeader("x-access-token")).isEqualTo("user-tok");
+        assertThat(req.getHeader("Authorization")).isEqualTo("Bearer user-tok");
     }
 
     @Test

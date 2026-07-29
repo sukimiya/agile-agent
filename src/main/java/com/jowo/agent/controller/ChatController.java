@@ -64,7 +64,7 @@ class ChatController {
                     if (access == SessionService.AccessResult.FORBIDDEN) {
                         return ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build();
                     }
-                    Flux<String> stream = orchestrator.chat(ownerId, user.smartLinkToken(), userMsg)
+                    Flux<String> stream = orchestrator.chat(ownerId, user.accessToken(), userMsg)
                             .flatMap(line -> toContentChunk(line).map(Flux::just).orElseGet(Flux::empty))
                             .map(line -> {
                                 var chunk = json.createObjectNode();
@@ -120,7 +120,7 @@ class ChatController {
         return sessionService.touchOrCreate(ownerId, user.userId(), request.message())
                 .map(access -> access == SessionService.AccessResult.FORBIDDEN
                         ? ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build()
-                        : ResponseEntity.ok().body(orchestrator.chat(ownerId, user.smartLinkToken(), request.message())));
+                        : ResponseEntity.ok().body(orchestrator.chat(ownerId, user.accessToken(), request.message())));
     }
 
     @GetMapping("/conversations")

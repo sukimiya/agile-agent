@@ -75,7 +75,7 @@ public class DomainAgent {
                 yield Flux.fromIterable(tc.calls())
                         .concatMap(call -> Flux.concat(
                                 Flux.just(new AgentEvent.ToolCalled(role.code(), call.name(), summarize(call.argumentsJson()))),
-                                executeTool(call, task.smartLinkToken()).flatMapMany(result -> {
+                                executeTool(call, task.accessToken()).flatMapMany(result -> {
                                     messages.add(LlmClient.Message.toolResult(call.id(), result));
                                     return Flux.<AgentEvent>empty();
                                 })))
@@ -84,7 +84,7 @@ public class DomainAgent {
         });
     }
 
-    private Mono<String> executeTool(LlmClient.ToolCall call, String smartLinkToken) {
+    private Mono<String> executeTool(LlmClient.ToolCall call, String accessToken) {
         JsonNode args;
         try {
             args = JSON.readTree(call.argumentsJson());
@@ -93,7 +93,7 @@ public class DomainAgent {
         }
         return switch (call.name()) {
             case "getApiDetail" -> Mono.just(getApiDetail(args));
-            case "callEnterpriseApi" -> callEnterpriseApi(args, smartLinkToken);
+            case "callEnterpriseApi" -> callEnterpriseApi(args, accessToken);
             case "readKnowledgeDoc" -> readKnowledgeDoc(args);
             default -> Mono.just("unknown tool: " + call.name());
         };
@@ -107,7 +107,7 @@ public class DomainAgent {
         return detail.orElse("接口不存在: " + service + " " + path);
     }
 
-    private Mono<String> callEnterpriseApi(JsonNode args, String smartLinkToken) {
+    private Mono<String> callEnterpriseApi(JsonNode args, String accessToken) {
         String service = args.path("service").asText();
         String method = args.path("method").asText();
         String path = args.path("path").asText();
@@ -119,7 +119,7 @@ public class DomainAgent {
             log.info("callEnterpriseApi REJECTED service={} method={} path={} params={}", service, method, path, params);
             return Mono.just("调用被拒绝：不在已注册接口白名单中 (" + service + " " + method + " " + path + ")");
         }
-        return enterpriseApi.call(service, method, path, params, smartLinkToken)
+        return enterpriseApi.call(service, method, path, params, accessToken)
                 .map(Object::toString)
                 .doOnNext(result -> log.info("callEnterpriseApi OK service={} method={} path={} params={} result={}",
                         service, method, path, params,

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.when;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Comparator;
 
 import org.junit.jupiter.api.AfterEach;
@@ -57,7 +58,7 @@ class KnowledgeControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         when(llm.summarize(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just("自动生成的摘要"));
-        token = sessions.create("knowledge-test-user", "Knowledge Test", "sl-tok").block();
+        token = sessions.create("knowledge-test-user", "Knowledge Test", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test").block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }

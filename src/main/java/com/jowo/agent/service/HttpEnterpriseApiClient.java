@@ -79,7 +79,7 @@ public class HttpEnterpriseApiClient implements EnterpriseApiClient {
         } else {
             spec = http.method(httpMethod).uri(path);
         }
-        if (accessToken != null) spec = spec.header("x-access-token", accessToken);
+        if (accessToken != null) spec = spec.headers(h -> h.setBearerAuth(accessToken));
         WebClient.RequestHeadersSpec<?> ready =
                 (httpMethod == HttpMethod.GET || httpMethod == HttpMethod.DELETE) ? spec : spec.bodyValue(params);
         return ready.retrieve()

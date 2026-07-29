@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ class KnowledgeControllerTest {
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(
-                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok")));
+                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test")));
     }
 
     private static ByteArrayResource textPart(String filename, String content) {

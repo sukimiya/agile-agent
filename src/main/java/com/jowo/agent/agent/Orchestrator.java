@@ -70,12 +70,12 @@ public class Orchestrator {
         this.memory = memory;
     }
 
-    public Flux<String> chat(String ownerId, String smartLinkToken, String userMessage) {
+    public Flux<String> chat(String ownerId, String accessToken, String userMessage) {
         Flux<String> body = memory.get(ownerId)
                 .flatMapMany(history -> route(history, userMessage)
                         .flatMapMany(roleCodes -> roleCodes.isEmpty()
                                 ? answerDirectly(ownerId, history, userMessage)
-                                : answerViaDomains(ownerId, history, userMessage, roleCodes, smartLinkToken)));
+                                : answerViaDomains(ownerId, history, userMessage, roleCodes, accessToken)));
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
@@ -132,9 +132,9 @@ public class Orchestrator {
     }
 
     private Flux<String> answerViaDomains(String ownerId, List<LlmClient.Message> history, String userMessage,
-                                           List<String> roleCodes, String smartLinkToken) {
+                                           List<String> roleCodes, String accessToken) {
         var tasks = roleCodes.stream()
-                .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, smartLinkToken))
+                .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken))
                 .toList();
         Flux<AgentEvent> events = dispatcher.dispatch(tasks).cache();
 

@@ -3,6 +3,7 @@ package com.jowo.agent.controller;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -38,7 +39,7 @@ class ChatControllerTest {
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(
-                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok")));
+                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test")));
     }
 
     @Test

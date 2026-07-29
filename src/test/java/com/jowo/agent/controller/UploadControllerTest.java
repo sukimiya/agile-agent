@@ -2,6 +2,7 @@ package com.jowo.agent.controller;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Comparator;
 
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +36,7 @@ class UploadControllerTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        token = sessions.create("upload-test-user", "Upload Test", "sl-tok").block();
+        token = sessions.create("upload-test-user", "Upload Test", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test").block();
         var dir = Path.of(props.getDir());
         if (Files.exists(dir)) {
             try (var walk = Files.walk(dir)) {
