@@ -1,6 +1,6 @@
 package com.jowo.agent.controller;
 
-import static org.mockito.Mockito.*;
+import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,25 +10,26 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import com.jowo.agent.service.AuthSessionStore;
-import com.jowo.agent.service.SmartLinkClient;
 import com.jowo.agent.web.AuthExceptionHandler;
 import com.jowo.agent.web.CurrentUserArgumentResolver;
 import com.jowo.agent.web.WebConfig;
 
 import reactor.core.publisher.Mono;
 
+import static org.mockito.Mockito.when;
+
 @WebFluxTest(AuthorizeController.class)
 @Import({WebConfig.class, AuthExceptionHandler.class, CurrentUserArgumentResolver.class})
 class AuthorizeControllerTest {
 
     @Autowired WebTestClient client;
-    @MockBean SmartLinkClient smartLink;
     @MockBean AuthSessionStore sessions;
+    @MockBean com.jowo.agent.service.OAuth2Client oauth2;
 
     @Test
-    void meReturnsUserTypeForValidToken() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(new AuthSessionStore.AuthUser("u1", "周琳琳", "sl-tok")));
-        when(smartLink.fetchUserType("sl-tok")).thenReturn(Mono.just("admin"));
+    void meReturnsUserTypeFromSession() {
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
+                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
 
         client.get().uri("/api/authorize/me").header("Authorization", "Bearer app-tok")
                 .exchange()
@@ -42,16 +43,5 @@ class AuthorizeControllerTest {
         client.get().uri("/api/authorize/me")
                 .exchange()
                 .expectStatus().isUnauthorized();
-    }
-
-    @Test
-    void meReturns502WhenSmartLinkUnavailable() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(new AuthSessionStore.AuthUser("u1", "周琳琳", "sl-tok")));
-        when(smartLink.fetchUserType("sl-tok"))
-                .thenReturn(Mono.error(new SmartLinkClient.SmartLinkUnavailableException("timeout")));
-
-        client.get().uri("/api/authorize/me").header("Authorization", "Bearer app-tok")
-                .exchange()
-                .expectStatus().isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
     }
 }
