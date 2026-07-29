@@ -2,6 +2,8 @@ package com.jowo.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ class AuthSessionStoreTest {
     private ReactiveStringRedisTemplate redisTemplate;
     private AuthSessionStore store;
     private String issuedToken;
+    private static final Instant EXPIRES = Instant.parse("2026-08-01T00:00:00Z");
 
     @BeforeEach
     void setUp() {
@@ -35,14 +38,17 @@ class AuthSessionStoreTest {
 
     @Test
     void createThenResolveReturnsSameUser() {
-        issuedToken = store.create("user-1", "周琳琳", "sl-tok").block();
+        issuedToken = store.create("user-1", "周琳琳", "at-1", "rt-1", EXPIRES, "admin").block();
 
         var resolved = store.resolve(issuedToken).blockOptional();
 
         assertThat(resolved).isPresent();
         assertThat(resolved.get().userId()).isEqualTo("user-1");
         assertThat(resolved.get().name()).isEqualTo("周琳琳");
-        assertThat(resolved.get().smartLinkToken()).isEqualTo("sl-tok");
+        assertThat(resolved.get().accessToken()).isEqualTo("at-1");
+        assertThat(resolved.get().refreshToken()).isEqualTo("rt-1");
+        assertThat(resolved.get().expiresAt()).isEqualTo(EXPIRES);
+        assertThat(resolved.get().userType()).isEqualTo("admin");
     }
 
     @Test
@@ -52,7 +58,7 @@ class AuthSessionStoreTest {
 
     @Test
     void deleteInvalidatesToken() {
-        issuedToken = store.create("user-1", "周琳琳", "sl-tok").block();
+        issuedToken = store.create("user-1", "周琳琳", "at-1", "rt-1", EXPIRES, "admin").block();
 
         store.delete(issuedToken).block();
 
@@ -61,11 +67,21 @@ class AuthSessionStoreTest {
 
     @Test
     void tokensAreUniquePerCall() {
-        var t1 = store.create("user-1", "A", "sl-tok").block();
-        var t2 = store.create("user-1", "A", "sl-tok").block();
+        var t1 = store.create("user-1", "A", "at-1", "rt-1", EXPIRES, "admin").block();
+        var t2 = store.create("user-1", "A", "at-1", "rt-1", EXPIRES, "admin").block();
         issuedToken = t1;
         redisTemplate.delete("authsession:" + t2).block();
 
         assertThat(t1).isNotEqualTo(t2);
+    }
+
+    @Test
+    void updateOverwritesStoredUserUnderSameToken() {
+        issuedToken = store.create("user-1", "周琳琳", "at-1", "rt-1", EXPIRES, "admin").block();
+        var refreshed = new AuthSessionStore.AuthUser("user-1", "周琳琳", "at-2", "rt-2", EXPIRES.plusSeconds(3600), "admin");
+
+        store.update(issuedToken, refreshed).block();
+
+        assertThat(store.resolve(issuedToken).blockOptional()).contains(refreshed);
     }
 }
