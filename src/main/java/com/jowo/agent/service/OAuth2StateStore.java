@@ -28,9 +28,7 @@ public class OAuth2StateStore {
     }
 
     public Mono<String> consume(String state) {
-        String key = KEY_PREFIX + state;
-        return redis.opsForValue().get(key)
-                .flatMap(verifier -> redis.delete(key).thenReturn(verifier));
+        return redis.opsForValue().getAndDelete(KEY_PREFIX + state);
     }
 
     private static String randomState() {
