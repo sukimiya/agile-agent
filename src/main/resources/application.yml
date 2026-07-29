@@ -46,9 +46,6 @@ oauth2:
   user-type-claim: ${OAUTH2_USER_TYPE_CLAIM:}
   frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:5173/login/callback}
 
-smartlink:
-  base-url: ${SMARTLINK_BASE_URL:http://CHANGE_ME}
-
 app:
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
   upload:
