@@ -35,6 +35,17 @@ enterprise-api:
     SRM:
       base-url: ${SRM_BASE_URL:http://CHANGE_ME}
 
+oauth2:
+  authorization-uri: ${OAUTH2_AUTHORIZATION_URI:http://CHANGE_ME/oauth2/authorize}
+  token-uri: ${OAUTH2_TOKEN_URI:http://CHANGE_ME/oauth2/token}
+  user-info-uri: ${OAUTH2_USERINFO_URI:http://CHANGE_ME/oauth2/userinfo}
+  client-id: ${OAUTH2_CLIENT_ID:}
+  client-secret: ${OAUTH2_CLIENT_SECRET:}
+  redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:8088/api/auth/oauth2/callback}
+  scope: ${OAUTH2_SCOPE:openid profile}
+  user-type-claim: ${OAUTH2_USER_TYPE_CLAIM:}
+  frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:5173/login/callback}
+
 smartlink:
   base-url: ${SMARTLINK_BASE_URL:http://CHANGE_ME}
 
