@@ -1,18 +1,21 @@
 package com.jowo.agent.controller;
 
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.Instant;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import com.jowo.agent.config.OAuth2Properties;
 import com.jowo.agent.service.AuthSessionStore;
-import com.jowo.agent.service.SmartLinkClient;
+import com.jowo.agent.service.OAuth2Client;
+import com.jowo.agent.service.OAuth2StateStore;
 import com.jowo.agent.web.AuthExceptionHandler;
 import com.jowo.agent.web.CurrentUserArgumentResolver;
 import com.jowo.agent.web.WebConfig;
@@ -24,53 +27,59 @@ import reactor.core.publisher.Mono;
 class AuthControllerTest {
 
     @Autowired WebTestClient client;
-    @MockBean SmartLinkClient smartLink;
+    @MockBean OAuth2Client oauth2;
+    @MockBean OAuth2StateStore states;
     @MockBean AuthSessionStore sessions;
+    @MockBean OAuth2Properties props;
 
     @Test
-    void loginReturnsTokenOnSuccess() {
-        when(smartLink.login("sukimiya", "pw")).thenReturn(Mono.just(new SmartLinkClient.LoginResult("u1", "sl-tok")));
-        when(smartLink.fetchDisplayName("sl-tok")).thenReturn(Mono.just("周琳琳"));
-        when(sessions.create("u1", "周琳琳", "sl-tok")).thenReturn(Mono.just("app-tok"));
+    void authorizeRedirectsToProviderAuthorizationUrl() {
+        when(states.save(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just("state-1"));
+        when(oauth2.buildAuthorizationUrl(org.mockito.ArgumentMatchers.eq("state-1"), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn("https://idp.example.com/oauth2/authorize?state=state-1");
 
-        client.post().uri("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"username\":\"sukimiya\",\"password\":\"pw\"}")
+        client.get().uri("/api/auth/oauth2/authorize")
                 .exchange()
-                .expectStatus().isOk()
-                .expectBody()
-                .jsonPath("$.token").isEqualTo("app-tok")
-                .jsonPath("$.userId").isEqualTo("u1")
-                .jsonPath("$.name").isEqualTo("周琳琳");
+                .expectStatus().isFound()
+                .expectHeader().valueEquals("Location", "https://idp.example.com/oauth2/authorize?state=state-1");
     }
 
     @Test
-    void loginReturns401OnBadCredentials() {
-        when(smartLink.login("sukimiya", "wrong"))
-                .thenReturn(Mono.error(new SmartLinkClient.SmartLinkAuthException("用户名或密码错误")));
+    void callbackExchangesCodeAndRedirectsWithAppToken() {
+        when(props.frontendRedirectUri()).thenReturn("http://localhost:5173/login/callback");
+        when(states.consume("state-1")).thenReturn(Mono.just("verifier-1"));
+        when(oauth2.exchangeCode("code-1", "verifier-1"))
+                .thenReturn(Mono.just(new OAuth2Client.TokenResult("at-1", "rt-1", 3600)));
+        when(oauth2.fetchUserInfo("at-1"))
+                .thenReturn(Mono.just(new OAuth2Client.UserInfo("u1", "周琳琳", "admin")));
+        when(sessions.create(org.mockito.ArgumentMatchers.eq("u1"), org.mockito.ArgumentMatchers.eq("周琳琳"),
+                org.mockito.ArgumentMatchers.eq("at-1"), org.mockito.ArgumentMatchers.eq("rt-1"),
+                org.mockito.ArgumentMatchers.any(Instant.class), org.mockito.ArgumentMatchers.eq("admin")))
+                .thenReturn(Mono.just("app-tok"));
 
-        client.post().uri("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"username\":\"sukimiya\",\"password\":\"wrong\"}")
+        client.get().uri("/api/auth/oauth2/callback?code=code-1&state=state-1")
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isFound()
+                .expectHeader().valueEquals("Location", "http://localhost:5173/login/callback#token=app-tok");
     }
 
     @Test
-    void loginReturns502WhenSmartLinkUnavailable() {
-        when(smartLink.login(anyString(), anyString()))
-                .thenReturn(Mono.error(new SmartLinkClient.SmartLinkUnavailableException("timeout")));
+    void callbackRedirectsWithErrorFragmentOnAuthFailure() {
+        when(props.frontendRedirectUri()).thenReturn("http://localhost:5173/login/callback");
+        when(states.consume("state-1")).thenReturn(Mono.just("verifier-1"));
+        when(oauth2.exchangeCode("bad-code", "verifier-1"))
+                .thenReturn(Mono.error(new OAuth2Client.OAuth2AuthException("invalid_grant")));
 
-        client.post().uri("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"username\":\"sukimiya\",\"password\":\"pw\"}")
+        client.get().uri("/api/auth/oauth2/callback?code=bad-code&state=state-1")
                 .exchange()
-                .expectStatus().isEqualTo(org.springframework.http.HttpStatus.BAD_GATEWAY);
+                .expectStatus().isFound()
+                .expectHeader().valueEquals("Location", "http://localhost:5173/login/callback#error=auth_failed");
     }
 
     @Test
     void meReturnsCurrentUserForValidToken() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(new AuthSessionStore.AuthUser("u1", "周琳琳", "sl-tok")));
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
+                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
 
         client.get().uri("/api/auth/me").header("Authorization", "Bearer app-tok")
                 .exchange()
