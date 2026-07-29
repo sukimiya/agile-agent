@@ -72,6 +72,22 @@ class CurrentUserArgumentResolverTest {
     }
 
     @Test
+    void refreshFailureErrorsUnauthorized() {
+        var sessions = mock(AuthSessionStore.class);
+        var oauth2 = mock(OAuth2Client.class);
+        var expiring = new AuthSessionStore.AuthUser("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10), "admin");
+        when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(oauth2.refresh("rt-1")).thenReturn(Mono.error(new OAuth2Client.OAuth2AuthException("token revoked")));
+        var resolver = new CurrentUserArgumentResolver(sessions, oauth2);
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/x").header("Authorization", "Bearer tok-1").build());
+
+        StepVerifier.create(resolver.resolveArgument(null, null, exchange))
+                .expectError(UnauthorizedException.class)
+                .verify();
+    }
+
+    @Test
     void missingHeaderErrorsUnauthorized() {
         var resolver = new CurrentUserArgumentResolver(mock(AuthSessionStore.class), mock(OAuth2Client.class));
         var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/x").build());

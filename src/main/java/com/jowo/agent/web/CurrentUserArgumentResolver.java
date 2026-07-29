@@ -51,6 +51,7 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                 .map(tokens -> new AuthSessionStore.AuthUser(user.userId(), user.name(),
                         tokens.accessToken(), tokens.refreshToken(),
                         Instant.now().plusSeconds(tokens.expiresInSeconds()), user.userType()))
-                .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed));
+                .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed))
+                .onErrorMap(e -> !(e instanceof UnauthorizedException), e -> new UnauthorizedException());
     }
 }
