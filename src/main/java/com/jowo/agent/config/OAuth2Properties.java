@@ -7,6 +7,7 @@ public record OAuth2Properties(
         String authorizationUri,
         String tokenUri,
         String userInfoUri,
+        String revocationUri,
         String clientId,
         String clientSecret,
         String redirectUri,

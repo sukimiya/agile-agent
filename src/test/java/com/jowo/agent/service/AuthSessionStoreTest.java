@@ -57,6 +57,25 @@ class AuthSessionStoreTest {
     }
 
     @Test
+    void resolveTreatsPreMigrationSessionPayloadAsAbsent() {
+        issuedToken = "legacy-shape-token";
+        redisTemplate.opsForValue()
+                .set("authsession:" + issuedToken,
+                        "{\"userId\":\"user-1\",\"name\":\"周琳琳\",\"smartLinkToken\":\"sl-1\"}")
+                .block();
+
+        assertThat(store.resolve(issuedToken).blockOptional()).isEmpty();
+    }
+
+    @Test
+    void resolveTreatsUnparseablePayloadAsAbsent() {
+        issuedToken = "corrupt-json-token";
+        redisTemplate.opsForValue().set("authsession:" + issuedToken, "not-json-at-all").block();
+
+        assertThat(store.resolve(issuedToken).blockOptional()).isEmpty();
+    }
+
+    @Test
     void deleteInvalidatesToken() {
         issuedToken = store.create("user-1", "周琳琳", "at-1", "rt-1", EXPIRES, "admin").block();
 

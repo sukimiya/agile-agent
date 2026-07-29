@@ -38,6 +38,7 @@ class ChatControllerTest {
     @MockBean ChatMemory chatMemory;
     @MockBean AuthSessionStore sessions;
     @MockBean OAuth2Client oauth2;
+    @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(

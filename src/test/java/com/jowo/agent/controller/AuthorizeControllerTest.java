@@ -25,6 +25,7 @@ class AuthorizeControllerTest {
     @Autowired WebTestClient client;
     @MockBean AuthSessionStore sessions;
     @MockBean com.jowo.agent.service.OAuth2Client oauth2;
+    @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
 
     @Test
     void meReturnsUserTypeFromSession() {
