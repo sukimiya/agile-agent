@@ -79,7 +79,7 @@
 
 ```
 ┌─────────────────────────────────────────┐
-│  🔧 Jowo Agent            [设置] [清空] │  顶栏
+│  🔧 Agile Agent           [设置] [清空] │  顶栏
 ├─────────────────────────────────────────┤
 │                                         │
 │  ┌─────────────────────────────────┐    │
@@ -124,7 +124,7 @@
 ```
 mcp-tool/
 ├── pom.xml
-├── src/main/java/com/jowo/agent/
+├── agent-server/src/main/java/io/github/sukimiya/agileagent/
 │   ├── AgentApplication.java          # Spring Boot 入口
 │   ├── config/
 │   │   └── AgentConfig.java           # ChatClient / Memory / VectorStore 配置

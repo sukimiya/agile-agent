@@ -88,7 +88,7 @@ CRM 仅约 4 千，对比现在全量 3.5 万，降低 60%~90%。
 `./lib` 目录里的内容（每条 `{id}.md` 原文 + `{id}.meta.json` 元数据）现由 `KnowledgeCatalog`
 扫描为摘要索引，`KNOWLEDGE` 域 agent 参与路由与问答。
 
-新增包 `com.jowo.agent.knowledge`（`KnowledgeController`/`KnowledgeDocumentService`/
+新增包 `io.github.sukimiya.agileagent.knowledge`（`KnowledgeController`/`KnowledgeDocumentService`/
 `KnowledgeDocumentRepository`/`KnowledgeFileStorage`），5 个端点，均走现有 `@CurrentUser`
 认证（任何登录用户，无角色区分——审核门槛刻意设低，与"新系统 API 接口文档审核"未来需要的
 SmartLink admin 门槛是两套体系）：

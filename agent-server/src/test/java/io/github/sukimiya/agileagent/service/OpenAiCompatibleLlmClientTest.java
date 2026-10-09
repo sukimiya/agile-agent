@@ -18,8 +18,8 @@ import org.springframework.test.context.TestPropertySource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jowo.agent.service.LlmClient;
-import com.jowo.agent.AgentApplication;
+import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.AgentApplication;
 import io.github.sukimiya.agileagent.config.DefaultLlmProperties;
 
 import okhttp3.mockwebserver.MockResponse;

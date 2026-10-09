@@ -31,7 +31,7 @@ start_in_bg() {
   echo "[$name] 已启动 pid=$(cat "$pidfile"), 日志: $logfile"
 }
 
-start_in_bg backend "$ROOT" mvn spring-boot:run
+start_in_bg backend "$ROOT" mvn -pl agent-server spring-boot:run
 
 if [[ -d "$ROOT/web/node_modules" ]]; then
   start_in_bg frontend "$ROOT/web" npm run dev

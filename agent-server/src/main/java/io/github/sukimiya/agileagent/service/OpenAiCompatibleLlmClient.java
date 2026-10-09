@@ -12,7 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jowo.agent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.config.DefaultLlmProperties;
 
 import reactor.core.publisher.Flux;

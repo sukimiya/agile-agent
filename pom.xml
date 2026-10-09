@@ -8,7 +8,7 @@
 		<version>3.5.0</version>
 		<relativePath/>
 	</parent>
-	<groupId>com.jowo</groupId>
+	<groupId>io.github.sukimiya</groupId>
 	<artifactId>agile-agent-parent</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<packaging>pom</packaging>

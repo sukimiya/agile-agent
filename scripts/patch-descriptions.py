@@ -6,8 +6,9 @@ import json
 import os
 import re
 
-BASE = "/Users/breannalinlin/Documents/code/jowo/crm-service/src/main/java/com/jowo/crmservice"
-JSON_PATH = "/Users/breannalinlin/Documents/code/jowo/mcp-tool/api-docs/crm-service-api-docs.json"
+BASE = os.environ.get("CRM_JAVA_SOURCE_DIR", "../crm-service/src/main/java")
+JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "api-docs", "crm-service-api-docs.json")
 
 def find_java_files(root):
     """Walk dirs and collect all .java files."""

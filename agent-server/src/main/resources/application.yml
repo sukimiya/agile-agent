@@ -1,6 +1,6 @@
 spring:
   application:
-    name: l7-skill-backend
+    name: agile-agent-server
   cloud:
     nacos:
       config:
@@ -77,6 +77,6 @@ spring:
     nacos:
       config:
         server-addr: 192.168.3.232:8848
-        namespace: jowo-im-${spring.profiles.active}
-        group: jowo-im-group
+        namespace: ${NACOS_NAMESPACE:agile-agent-${spring.profiles.active}}
+        group: ${NACOS_GROUP:agile-agent}
 debug: ${DEBUG:-false}

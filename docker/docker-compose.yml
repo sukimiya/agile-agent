@@ -1,7 +1,7 @@
 services:
-  l7-skill-backend:
-    image: ${DOCKER_REGISTRY_URL}/jowosmart/l7-skill-backend:${IMAGE_TAG}
-    container_name: l7-skill-backend
+  agile-agent-server:
+    image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}
+    container_name: agile-agent-server
     restart: unless-stopped
     ports:
       - "8088:8088"
@@ -9,8 +9,8 @@ services:
       APP_DATA_DIR: /data
       DEBUG: ${DEBUG:-false}
     volumes:
-      - l7-skill-data:/data
+      - agile-agent-data:/data
 
 volumes:
-  l7-skill-data:
+  agile-agent-data:
     external: true

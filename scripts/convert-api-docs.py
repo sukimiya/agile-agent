@@ -509,7 +509,7 @@ def main():
     ]
     for service_dir, json_file, md_file in services:
         input_path = base_dir / 'api-docs' / json_file
-        output_path = base_dir / 'src' / 'main' / 'resources' / 'api-docs' / service_dir / md_file
+        output_path = base_dir / 'agent-server' / 'src' / 'main' / 'resources' / 'api-docs' / service_dir / md_file
         convert(str(input_path), str(output_path))
 
 

@@ -21,8 +21,8 @@ pipeline {
                         echo '<========= Current git branch $BRANCH_NAME =========>'
                         echo '<============== Build docker image ==============>'
                         echo $DOCKER_PASS | sudo docker login -u ${DOCKER_USER.replace('$', '\\$')} --password-stdin $DOCKER_REGISTRY_URL
-                        sudo docker build -t $DOCKER_REGISTRY_URL/jowosmart/l7-skill-backend:$BRANCH_NAME-$BUILD_NUMBER -f docker/Dockerfile .
-                        sudo docker push $DOCKER_REGISTRY_URL/jowosmart/l7-skill-backend:$BRANCH_NAME-$BUILD_NUMBER
+                        sudo docker build -t $DOCKER_REGISTRY_URL/agile-agent-server:$BRANCH_NAME-$BUILD_NUMBER -f docker/Dockerfile .
+                        sudo docker push $DOCKER_REGISTRY_URL/agile-agent-server:$BRANCH_NAME-$BUILD_NUMBER
                         sudo docker logout $DOCKER_REGISTRY_URL
                     """
                 }

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.*;
 import java.io.IOException;
 import org.junit.jupiter.api.*;
 import org.springframework.web.reactive.function.client.WebClient;
-import com.jowo.agent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.LlmClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import reactor.test.StepVerifier;
