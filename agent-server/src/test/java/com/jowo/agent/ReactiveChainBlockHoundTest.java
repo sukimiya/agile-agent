@@ -22,6 +22,7 @@ import com.jowo.agent.knowledge.KnowledgeCatalog;
 import com.jowo.agent.service.*;
 
 import reactor.blockhound.BlockHound;
+import reactor.blockhound.BlockingOperationError;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -35,12 +36,12 @@ class ReactiveChainBlockHoundTest {
     }
 
     @Test
-    void blockHoundIsActive() {
-        StepVerifier.create(Mono.delay(Duration.ofMillis(10)).map(t -> {
-                    try { Thread.sleep(1); } catch (InterruptedException e) { throw new RuntimeException(e); }
-                    return t;
-                }))
-                .expectErrorMatches(e -> e instanceof Error && e.getMessage().contains("Blocking call"))
+    void blockHoundDetectsSleepOnParallelScheduler() {
+        StepVerifier.create(Mono.fromCallable(() -> {
+                    Thread.sleep(1);
+                    return "unreachable";
+                }).subscribeOn(Schedulers.parallel()))
+                .expectError(BlockingOperationError.class)
                 .verify(Duration.ofSeconds(5));
     }
 
