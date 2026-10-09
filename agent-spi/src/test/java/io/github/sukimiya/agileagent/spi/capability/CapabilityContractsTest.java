@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.spi.capability;
 
 import static org.assertj.core.api.Assertions.*;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -11,6 +12,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
@@ -54,6 +56,92 @@ class CapabilityContractsTest {
         ((ObjectNode) invocation.arguments()).put("query", "changed again");
 
         assertThat(invocation.arguments().path("query").asText()).isEqualTo("approved");
+    }
+
+    @Test
+    void toolSchemaSnapshotsNestedBinaryPayloads() throws Exception {
+        byte[] payload = {1, 2, 3};
+        var schema = mapper.createObjectNode();
+        schema.putArray("values").addObject().put("payload", payload);
+        var definition = new ToolDefinition("read", "Read documents", schema);
+
+        payload[0] = 9;
+        assertThat(definition.parametersSchema().path("values").get(0).path("payload").binaryValue())
+                .containsExactly((byte) 1, (byte) 2, (byte) 3);
+        definition.parametersSchema().path("values").get(0).path("payload").binaryValue()[1] = 8;
+        assertThat(definition.parametersSchema().path("values").get(0).path("payload").binaryValue())
+                .containsExactly((byte) 1, (byte) 2, (byte) 3);
+    }
+
+    @Test
+    void invocationArgumentsSnapshotNestedBinaryPayloads() throws Exception {
+        byte[] payload = {1, 2, 3};
+        var arguments = mapper.createObjectNode();
+        arguments.putArray("values").addObject().put("payload", payload);
+        var invocation = new ToolInvocation("read", "call-1", arguments);
+
+        payload[0] = 9;
+        assertThat(invocation.arguments().path("values").get(0).path("payload").binaryValue())
+                .containsExactly((byte) 1, (byte) 2, (byte) 3);
+        invocation.arguments().path("values").get(0).path("payload").binaryValue()[1] = 8;
+        assertThat(invocation.arguments().path("values").get(0).path("payload").binaryValue())
+                .containsExactly((byte) 1, (byte) 2, (byte) 3);
+    }
+
+    @Test
+    void toolSchemaSnapshotsNestedPojoPayloads() {
+        var payload = new ArrayList<>(List.of("approved"));
+        var schema = mapper.createObjectNode();
+        schema.putArray("values").addObject().putPOJO("payload", payload);
+        var definition = new ToolDefinition("read", "Read documents", schema);
+
+        payload.clear();
+        assertThat(definition.parametersSchema().path("values").get(0).path("payload").path(0).asText())
+                .isEqualTo("approved");
+        ((ArrayNode) definition.parametersSchema().path("values").get(0).path("payload")).removeAll();
+        assertThat(definition.parametersSchema().path("values").get(0).path("payload").path(0).asText())
+                .isEqualTo("approved");
+    }
+
+    @Test
+    void invocationArgumentsSnapshotNestedPojoPayloads() {
+        var payload = new ArrayList<>(List.of("approved"));
+        var arguments = mapper.createObjectNode();
+        arguments.putArray("values").addObject().putPOJO("payload", payload);
+        var invocation = new ToolInvocation("read", "call-1", arguments);
+
+        payload.clear();
+        assertThat(invocation.arguments().path("values").get(0).path("payload").path(0).asText())
+                .isEqualTo("approved");
+        ((ArrayNode) invocation.arguments().path("values").get(0).path("payload")).removeAll();
+        assertThat(invocation.arguments().path("values").get(0).path("payload").path(0).asText())
+                .isEqualTo("approved");
+    }
+
+    @Test
+    void jsonSnapshotsPreserveDecimalPrecision() {
+        var value = new BigDecimal("0.12345678901234567890123456789");
+        var payload = mapper.createObjectNode().put("value", value);
+
+        assertThat(new ToolDefinition("read", "Read documents", payload)
+                .parametersSchema().path("value").decimalValue())
+                .isEqualByComparingTo("0.12345678901234567890123456789");
+        assertThat(new ToolInvocation("read", "call-1", payload).arguments().path("value").decimalValue())
+                .isEqualByComparingTo("0.12345678901234567890123456789");
+    }
+
+    @Test
+    void rejectsUnserializablePojoPayloadsWithoutExposingTheirExceptions() {
+        var payload = mapper.createObjectNode().putPOJO("payload", new Object() {
+            public String getValue() {
+                throw new IllegalStateException("payload-secret");
+            }
+        });
+
+        assertThatThrownBy(() -> new ToolDefinition("read", "Read documents", payload))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("payload-secret").hasNoCause();
+        assertThatThrownBy(() -> new ToolInvocation("read", "call-1", payload))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("payload-secret").hasNoCause();
     }
 
     @Test

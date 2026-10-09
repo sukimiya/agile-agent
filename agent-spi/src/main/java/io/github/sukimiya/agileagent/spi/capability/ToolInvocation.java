@@ -1,10 +1,8 @@
 package io.github.sukimiya.agileagent.spi.capability;
 
-import java.util.Objects;
-
 import com.fasterxml.jackson.databind.JsonNode;
 
-/** A tool call and an argument snapshot isolated from caller mutations. */
+/** A tool call and a normalized JSON argument snapshot isolated from caller mutations. */
 public record ToolInvocation(String toolName, String callId, JsonNode arguments) {
 
     public ToolInvocation {
@@ -14,7 +12,7 @@ public record ToolInvocation(String toolName, String callId, JsonNode arguments)
         if (callId == null || callId.isBlank()) {
             throw new IllegalArgumentException("callId must not be blank");
         }
-        arguments = Objects.requireNonNull(arguments, "arguments must not be null").deepCopy();
+        arguments = JsonSnapshots.copyOf(arguments, "arguments");
     }
 
     @Override
