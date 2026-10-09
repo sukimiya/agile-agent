@@ -1,4 +1,4 @@
-package com.jowo.agent.service;
+package io.github.sukimiya.agileagent.service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -6,35 +6,44 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jowo.agent.config.DeepSeekProperties;
+import com.jowo.agent.service.LlmClient;
+import io.github.sukimiya.agileagent.config.DefaultLlmProperties;
 
 import reactor.core.publisher.Flux;
 
 @Component
-public class DeepSeekLlmClient implements LlmClient {
+public class OpenAiCompatibleLlmClient implements LlmClient {
 
-    private final DeepSeekProperties props;
+    private final String model;
     private final WebClient web;
 
-    public DeepSeekLlmClient(DeepSeekProperties props, WebClient.Builder webBuilder) {
-        this.props = props;
+    @Autowired
+    public OpenAiCompatibleLlmClient(DefaultLlmProperties props, WebClient.Builder webBuilder) {
+        this(props.baseUrl(), props.apiKey(), props.model(), webBuilder);
+    }
+
+    public OpenAiCompatibleLlmClient(String baseUrl, String apiKey, String model, WebClient.Builder webBuilder) {
+        this.model = model;
         this.web = webBuilder
-                .baseUrl(props.baseUrl())
-                .defaultHeader("Authorization", "Bearer " + props.apiKey())
+                .baseUrl(baseUrl)
+                .defaultHeader("Authorization", "Bearer " + apiKey)
                 .build();
     }
 
     static Map<String, Object> buildRequestBody(String model, List<Message> messages, List<ToolDefinition> tools) {
         var body = new LinkedHashMap<String, Object>();
         body.put("model", model);
-        body.put("messages", messages.stream().map(DeepSeekLlmClient::toWireMessage).toList());
-        body.put("tools", tools.stream().map(DeepSeekLlmClient::toWireTool).toList());
-        body.put("tool_choice", "auto");
+        body.put("messages", messages.stream().map(OpenAiCompatibleLlmClient::toWireMessage).toList());
+        if (!tools.isEmpty()) {
+            body.put("tools", tools.stream().map(OpenAiCompatibleLlmClient::toWireTool).toList());
+            body.put("tool_choice", "auto");
+        }
         return body;
     }
 
@@ -66,7 +75,7 @@ public class DeepSeekLlmClient implements LlmClient {
 
     @Override
     public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools) {
-        var body = buildRequestBody(props.model(), messages, tools);
+        var body = buildRequestBody(model, messages, tools);
         body.put("stream", true);
         return Flux.defer(() -> {
             var aggregator = new StreamAggregator();
@@ -75,13 +84,13 @@ public class DeepSeekLlmClient implements LlmClient {
                     .bodyValue(body)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, resp ->
-                            resp.bodyToMono(String.class).defaultIfEmpty("")
-                                .map(b -> new LlmException("DeepSeek error: " + b, resp.statusCode().value())))
+                            resp.releaseBody().thenReturn(new LlmException(
+                                    "LLM error: HTTP " + resp.statusCode().value(), resp.statusCode().value())))
                     .bodyToFlux(String.class)
                     .takeWhile(data -> !"[DONE]".equals(data.trim()))
                     .concatMap(data -> Flux.fromIterable(aggregator.onChunk(parseChunk(data))))
                     .onErrorMap(e -> !(e instanceof LlmException),
-                            e -> new LlmException("DeepSeek unreachable: " + e.getMessage(), 502));
+                            e -> new LlmException("LLM unreachable", 502));
         });
     }
 
@@ -89,7 +98,7 @@ public class DeepSeekLlmClient implements LlmClient {
         try {
             return new ObjectMapper().readTree(data);
         } catch (Exception e) {
-            throw new LlmException("DeepSeek stream parse error: " + e.getMessage(), 502);
+            throw new LlmException("LLM error: invalid streaming response", 502);
         }
     }
 

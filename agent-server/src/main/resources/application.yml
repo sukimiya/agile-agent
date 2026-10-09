@@ -17,10 +17,11 @@ spring:
 server:
   port: 8088
 
-deepseek:
-  base-url: https://api.deepseek.com
-  api-key: ${DEEPSEEK_API_KEY:}
-  model: deepseek-chat
+llm:
+  default:
+    base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:gpt-4o-mini}
 
 enterprise-api:
   services:
