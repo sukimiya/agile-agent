@@ -77,7 +77,9 @@ agile-agent/
 | Spring application name | `agile-agent-server` |
 | Docker service/container | `agile-agent-server` |
 
-源码、测试、配置、脚本、Docker、Jenkins 和文档中不得再出现 `com.jowo` 或 `l7-skill`。
+源码、测试、脚本、Docker、Jenkins 和面向用户的文档中不得再出现 `com.jowo` 或
+`l7-skill`。为保证已部署数据库能继续识别 V1/V2，配置中唯一允许保留的旧标识是 Flyway
+history table 名 `l7_skill_flyway_schema_history`；迁移文档必须解释该兼容例外。
 
 ## 6. Capability SPI
 
@@ -129,7 +131,7 @@ access token 不属于 `IdentityContext`，不得写入日志、异常消息或�
 `agent-server` 收集 Spring 容器中的 `AgentCapabilityProvider` Bean。启动时：
 
 - capability code 为空或重复时启动失败；
-- 同一 capability 内工具名重复时启动失败；
+- 每次解析动态 `CapabilityDefinition` 时校验工具名，重复时在进入 LLM 调用前失败；
 - 路由器只依赖 Provider 的通用描述；
 - Domain Agent 只调用选定 Provider 的 `definition` 和 `execute`；
 - Provider 抛出的内部异常被转换为不泄漏凭证的稳定失败事件。
@@ -437,5 +439,6 @@ JDK 25 而报 instrumentation error。实施时必须升级兼容依赖或调整
 4. 两个租户使用不同模型配置，互相无法读取、修改或使用对方配置。
 5. 知识库三种范围的列表、下载、审批和聊天读取均无越权。
 6. 外部测试 Provider 可只依赖 `agent-spi` 注册并完成一次工具调用。
-7. 版本控制中的产品源码、资源和部署配置不再包含内部业务系统或旧品牌命名。
+7. 版本控制中的产品源码、资源和部署配置不再包含内部业务系统或旧品牌命名，唯一例外是为
+   已部署数据库保留的 Flyway history table 名 `l7_skill_flyway_schema_history`。
 8. README 包含本地开发、生产 IdP 替换、数据库升级和 capability adapter 文档。
