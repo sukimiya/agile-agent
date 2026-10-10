@@ -73,8 +73,11 @@ class AgentLoggingTest {
         var knowledgeRepository = mock(io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.class);
         when(knowledgeRepository.findApprovedArtifactPointers()).thenReturn(Flux.just(
                 new io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.ApprovedArtifactPointer(
-                        knowledgeId, "reviewer-1", 1L)));
-        var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps, knowledgeRepository);
+                        knowledgeId, "reviewer-1", 1L,
+                        io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.ScopeType.GLOBAL,
+                        null, null)));
+        var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps, knowledgeRepository,
+                new io.github.sukimiya.agileagent.knowledge.KnowledgeAccessPolicy());
 
         ChatMemory memory = mock(ChatMemory.class);
         when(memory.get(any())).thenReturn(Mono.just(List.of()));

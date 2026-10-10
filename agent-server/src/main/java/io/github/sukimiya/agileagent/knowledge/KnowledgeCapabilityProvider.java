@@ -59,7 +59,7 @@ public class KnowledgeCapabilityProvider implements AgentCapabilityProvider {
 
     @Override
     public Mono<CapabilityDefinition> definition(AgentExecutionContext context) {
-        return catalog.compactIndex().map(index -> {
+        return catalog.compactIndex(context.identity()).map(index -> {
             return new CapabilityDefinition(PROMPT_TEMPLATE.formatted(index), List.of(readTool(index)));
         });
     }
@@ -84,7 +84,7 @@ public class KnowledgeCapabilityProvider implements AgentCapabilityProvider {
             return Mono.just(new ToolResult(false, "unknown tool: " + invocation.toolName()));
         }
         String id = invocation.arguments().path("id").asText();
-        return catalog.content(id)
+        return catalog.content(id, context.identity())
                 .defaultIfEmpty("")
                 .doOnNext(content -> log.info("readKnowledgeDoc id={} found={} chars={}", id,
                         !content.isEmpty(), content.length()))

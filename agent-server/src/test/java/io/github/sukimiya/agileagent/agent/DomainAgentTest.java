@@ -51,9 +51,9 @@ class DomainAgentTest {
     void knowledgeToolReadsDocumentThenCompletes() {
         LlmClient llm = mock(LlmClient.class);
         KnowledgeCatalog catalog = mock(KnowledgeCatalog.class);
-        when(catalog.compactIndex()).thenReturn(reactor.core.publisher.Mono.just(
+        when(catalog.compactIndex(any())).thenReturn(reactor.core.publisher.Mono.just(
                 "doc-1 | Stage API | stage 对象用法\n"));
-        when(catalog.content("doc-1")).thenReturn(Mono.just("# Stage API\nstage.set(key, value)"));
+        when(catalog.content(eq("doc-1"), any())).thenReturn(Mono.just("# Stage API\nstage.set(key, value)"));
         var toolCall = new LlmClient.ToolCall("call_1", "readKnowledgeDoc", "{\"id\":\"doc-1\"}");
         when(llm.chatStream(any(), any()))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Usage(2, 1, 3),
@@ -67,7 +67,7 @@ class DomainAgentTest {
         assertThat(events).contains(new AgentEvent.Finished("KNOWLEDGE", "stage.set 用于设置变量"));
         assertThat(events).filteredOn(AgentEvent.Usage.class::isInstance).containsExactly(
                 new AgentEvent.Usage("KNOWLEDGE", 2, 1, 3), new AgentEvent.Usage("KNOWLEDGE", 5, 4, 9));
-        verify(catalog).content("doc-1");
+        verify(catalog).content(eq("doc-1"), any());
     }
 
     @Test

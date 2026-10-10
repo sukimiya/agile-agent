@@ -7,13 +7,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.ApprovedArtifactPointer;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -26,43 +26,44 @@ public class KnowledgeCatalog {
     private final KnowledgeProperties props;
     private final KnowledgeDocumentRepository repository;
     private final ObjectMapper json = new ObjectMapper();
-    private final AtomicReference<List<KnowledgeEntry>> entries = new AtomicReference<>(List.of());
+    private final KnowledgeAccessPolicy accessPolicy;
 
-    public KnowledgeCatalog(KnowledgeProperties props, KnowledgeDocumentRepository repository) {
+    public KnowledgeCatalog(KnowledgeProperties props, KnowledgeDocumentRepository repository,
+            KnowledgeAccessPolicy accessPolicy) {
         this.props = props;
         this.repository = repository;
+        this.accessPolicy = accessPolicy;
     }
 
     public void reload() {
-        entries.set(loadAll());
+        repository.findApprovedArtifactPointers().then().block();
     }
 
-    private List<KnowledgeEntry> loadAll() {
-        return approvedEntries().blockOptional().orElse(List.of());
-    }
-
-    private Mono<List<KnowledgeEntry>> approvedEntries() {
+    private Mono<List<KnowledgeEntry>> approvedEntries(IdentityContext identity) {
         return repository.findApprovedArtifactPointers().collectList()
                 .publishOn(Schedulers.boundedElastic())
-                .map(this::loadApprovedArtifacts);
+                .map(pointers -> loadApprovedArtifacts(pointers, identity));
     }
 
-    private List<KnowledgeEntry> loadApprovedArtifacts(List<ApprovedArtifactPointer> pointers) {
+    private List<KnowledgeEntry> loadApprovedArtifacts(List<ApprovedArtifactPointer> pointers,
+            IdentityContext identity) {
         var libDir = Path.of(props.getLibDir()).toAbsolutePath().normalize();
         if (!Files.isDirectory(libDir)) {
             return List.of();
         }
         var result = new ArrayList<KnowledgeEntry>();
         for (var pointer : pointers) {
-            var metaFile = KnowledgeFileStorage.approvedArtifactPath(
-                    libDir, pointer.id(), pointer.owner(), pointer.version(), ".meta.json");
-            var markdownFile = KnowledgeFileStorage.approvedArtifactPath(
-                    libDir, pointer.id(), pointer.owner(), pointer.version(), ".md");
-            if (!Files.isRegularFile(metaFile) || Files.isSymbolicLink(metaFile)
-                    || !Files.isRegularFile(markdownFile) || Files.isSymbolicLink(markdownFile)) {
+            if (!accessPolicy.canConsume(identity, pointer.accessRow())) {
                 continue;
             }
-            result.add(parseEntry(pointer.id(), pointer.owner(), pointer.version(), metaFile));
+            try {
+                var artifact = readApprovedArtifact(pointer);
+                if (artifact != null) {
+                    result.add(artifact.entry());
+                }
+            } catch (IOException ignored) {
+                // An unreadable artifact is not advertised in the compact index.
+            }
         }
         return List.copyOf(result);
     }
@@ -77,18 +78,36 @@ public class KnowledgeCatalog {
         }
     }
 
-    public Mono<String> compactIndex() {
-        return approvedEntries().doOnNext(entries::set).map(KnowledgeCatalog::formatIndex);
+    public Mono<String> compactIndex(IdentityContext identity) {
+        return approvedEntries(identity).map(KnowledgeCatalog::formatIndex);
     }
 
-    public Mono<String> content(String id) {
+    public Mono<String> content(String id, IdentityContext identity) {
         return repository.findApprovedArtifactPointers()
                 .filter(pointer -> pointer.id().equals(id))
+                .filter(pointer -> accessPolicy.canConsume(identity, pointer.accessRow()))
                 .next()
                 .publishOn(Schedulers.boundedElastic())
-                .flatMap(pointer -> Mono.fromCallable(() -> readContent(pointer))
-                        .onErrorResume(error -> Mono.just("")))
+                .flatMap(pointer -> Mono.fromCallable(() -> readApprovedArtifact(pointer))
+                        .onErrorResume(error -> Mono.empty()))
+                .map(artifact -> artifact == null ? "" : artifact.content())
                 .defaultIfEmpty("");
+    }
+
+    private ApprovedArtifact readApprovedArtifact(ApprovedArtifactPointer pointer) throws IOException {
+        Path libDir = Path.of(props.getLibDir()).toAbsolutePath().normalize();
+        var metaFile = KnowledgeFileStorage.approvedArtifactPath(
+                libDir, pointer.id(), pointer.owner(), pointer.version(), ".meta.json");
+        var markdownFile = KnowledgeFileStorage.approvedArtifactPath(
+                libDir, pointer.id(), pointer.owner(), pointer.version(), ".md");
+        if (!Files.isRegularFile(metaFile, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(metaFile)
+                || !Files.isRegularFile(markdownFile, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(markdownFile)) {
+            return null;
+        }
+        var entry = parseEntry(pointer.id(), pointer.owner(), pointer.version(), metaFile);
+        var content = readContent(pointer);
+        return content.isEmpty() ? null : new ApprovedArtifact(entry, content);
     }
 
     private String readContent(ApprovedArtifactPointer pointer) throws IOException {
@@ -110,4 +129,6 @@ public class KnowledgeCatalog {
         }
         return sb.toString();
     }
+
+    private record ApprovedArtifact(KnowledgeEntry entry, String content) {}
 }

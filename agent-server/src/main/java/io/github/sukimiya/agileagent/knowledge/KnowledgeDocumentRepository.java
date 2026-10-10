@@ -81,14 +81,16 @@ public class KnowledgeDocumentRepository {
     /** Current, durable filesystem pointer for catalog publication. */
     public Flux<ApprovedArtifactPointer> findApprovedArtifactPointers() {
         return db.sql("""
-                SELECT id, approval_owner, approval_version
+                SELECT id, approval_owner, approval_version, scope_type, tenant_id, org_id
                 FROM knowledge_documents
                 WHERE status = 'APPROVED' AND approval_owner IS NOT NULL
                 ORDER BY uploaded_at DESC
                 """)
                 .map((row, metadata) -> new ApprovedArtifactPointer(
                         row.get("id", String.class), row.get("approval_owner", String.class),
-                        row.get("approval_version", Long.class)))
+                        row.get("approval_version", Long.class),
+                        KnowledgeDocumentRow.ScopeType.valueOf(row.get("scope_type", String.class)),
+                        row.get("tenant_id", String.class), row.get("org_id", String.class)))
                 .all();
     }
 
@@ -282,5 +284,12 @@ public class KnowledgeDocumentRepository {
         public enum ScopeType { GLOBAL, TENANT, ORG }
     }
 
-    public record ApprovedArtifactPointer(String id, String owner, long version) {}
+    public record ApprovedArtifactPointer(String id, String owner, long version,
+                                          KnowledgeDocumentRow.ScopeType scopeType,
+                                          String tenantId, String orgId) {
+        KnowledgeDocumentRow accessRow() {
+            return new KnowledgeDocumentRow(id, null, null, null, KnowledgeDocumentRow.Status.APPROVED,
+                    null, null, null, null, null, scopeType, tenantId, null, orgId, null);
+        }
+    }
 }

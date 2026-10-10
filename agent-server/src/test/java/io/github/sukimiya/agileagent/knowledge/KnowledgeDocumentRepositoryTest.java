@@ -157,7 +157,8 @@ class KnowledgeDocumentRepositoryTest {
         assertThat(row.reviewedByUserId()).isEqualTo("admin-1");
         assertThat(row.reviewedAt()).isNotNull();
         assertThat(repository.findApprovedArtifactPointers().collectList().block())
-                .containsExactly(new KnowledgeDocumentRepository.ApprovedArtifactPointer("k1", "admin-1", version));
+                .containsExactly(new KnowledgeDocumentRepository.ApprovedArtifactPointer(
+                        "k1", "admin-1", version, ScopeType.GLOBAL, null, null));
     }
 
     @Test
@@ -355,7 +356,7 @@ class KnowledgeDocumentRepositoryTest {
 
         assertThat(repository.findApprovedArtifactPointers().collectList().block())
                 .containsExactly(new KnowledgeDocumentRepository.ApprovedArtifactPointer(
-                        "stale-version", "same-reviewer", 2L));
+                        "stale-version", "same-reviewer", 2L, ScopeType.GLOBAL, null, null));
         assertThat(repository.recoverPendingApprovalClaim("stale-version", "same-reviewer", 1L, "old").block())
                 .isZero();
         assertThat(repository.findById("stale-version").block().status()).isEqualTo(Status.APPROVED);
