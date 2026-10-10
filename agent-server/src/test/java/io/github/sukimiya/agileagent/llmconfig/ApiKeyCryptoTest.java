@@ -76,7 +76,7 @@ class ApiKeyCryptoTest {
     }
 
     @Test
-    void wrongKeyAndTamperedCiphertextFailWithoutEchoingSecrets() {
+    void wrongKeyFailsWithoutEchoingSecrets() {
         String plaintext = "sk-super-secret-value";
         ApiKeyCrypto writer = new ApiKeyCrypto(VALID_SECRET);
         String ciphertext = writer.encrypt(plaintext);
@@ -90,6 +90,24 @@ class ApiKeyCryptoTest {
                 .hasNoCause()
                 .hasMessageNotContaining(plaintext)
                 .hasMessageNotContaining(ciphertext);
+    }
+
+    @Test
+    void tamperedTagFailsWithoutEchoingPlaintextOrCiphertext() {
+        String plaintext = "sk-tamper-secret-value";
+        ApiKeyCrypto crypto = new ApiKeyCrypto(VALID_SECRET);
+        String ciphertext = crypto.encrypt(plaintext);
+        byte[] payload = Base64.getDecoder().decode(ciphertext);
+        payload[payload.length - 1] ^= 1;
+        String tamperedCiphertext = Base64.getEncoder().encodeToString(payload);
+
+        assertThatThrownBy(() -> crypto.decrypt(tamperedCiphertext))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Encrypted API key payload is invalid")
+                .hasNoCause()
+                .hasMessageNotContaining(plaintext)
+                .hasMessageNotContaining(ciphertext)
+                .hasMessageNotContaining(tamperedCiphertext);
     }
 
     @Test
