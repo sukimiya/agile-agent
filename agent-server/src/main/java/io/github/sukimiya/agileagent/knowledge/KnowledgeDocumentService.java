@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.knowledge;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -217,7 +218,9 @@ public class KnowledgeDocumentService {
                                 log.warn("knowledge approval compensation could not be confirmed for {}", existing.id());
                                 return Mono.empty();
                             })
-                            .then(Mono.error(sanitizeWorkflowFailure(error)));
+                            .then(Mono.defer(() -> attempt.terminal.get()
+                                    ? Mono.just(attempt.committedRow.get())
+                                    : Mono.error(sanitizeWorkflowFailure(error))));
                 })
                 .doFinally(signal -> attempt.workflowFinished());
 
@@ -233,18 +236,20 @@ public class KnowledgeDocumentService {
         var metadata = new KnowledgeFileStorage.LibraryMetadata(existing.title(), summary, reviewer, reviewedAt,
                 existing.scopeType(), existing.tenantId(), existing.tenantName(),
                 existing.orgId(), existing.orgName());
+        KnowledgeDocumentRow approved = approvedSnapshot(existing, summary, reviewer, reviewedAt);
+        attempt.expectApproval(approved);
         return trackedStorage(attempt, storage.promoteToLib(existing.id(), reviewer, version, metadata))
                 .then(Mono.defer(() -> trackedPersistence(attempt, repository.approveClaimedPending(
                         existing.id(), reviewer, version, properties.getApprovalClaimLease(),
                         summary, reviewer, reviewedAt)).defaultIfEmpty(0L)))
                 .flatMap(updated -> {
                     if (updated == 0) return Mono.error(new WorkflowConflictException());
-                    attempt.approvalPersisted(approvedSnapshot(existing, summary, reviewer, reviewedAt));
+                    attempt.approvalPersisted(approved);
                     return repository.findById(existing.id())
-                            .filter(row -> row.status() == Status.APPROVED)
+                            .filter(approvedRow -> approvedRow.status() == Status.APPROVED)
                             .defaultIfEmpty(attempt.committedRow.get());
                 })
-                .flatMap(approved -> {
+                .flatMap(approvedResult -> {
                     var reload = trackedStorage(attempt, reloadCatalog())
                             .onErrorResume(error -> {
                                 log.warn("knowledge catalog reload deferred after approval for {}", existing.id());
@@ -261,7 +266,7 @@ public class KnowledgeDocumentService {
                                 log.warn("knowledge post-commit work timed out for {}", existing.id());
                                 return Mono.empty();
                             })
-                            .thenReturn(approved);
+                            .thenReturn(approvedResult);
                 });
     }
 
@@ -285,13 +290,21 @@ public class KnowledgeDocumentService {
                                 .then(releaseClaimWithRetry(existing.id(), owner, version));
                     }
                     return repository.statusForApprovalClaim(existing.id(), owner, version)
-                            .hasElement()
-                            .flatMap(stillOwnsClaim -> stillOwnsClaim
-                                    ? Mono.empty()
-                                    : trackedCompensationStorage(attempt,
-                                            storage.deleteLibraryArtifacts(existing.id(), owner, version))
+                            .map(Optional::of)
+                            .defaultIfEmpty(Optional.empty())
+                            .flatMap(observedStatus -> {
+                                if (observedStatus.isEmpty()) {
+                                    return trackedCompensationStorage(attempt,
+                                                    storage.deleteLibraryArtifacts(existing.id(), owner, version))
                                             .then(Mono.defer(() -> trackedCompensationStorage(attempt, reloadCatalog())
-                                                    .onErrorResume(error -> Mono.empty()))));
+                                                    .onErrorResume(error -> Mono.empty())));
+                                }
+                                if (observedStatus.get() == Status.APPROVED
+                                        && attempt.expectedApprovedRow.get() != null) {
+                                    attempt.approvalPersisted(attempt.expectedApprovedRow.get());
+                                }
+                                return Mono.empty();
+                            });
                 });
     }
 
@@ -406,6 +419,7 @@ public class KnowledgeDocumentService {
         private final AtomicReference<Mono<Long>> persistenceOperation = new AtomicReference<>();
         private final AtomicReference<Throwable> leaseFailure = new AtomicReference<>();
         private final AtomicReference<KnowledgeDocumentRow> committedRow = new AtomicReference<>();
+        private final AtomicReference<KnowledgeDocumentRow> expectedApprovedRow = new AtomicReference<>();
         private final AtomicReference<Disposable> leaseRenewal = new AtomicReference<>();
         private final AtomicInteger inFlightSideEffects = new AtomicInteger();
         private final AtomicBoolean workflowFinished = new AtomicBoolean();
@@ -467,6 +481,10 @@ public class KnowledgeDocumentService {
         private void approvalPersisted(KnowledgeDocumentRow approved) {
             committedRow.set(approved);
             approvalPersisted();
+        }
+
+        private void expectApproval(KnowledgeDocumentRow approved) {
+            expectedApprovedRow.set(approved);
         }
 
         private void stopRenewalIfIdle() {

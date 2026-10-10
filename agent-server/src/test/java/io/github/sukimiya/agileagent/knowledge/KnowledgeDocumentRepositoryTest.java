@@ -184,11 +184,8 @@ class KnowledgeDocumentRepositoryTest {
 
     @Test
     void recoverPendingApprovalClaimRestoresPendingStateAndOriginalSummary() {
-        var reviewedAt = LocalDateTime.of(2026, 10, 10, 12, 30, 15, 123_456_000);
         repository.insert(newRow("k1", Status.PENDING)).block();
         var version = repository.claimPendingApproval("k1", "admin-1", CLAIM_LEASE).block();
-        repository.approveClaimedPending("k1", "admin-1", version, CLAIM_LEASE,
-                "override", "admin-1", reviewedAt).block();
 
         var reverted = repository.recoverPendingApprovalClaim("k1", "admin-1", version, "摘要").block();
 
@@ -279,13 +276,12 @@ class KnowledgeDocumentRepositoryTest {
         assertThat(repository.recoverPendingApprovalClaim("claim", "reviewer-b", 1L,
                 "original summary").block()).isZero();
         assertThat(repository.recoverPendingApprovalClaim("claim", "reviewer-a", 1L,
-                "original summary").block())
-                .isEqualTo(1L);
+                "original summary").block()).isZero();
 
-        assertThat(repository.findById("claim").block().status()).isEqualTo(Status.PENDING);
+        assertThat(repository.findById("claim").block().status()).isEqualTo(Status.APPROVED);
         assertThat(repository.releasePendingApprovalClaim("claim", "reviewer-b", 1L).block()).isZero();
-        assertThat(repository.releasePendingApprovalClaim("claim", "reviewer-a", 1L).block()).isEqualTo(1L);
-        assertThat(repository.claimPendingApproval("claim", "reviewer-a", CLAIM_LEASE).block()).isEqualTo(2L);
+        assertThat(repository.releasePendingApprovalClaim("claim", "reviewer-a", 1L).block()).isZero();
+        assertThat(repository.claimPendingApproval("claim", "reviewer-a", CLAIM_LEASE).block()).isZero();
     }
 
     @Test

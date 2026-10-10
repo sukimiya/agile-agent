@@ -187,7 +187,7 @@ public class KnowledgeDocumentRepository {
                     summary = :summary,
                     reviewed_by_user_id = NULL, reviewed_at = NULL
                 WHERE id = :id AND approval_owner = :owner AND approval_version = :version
-                  AND status IN ('PENDING', 'APPROVED')
+                  AND status = 'PENDING'
                 """)
                 .bind("summary", originalSummary == null ? "" : originalSummary)
                 .bind("id", id)
