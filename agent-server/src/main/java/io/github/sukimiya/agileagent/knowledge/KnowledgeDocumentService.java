@@ -206,6 +206,11 @@ public class KnowledgeDocumentService {
                     if (!attempt.claimed.get()) {
                         return Mono.error(sanitizeWorkflowFailure(error));
                     }
+                    if (attempt.terminal.get()) {
+                        log.warn("knowledge approval committed but post-commit work did not finish for {}",
+                                existing.id());
+                        return Mono.just(attempt.committedRow.get());
+                    }
                     return compensateOwnedAttempt(existing, attempt).cache()
                             .timeout(properties.getApprovalCompensationTimeout())
                             .onErrorResume(compensationError -> {
@@ -234,16 +239,28 @@ public class KnowledgeDocumentService {
                         summary, reviewer, reviewedAt)).defaultIfEmpty(0L)))
                 .flatMap(updated -> {
                     if (updated == 0) return Mono.error(new WorkflowConflictException());
-                    attempt.approvalPersisted();
+                    attempt.approvalPersisted(approvedSnapshot(existing, summary, reviewer, reviewedAt));
                     return repository.findById(existing.id())
-                            .defaultIfEmpty(approvedSnapshot(existing, summary, reviewer, reviewedAt));
+                            .filter(row -> row.status() == Status.APPROVED)
+                            .defaultIfEmpty(attempt.committedRow.get());
                 })
                 .flatMap(approved -> {
-                    if (approved.status() != Status.APPROVED) {
-                        return Mono.error(new WorkflowConflictException());
-                    }
-                    return trackedStorage(attempt, reloadCatalog())
-                            .then(Mono.defer(() -> cleanupTemp(existing.id())))
+                    var reload = trackedStorage(attempt, reloadCatalog())
+                            .onErrorResume(error -> {
+                                log.warn("knowledge catalog reload deferred after approval for {}", existing.id());
+                                return Mono.empty();
+                            });
+                    var cleanup = trackedStorage(attempt, cleanupTemp(existing.id()))
+                            .onErrorResume(error -> {
+                                log.warn("knowledge temporary file cleanup deferred after approval for {}", existing.id());
+                                return Mono.empty();
+                            });
+                    return Mono.whenDelayError(reload, cleanup)
+                            .timeout(properties.getApprovalWorkflowTimeout())
+                            .onErrorResume(error -> {
+                                log.warn("knowledge post-commit work timed out for {}", existing.id());
+                                return Mono.empty();
+                            })
                             .thenReturn(approved);
                 });
     }
@@ -388,6 +405,7 @@ public class KnowledgeDocumentService {
         private final AtomicReference<Mono<Void>> storageOperation = new AtomicReference<>();
         private final AtomicReference<Mono<Long>> persistenceOperation = new AtomicReference<>();
         private final AtomicReference<Throwable> leaseFailure = new AtomicReference<>();
+        private final AtomicReference<KnowledgeDocumentRow> committedRow = new AtomicReference<>();
         private final AtomicReference<Disposable> leaseRenewal = new AtomicReference<>();
         private final AtomicInteger inFlightSideEffects = new AtomicInteger();
         private final AtomicBoolean workflowFinished = new AtomicBoolean();
@@ -444,6 +462,11 @@ public class KnowledgeDocumentService {
             terminal.set(true);
             leaseFailure.set(null);
             stopLeaseRenewal();
+        }
+
+        private void approvalPersisted(KnowledgeDocumentRow approved) {
+            committedRow.set(approved);
+            approvalPersisted();
         }
 
         private void stopRenewalIfIdle() {

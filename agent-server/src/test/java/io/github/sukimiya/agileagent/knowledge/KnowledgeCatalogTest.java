@@ -137,6 +137,19 @@ class KnowledgeCatalogTest {
     }
 
     @Test
+    void compactIndexDoesNotExposeMetadataPathWhenApprovedMetadataIsMalformed(@TempDir Path libDir) throws Exception {
+        Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".md"), "content", StandardCharsets.UTF_8);
+        Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".meta.json"), "{bad json",
+                StandardCharsets.UTF_8);
+        var catalog = catalog(libDir, List.of(new ApprovedArtifactPointer(ID, OWNER, VERSION)));
+
+        assertThatThrownBy(() -> catalog.compactIndex().block()).satisfies(error -> {
+            assertThat(error.getMessage()).isEqualTo("failed to read approved knowledge metadata");
+            assertThat(error.getMessage()).doesNotContain(libDir.toString());
+        });
+    }
+
+    @Test
     void cachedApprovalCannotBeReadAfterDatabasePointerIsRemoved(@TempDir Path libDir) throws Exception {
         writeDoc(libDir, "Approved", "summary", "private content");
         var pointers = new AtomicReference<List<ApprovedArtifactPointer>>(

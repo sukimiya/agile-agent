@@ -1,7 +1,6 @@
 package io.github.sukimiya.agileagent.knowledge;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
 import java.nio.file.Files;
@@ -73,8 +72,8 @@ public class KnowledgeCatalog {
             var node = json.readTree(Files.readString(metaFile, StandardCharsets.UTF_8));
             return new KnowledgeEntry(id, node.path("title").asText(""),
                     node.path("summary").asText(""), owner, version);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + metaFile, e);
+        } catch (IOException | RuntimeException e) {
+            throw new IllegalStateException("failed to read approved knowledge metadata");
         }
     }
 

@@ -143,8 +143,8 @@ class KnowledgeDocumentServiceTest {
         order.verify(repository).approveClaimedPending(anyString(), anyString(), anyLong(), any(), eq(""),
                 eq("platform-admin"), any());
         order.verify(repository).findById(anyString());
-        order.verify(catalog).reload();
-        order.verify(storage).deleteTemp(anyString());
+        verify(catalog).reload();
+        verify(storage).deleteTemp(anyString());
     }
 
     @Test
@@ -685,14 +685,15 @@ class KnowledgeDocumentServiceTest {
                 eq("platform-admin"), any()))
                 .thenReturn(Mono.just(1L));
         when(storage.deleteLibraryArtifacts(eq("doc-1"), anyString(), anyLong())).thenReturn(Mono.empty());
+        when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
         doThrow(new UncheckedIOException("failed to list knowledge lib dir /private/configured/path",
                 new IOException("/private/configured/path"))).when(catalog).reload();
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
 
-        assertThatThrownBy(() -> service.approve("doc-1",
-                identity("platform-admin", null, null, true, false), null).block())
-                .hasMessage("knowledge approval workflow failed")
-                .hasNoCause();
+        assertThat(service.approve("doc-1", identity("platform-admin", null, null, true, false), null).block())
+                .isEqualTo(ActionResult.OK);
+        verify(repository, never()).recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString());
+        verify(storage, times(1)).deleteLibraryArtifacts("doc-1", "platform-admin", 1L);
     }
 
     @Test
@@ -808,8 +809,116 @@ class KnowledgeDocumentServiceTest {
         order.verify(repository).approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
                 eq("approved summary"), eq("platform-admin"), any());
         order.verify(repository).findById("doc-1");
-        order.verify(catalog).reload();
-        order.verify(storage).deleteTemp("doc-1");
+        verify(catalog).reload();
+        verify(storage).deleteTemp("doc-1");
+    }
+
+    @Test
+    void workflowTimeoutDuringPostCommitTempCleanupCannotRollbackApprovedGeneration() throws InterruptedException {
+        var repository = mock(KnowledgeDocumentRepository.class);
+        var storage = mock(KnowledgeFileStorage.class);
+        var catalog = mock(KnowledgeCatalog.class);
+        var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
+        var persistedStatus = new AtomicReference<>(Status.PENDING);
+        var libraryVisible = new AtomicBoolean();
+        var cleanupStarted = new CountDownLatch(1);
+        var releaseCleanup = new CountDownLatch(1);
+        claimSucceeds(repository);
+        when(repository.findById("doc-1")).thenAnswer(call -> Mono.just(persistedStatus.get() == Status.PENDING
+                ? pending : approved(pending, "approved summary")));
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenAnswer(call -> Mono.fromRunnable(() -> libraryVisible.set(false)));
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any()))
+                .thenAnswer(call -> Mono.fromRunnable(() -> libraryVisible.set(true)));
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
+                eq("approved summary"), eq("platform-admin"), any()))
+                .thenAnswer(call -> Mono.fromCallable(() -> {
+                    persistedStatus.set(Status.APPROVED);
+                    return 1L;
+                }));
+        when(storage.deleteTemp("doc-1")).thenReturn(Mono.<Void>create(sink -> {
+            cleanupStarted.countDown();
+            awaitLatch(releaseCleanup);
+            sink.success();
+        }).subscribeOn(Schedulers.boundedElastic()));
+        var properties = new KnowledgeProperties();
+        properties.setApprovalWorkflowTimeout(Duration.ofMillis(40));
+        var service = new KnowledgeDocumentService(repository, storage, mock(TenantLlmClientResolver.class), catalog,
+                new KnowledgeAccessPolicy(), properties);
+
+        var outcome = service.approve("doc-1", identity("platform-admin", null, null, true, false),
+                "approved summary").materialize().block(Duration.ofSeconds(2));
+        try {
+            assertThat(cleanupStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(outcome.isOnNext()).as("post-commit cleanup timeout must preserve the successful approval result")
+                    .isTrue();
+            assertThat(outcome.get()).isEqualTo(ActionResult.OK);
+            assertThat(persistedStatus.get()).isEqualTo(Status.APPROVED);
+            assertThat(libraryVisible.get()).isTrue();
+            verify(repository, never()).recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString());
+            verify(storage, times(1)).deleteLibraryArtifacts("doc-1", "platform-admin", 1L);
+        } finally {
+            releaseCleanup.countDown();
+        }
+    }
+
+    @Test
+    void claimRenewalFailureStopsApprovalBeforeCasAndCompensatesItsGeneration() throws InterruptedException {
+        var repository = mock(KnowledgeDocumentRepository.class);
+        var storage = mock(KnowledgeFileStorage.class);
+        var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
+        var libraryVisible = new AtomicBoolean();
+        var promotionStarted = new CountDownLatch(1);
+        var releasePromotion = new CountDownLatch(1);
+        var renewalAttempted = new CountDownLatch(1);
+        var completion = new CountDownLatch(1);
+        var workflowError = new AtomicReference<Throwable>();
+        var casExecuted = new AtomicBoolean();
+        var renewalResult = new AtomicReference<reactor.core.publisher.MonoSink<Long>>();
+        claimSucceeds(repository);
+        when(repository.findById("doc-1")).thenReturn(Mono.just(pending));
+        when(repository.renewPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), eq(1L), any()))
+                .thenReturn(Mono.<Long>create(sink -> {
+                    renewalResult.set(sink);
+                    renewalAttempted.countDown();
+                }));
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenAnswer(call -> Mono.fromRunnable(() -> libraryVisible.set(false)));
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any()))
+                .thenReturn(Mono.<Void>create(sink -> {
+                    promotionStarted.countDown();
+                    awaitLatch(releasePromotion);
+                    libraryVisible.set(true);
+                    sink.success();
+                }).subscribeOn(Schedulers.boundedElastic()));
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any())).thenAnswer(call -> Mono.fromCallable(() -> {
+                    casExecuted.set(true);
+                    return 1L;
+                }));
+        var properties = new KnowledgeProperties();
+        properties.setApprovalClaimRenewalInterval(Duration.ofMillis(10));
+        var service = new KnowledgeDocumentService(repository, storage, mock(TenantLlmClientResolver.class),
+                mock(KnowledgeCatalog.class), new KnowledgeAccessPolicy(), properties);
+
+        service.approve("doc-1", identity("platform-admin", null, null, true, false), null)
+                .doOnError(error -> workflowError.set(error))
+                .doFinally(signal -> completion.countDown())
+                .subscribe(ignored -> {}, error -> {});
+        try {
+            assertThat(promotionStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(renewalAttempted.await(2, TimeUnit.SECONDS)).isTrue();
+            renewalResult.get().success(0L);
+        } finally {
+            releasePromotion.countDown();
+        }
+        assertThat(completion.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(workflowError.get()).isInstanceOf(RuntimeException.class)
+                .hasMessage("knowledge approval workflow failed");
+
+        assertThat(casExecuted.get()).isFalse();
+        verify(repository).recoverPendingApprovalClaim("doc-1", "platform-admin", 1L, "uploader-summary");
+        assertThat(libraryVisible.get()).isFalse();
     }
 
     @Test
