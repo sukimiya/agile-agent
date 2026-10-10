@@ -27,7 +27,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@SpringBootTest(classes = MockOAuth2Application.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK,
+        properties = "mock.oauth2.enabled=true")
 @AutoConfigureWebTestClient
 @Import(OAuth2ControllerTest.TestClockConfiguration.class)
 class OAuth2ControllerTest {

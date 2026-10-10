@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.mockoauth;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/oauth2/authorize")
+@ConditionalOnProperty(name = "mock.oauth2.enabled", havingValue = "true")
 public final class LoginPageController {
     private final MockIdentityCatalog identities;
     private final AuthorizationRequestValidator validator;
@@ -54,6 +56,7 @@ record AuthorizationRequest(String responseType, String clientId, String redirec
 }
 
 @org.springframework.stereotype.Component
+@ConditionalOnProperty(name = "mock.oauth2.enabled", havingValue = "true")
 final class AuthorizationRequestValidator {
     private final String clientId;
     private final Set<String> redirectUris;

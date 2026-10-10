@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.mockoauth;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -24,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 
 @RestController
+@ConditionalOnProperty(name = "mock.oauth2.enabled", havingValue = "true")
 public final class OAuth2Controller {
     private static final MediaType JSON = MediaType.APPLICATION_JSON;
 

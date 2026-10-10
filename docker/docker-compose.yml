@@ -1,18 +1,107 @@
 services:
   agile-agent-server:
-    image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}
+    image: ${DOCKER_REGISTRY_URL:-local}/agile-agent-server:${IMAGE_TAG:-latest}
     container_name: agile-agent-server
     restart: unless-stopped
     ports:
       - "8088:8088"
     environment:
-      - APP_DATA_DIR=/data
-      - DEBUG=${DEBUG:-false}
-      - SPRING_PROFILES_ACTIVE
-      - NACOS_SERVER_ADDR
+      APP_DATA_DIR: /data
+      DEBUG: ${DEBUG:-false}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-localhost:8848}
     volumes:
       - agile-agent-data:/data
+
+  agile-agent-mock-oauth2:
+    profiles: [local-mock]
+    image: eclipse-temurin:21-jre-alpine
+    container_name: agile-agent-mock-oauth2
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      MOCK_OAUTH2_PORT: 8090
+      MOCK_OAUTH2_CLIENT_ID: agile-agent-local
+      MOCK_OAUTH2_CLIENT_SECRET: ""
+      MOCK_OAUTH2_REDIRECT_URIS: http://localhost:8088/api/auth/oauth2/callback
+      SERVER_ADDRESS: 0.0.0.0
+    volumes:
+      - ../mock-oauth2/target/agile-agent-mock-oauth2-0.0.1-SNAPSHOT-exec.jar:/app/mock-oauth2.jar:ro
+    entrypoint: ["java", "-jar", "/app/mock-oauth2.jar"]
+
+  agile-agent-server-local-mock:
+    profiles: [local-mock]
+    image: agile-agent-server-local-mock:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      APP_DATA_DIR: /data
+      SPRING_PROFILES_ACTIVE: local-mock
+      SPRING_FLYWAY_URL: jdbc:mysql://mysql:3306/agile_agent_local?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_FLYWAY_USER: agile_agent_local
+      SPRING_FLYWAY_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agile_agent_local?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: agile_agent_local
+      SPRING_DATASOURCE_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
+      SPRING_R2DBC_URL: r2dbc:mysql://mysql:3306/agile_agent_local?sslMode=DISABLED
+      SPRING_R2DBC_USERNAME: agile_agent_local
+      SPRING_R2DBC_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_DATABASE: 0
+      OAUTH2_AUTHORIZATION_URI: http://agile-agent-mock-oauth2:8090/oauth2/authorize
+      OAUTH2_TOKEN_URI: http://agile-agent-mock-oauth2:8090/oauth2/token
+      OAUTH2_USERINFO_URI: http://agile-agent-mock-oauth2:8090/oauth2/userinfo
+      OAUTH2_REVOCATION_URI: http://agile-agent-mock-oauth2:8090/oauth2/revoke
+      OAUTH2_CLIENT_ID: agile-agent-local
+      OAUTH2_CLIENT_SECRET: ""
+      OAUTH2_REDIRECT_URI: http://localhost:8088/api/auth/oauth2/callback
+      OAUTH2_FRONTEND_REDIRECT_URI: http://localhost:5173/login/callback
+    volumes:
+      - agile-agent-local-mock-data:/data
+    depends_on:
+      agile-agent-mock-oauth2:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    profiles: [local-mock]
+    image: mysql:8.4
+    container_name: agile-agent-local-mock-mysql
+    environment:
+      MYSQL_DATABASE: agile_agent_local
+      MYSQL_USER: agile_agent_local
+      MYSQL_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
+      MYSQL_ROOT_PASSWORD: ${LOCAL_MOCK_MYSQL_ROOT_PASSWORD:-local-mock-root-password}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - agile-agent-local-mock-mysql:/var/lib/mysql
+
+  redis:
+    profiles: [local-mock]
+    image: redis:7-alpine
+    container_name: agile-agent-local-mock-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 volumes:
   agile-agent-data:
     external: true
+  agile-agent-local-mock-data:
+  agile-agent-local-mock-mysql:

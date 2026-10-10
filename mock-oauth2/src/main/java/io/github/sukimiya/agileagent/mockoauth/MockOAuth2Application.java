@@ -2,14 +2,17 @@ package io.github.sukimiya.agileagent.mockoauth;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.util.Map;
 
 @SpringBootApplication
+@ConditionalOnProperty(name = "mock.oauth2.enabled", havingValue = "true")
 public class MockOAuth2Application {
     @Bean
     MockIdentityCatalog mockIdentityCatalog() {
@@ -51,6 +54,8 @@ public class MockOAuth2Application {
     }
 
     public static void main(String[] args) {
-        SpringApplication.run(MockOAuth2Application.class, args);
+        SpringApplication application = new SpringApplication(MockOAuth2Application.class);
+        application.setDefaultProperties(Map.of("mock.oauth2.enabled", "true"));
+        application.run(args);
     }
 }

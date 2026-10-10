@@ -66,7 +66,7 @@ class OpenSourceBoundaryTest {
                 root.resolve("agent-server/src/main/resources/application.yml"), StandardCharsets.UTF_8);
 
         assertThat(dockerfile).doesNotContain("-Dspring.profiles.active=dev");
-        assertThat(compose).contains("- SPRING_PROFILES_ACTIVE", "- NACOS_SERVER_ADDR");
+        assertThat(compose).contains("SPRING_PROFILES_ACTIVE:", "NACOS_SERVER_ADDR:");
         assertThat(application).doesNotContain("192.168.3.232");
         assertThat(application).contains("server-addr: ${NACOS_SERVER_ADDR:localhost:8848}");
         assertThat(application.indexOf("on-profile: dev"))
