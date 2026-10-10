@@ -55,4 +55,36 @@ BUILD SUCCESS，生成：
 
 ## Commit
 
-`feat: integrate the configurable mock OAuth2 identity flow`（单一 Task 6 commit；完整 SHA 在最终交接中给出。）
+`feat: integrate the configurable mock OAuth2 identity flow`（初始 Task 6 实现 commit；Fix Round 1 后续修复提交见下。）
+
+## Fix Round 1
+
+**STATUS: PASS**
+
+### RED
+
+- Compose regression first updated to require the original default image and list-form environment entries. `mvn -pl agent-server -am -Dtest=OpenSourceBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test` failed as expected: 3 tests, 1 failure; the existing Compose file did not contain the original image/environment contract.
+- Added a generic assertion that the provider refresh token changes after `/me` refresh. `mvn -pl agent-server -am -Dtest=MockOAuth2EndToEndTest test` failed as expected: 1 test, 1 failure (`provider refresh token did not rotate during /me refresh`). This showed the prior scenario had refreshed identity but not provider tokens.
+- Added an R2DBC query against the Flyway history table before fixing the test database wiring. `mvn -pl agent-server -am -Dtest=MockOAuth2EndToEndTest test` failed as expected: 1 test, 1 error because the R2DBC database was empty while Flyway had migrated the separate generated JDBC database.
+
+### GREEN
+
+- Restored the always-on Compose server image and environment list semantics; Task 6 services remain in `local-mock`. README no longer describes a nonexistent default image fallback.
+- E2E now sets the cached access-token expiry inside the refresh skew window while aging the identity cache. It rereads Redis after `/me`, asserts access and refresh token rotation without printing token values, checks both provider token generations for leakage, then verifies that logout invalidates the current refresh token at the real mock token endpoint (`invalid_grant`).
+- JDBC/Flyway and R2DBC now receive one generated per-test H2 database name through an explicit property. The test proves the shared Flyway history is visible through R2DBC. Contexts close via try-with-resources; teardown always issues H2 `SHUTDOWN`, with `DB_CLOSE_DELAY=-1` only to keep the shared in-memory DB alive during both app contexts. UUID names isolate parallel invocations.
+- `mvn -pl agent-server -am -Dtest=MockOAuth2EndToEndTest,OpenSourceBoundaryTest -Dsurefire.failIfNoSpecifiedTests=false test`: 4 tests, 0 failures, 0 errors, 0 skipped.
+- `mvn clean test`: 234 tests, 0 failures, 0 errors, 0 skipped; BUILD SUCCESS.
+
+### Package / Compose revalidation
+
+- `mvn -pl agent-server,mock-oauth2 -am -DskipTests package`: BUILD SUCCESS. Both expected Boot JARs were produced. Manifest inspection confirmed `JarLauncher` for both; Start-Class is `AgentApplication` for server and `MockOAuth2Application` for mock.
+- Compose config checks passed with `DOCKER_REGISTRY_URL=registry.invalid IMAGE_TAG=review-round-1` supplied for the restored original server image interpolation. Default services contain only `agile-agent-server`; enabling `local-mock` includes mock, local-mock server, MySQL and Redis. Rendered mock `SERVER_ADDRESS` is `0.0.0.0` only in the opt-in profile. The original server image and environment list semantics were verified in rendered config.
+- No Docker daemon is available here, so this round revalidated Compose parsing/profile expansion only, not actual container startup. The regular server service still expects its original registry/tag environment inputs when launched.
+
+### Concerns
+
+- No remaining test/build failures. The existing Docker daemon limitation remains the only unverified runtime check; no production secret was added.
+
+### Follow-up commit
+
+`fix: strengthen mock oauth2 integration review coverage`（本地提交，不 push；完整 SHA 在最终交接中给出。）

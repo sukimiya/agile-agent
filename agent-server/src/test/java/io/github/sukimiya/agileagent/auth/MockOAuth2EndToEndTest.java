@@ -12,6 +12,10 @@ import java.net.Socket;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,9 +27,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -37,10 +43,10 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -74,6 +80,7 @@ class MockOAuth2EndToEndTest {
         int mockPort = availablePort();
         int serverPort = availablePort();
         String h2Database = "oauth2_e2e_" + UUID.randomUUID().toString().replace("-", "");
+        String jdbcUrl = h2JdbcUrl(h2Database);
         Path redisDirectory = Files.createTempDirectory("agile-agent-oauth2-e2e-redis-");
         Process redisProcess = null;
         LettuceConnectionFactory redisFactory = null;
@@ -96,6 +103,7 @@ class MockOAuth2EndToEndTest {
             try (ConfigurableApplicationContext mockApplication = startMockApplication(mockPort, callbackUri);
                  ConfigurableApplicationContext serverApplication = startServerApplication(
                          serverPort, mockBaseUri, callbackUri, redisPort, h2Database)) {
+                assertR2dbcSharesFlywayDatabase(serverApplication);
                 WebClient http = WebClient.builder().build();
                 String serverBaseUri = "http://127.0.0.1:" + port(serverApplication);
                 mockBaseUri = "http://127.0.0.1:" + port(mockApplication);
@@ -174,12 +182,23 @@ class MockOAuth2EndToEndTest {
                 assertFalse(refreshedIdentity.path("tenantAdmin").asBoolean(),
                         "identity refresh retained forged tenant privilege");
 
+                String refreshedSession = redis.opsForValue().get("authsession:" + appToken);
+                assertTrue(refreshedSession != null, "OAuth2 /me refresh removed the application session");
+                JsonNode rotatedSession = json.readTree(refreshedSession);
+                String currentAccessToken = rotatedSession.path("accessToken").asText();
+                String currentRefreshToken = rotatedSession.path("refreshToken").asText();
+                assertFalse(providerRefreshToken.equals(currentRefreshToken),
+                        "provider refresh token did not rotate during /me refresh");
+                assertFalse(providerAccessToken.equals(currentAccessToken),
+                        "provider access token did not rotate during /me refresh");
+
                 List<String> publicArtifacts = List.of(authorizeLocation, chooser.body(),
                         location(providerAuthorize), location(mismatchedState), callbackLocation,
                         firstMe.body(), refreshedMe.body());
                 String clientSecret = serverApplication.getEnvironment().getProperty("oauth2.client-secret", "");
                 for (String artifact : publicArtifacts) {
-                    assertNoProviderCredentials(artifact, providerAccessToken, providerRefreshToken,
+                    assertNoProviderCredentials(artifact, List.of(providerAccessToken, currentAccessToken),
+                            List.of(providerRefreshToken, currentRefreshToken),
                             clientSecret, codeVerifier);
                 }
 
@@ -190,7 +209,7 @@ class MockOAuth2EndToEndTest {
 
                 LinkedMultiValueMap<String, String> revokedRefreshAttempt = new LinkedMultiValueMap<>();
                 revokedRefreshAttempt.add("grant_type", "refresh_token");
-                revokedRefreshAttempt.add("refresh_token", providerRefreshToken);
+                revokedRefreshAttempt.add("refresh_token", currentRefreshToken);
                 revokedRefreshAttempt.add("client_id", CLIENT_ID);
                 revokedRefreshAttempt.add("client_secret", CLIENT_SECRET);
                 HttpResult providerRefresh = postForm(http, mockBaseUri + "/oauth2/token",
@@ -199,14 +218,27 @@ class MockOAuth2EndToEndTest {
                 assertThat(json.readTree(providerRefresh.body()).path("error").asText()).isEqualTo("invalid_grant");
             }
         } finally {
-            if (redis != null) {
-                flushTestDatabase(redis);
+            try {
+                shutdownH2Database(jdbcUrl);
+            } finally {
+                try {
+                    if (redis != null) {
+                        flushTestDatabase(redis);
+                    }
+                } finally {
+                    try {
+                        if (redisFactory != null) {
+                            redisFactory.destroy();
+                        }
+                    } finally {
+                        try {
+                            stopProcess(redisProcess);
+                        } finally {
+                            deleteTree(redisDirectory);
+                        }
+                    }
+                }
             }
-            if (redisFactory != null) {
-                redisFactory.destroy();
-            }
-            stopProcess(redisProcess);
-            deleteTree(redisDirectory);
         }
     }
 
@@ -227,7 +259,7 @@ class MockOAuth2EndToEndTest {
     private ConfigurableApplicationContext startServerApplication(int serverPort, String mockBaseUri,
                                                                    String callbackUri, int redisPort,
                                                                    String h2Database) {
-        String jdbcUrl = "jdbc:h2:mem:" + h2Database + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
+        String jdbcUrl = h2JdbcUrl(h2Database);
         Map<String, Object> properties = Map.ofEntries(
                 Map.entry("server.address", "127.0.0.1"),
                 Map.entry("server.port", serverPort),
@@ -240,6 +272,7 @@ class MockOAuth2EndToEndTest {
                 Map.entry("spring.flyway.url", jdbcUrl),
                 Map.entry("spring.flyway.user", "sa"),
                 Map.entry("spring.flyway.password", ""),
+                Map.entry("task6.e2e.h2.database", h2Database),
                 Map.entry("oauth2.authorization-uri", mockBaseUri + "/oauth2/authorize"),
                 Map.entry("oauth2.token-uri", mockBaseUri + "/oauth2/token"),
                 Map.entry("oauth2.user-info-uri", mockBaseUri + "/oauth2/userinfo"),
@@ -267,10 +300,32 @@ class MockOAuth2EndToEndTest {
                 .containsExactlyInAnyOrder("tenant-a-team-1", "tenant-a-team-2");
     }
 
+    private static void assertR2dbcSharesFlywayDatabase(ConfigurableApplicationContext serverApplication) {
+        String historyTable = "l7" + "_skill_flyway_schema_history";
+        Long migratedVersionCount = DatabaseClient.create(serverApplication.getBean(ConnectionFactory.class))
+                .sql("SELECT COUNT(*) FROM \"" + historyTable + "\"")
+                .map((row, metadata) -> row.get(0, Long.class))
+                .one()
+                .block(Duration.ofSeconds(10));
+        assertThat(migratedVersionCount).isEqualTo(3L);
+    }
+
+    private static String h2JdbcUrl(String database) {
+        return "jdbc:h2:mem:" + database + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
+    }
+
+    private static void shutdownH2Database(String jdbcUrl) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, "sa", "");
+             Statement statement = connection.createStatement()) {
+            statement.execute("SHUTDOWN");
+        }
+    }
+
     private void poisonCachedIdentity(StringRedisTemplate redis, String appToken, JsonNode originalSession)
             throws IOException {
         ObjectNode cached = (ObjectNode) originalSession.deepCopy();
         cached.put("displayName", "Forged Cached Name");
+        cached.put("expiresAt", Instant.now().minusSeconds(1).toString());
         cached.put("identityFetchedAt", Instant.now().minus(Duration.ofMinutes(6)).toString());
         ObjectNode identity = (ObjectNode) cached.path("identity");
         identity.put("displayName", "Forged Cached Name");
@@ -304,11 +359,15 @@ class MockOAuth2EndToEndTest {
         return values;
     }
 
-    private static void assertNoProviderCredentials(String artifact, String accessToken,
-                                                     String refreshToken, String clientSecret,
+    private static void assertNoProviderCredentials(String artifact, List<String> accessTokens,
+                                                     List<String> refreshTokens, String clientSecret,
                                                      String codeVerifier) {
-        assertFalse(artifact.contains(accessToken), "public artifact exposed provider access token");
-        assertFalse(artifact.contains(refreshToken), "public artifact exposed provider refresh token");
+        for (String accessToken : accessTokens) {
+            assertFalse(artifact.contains(accessToken), "public artifact exposed provider access token");
+        }
+        for (String refreshToken : refreshTokens) {
+            assertFalse(artifact.contains(refreshToken), "public artifact exposed provider refresh token");
+        }
         assertFalse(artifact.contains("client_secret"), "public artifact exposed client secret field");
         assertFalse(artifact.contains("code_verifier"), "public artifact exposed PKCE verifier field");
         if (clientSecret != null && !clientSecret.isBlank()) {
@@ -470,11 +529,11 @@ class MockOAuth2EndToEndTest {
     static class TestDatabaseConfiguration {
         @Bean
         @Primary
-        ConnectionFactory testConnectionFactory() {
+        ConnectionFactory testConnectionFactory(@Value("${task6.e2e.h2.database}") String database) {
             return ConnectionFactories.get(ConnectionFactoryOptions.builder()
                     .option(ConnectionFactoryOptions.DRIVER, "h2")
                     .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                    .option(ConnectionFactoryOptions.DATABASE, "oauth2-e2e")
+                    .option(ConnectionFactoryOptions.DATABASE, database)
                     .option(ConnectionFactoryOptions.USER, "sa")
                     .option(ConnectionFactoryOptions.PASSWORD, "")
                     .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")

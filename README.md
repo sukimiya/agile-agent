@@ -17,7 +17,7 @@ mvn -pl agent-server,mock-oauth2 -am -DskipTests package
 docker compose -f docker/docker-compose.yml --profile local-mock up --build agile-agent-server-local-mock
 ```
 
-The local profile builds its own server image and does not depend on the default deployment image. The default server service uses `local/agile-agent-server:latest` when `DOCKER_REGISTRY_URL` and `IMAGE_TAG` are unset; set those variables to deploy a different image. Without `--profile local-mock`, Compose still selects only the server service. To stop the local services, press Ctrl-C. Remove the local development databases and uploaded files with `docker compose -f docker/docker-compose.yml --profile local-mock down -v`.
+The local profile builds its own server image and does not depend on the default deployment image. Without `--profile local-mock`, Compose still selects only the existing server service. To stop the local services, press Ctrl-C. Remove the local development databases and uploaded files with `docker compose -f docker/docker-compose.yml --profile local-mock down -v`.
 
 Open `http://localhost:8088/api/auth/oauth2/authorize` to begin login. The server redirects to the mock identity chooser on port 8090; choosing a seed identity returns through the OAuth2 callback and redirects to `http://localhost:5173/login/callback#token=...`. The fragment contains the Agile Agent application token. A frontend development server on port 5173 is only needed to render that final route.
 

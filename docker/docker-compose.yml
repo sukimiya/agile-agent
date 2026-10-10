@@ -1,15 +1,15 @@
 services:
   agile-agent-server:
-    image: ${DOCKER_REGISTRY_URL:-local}/agile-agent-server:${IMAGE_TAG:-latest}
+    image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}
     container_name: agile-agent-server
     restart: unless-stopped
     ports:
       - "8088:8088"
     environment:
-      APP_DATA_DIR: /data
-      DEBUG: ${DEBUG:-false}
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
-      NACOS_SERVER_ADDR: ${NACOS_SERVER_ADDR:-localhost:8848}
+      - APP_DATA_DIR=/data
+      - DEBUG=${DEBUG:-false}
+      - SPRING_PROFILES_ACTIVE
+      - NACOS_SERVER_ADDR
     volumes:
       - agile-agent-data:/data
 
