@@ -6,8 +6,10 @@ services:
     ports:
       - "8088:8088"
     environment:
-      APP_DATA_DIR: /data
-      DEBUG: ${DEBUG:-false}
+      - APP_DATA_DIR=/data
+      - DEBUG=${DEBUG:-false}
+      - SPRING_PROFILES_ACTIVE
+      - NACOS_SERVER_ADDR
     volumes:
       - agile-agent-data:/data
 

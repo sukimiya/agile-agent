@@ -37,10 +37,7 @@ class OpenSourceBoundaryTest {
 
         for (String relativePath : trackedProductFiles(root)) {
             if (excluded(relativePath) || BOUNDARY_TEST.equals(relativePath)) continue;
-            String fileName = Path.of(relativePath).getFileName().toString();
-            if (FORBIDDEN_FILES.contains(fileName)) {
-                violations.add(relativePath + " [forbidden enterprise component]");
-            }
+            forbiddenPathMarkers(relativePath).forEach(marker -> violations.add(relativePath + " " + marker));
             if (relativePath.startsWith("api-docs/")
                     || relativePath.startsWith("agent-server/src/main/resources/api-docs/")) {
                 violations.add(relativePath + " [bundled API documentation]");
@@ -58,6 +55,46 @@ class OpenSourceBoundaryTest {
         }
 
         assertThat(violations).as("open-source product boundary violations").isEmpty();
+    }
+
+    @Test
+    void defaultContainerConfigurationDoesNotRequireNacos() throws IOException {
+        Path root = findRepositoryRoot(Path.of("").toAbsolutePath());
+        String dockerfile = Files.readString(root.resolve("docker/Dockerfile"), StandardCharsets.UTF_8);
+        String compose = Files.readString(root.resolve("docker/docker-compose.yml"), StandardCharsets.UTF_8);
+        String application = Files.readString(
+                root.resolve("agent-server/src/main/resources/application.yml"), StandardCharsets.UTF_8);
+
+        assertThat(dockerfile).doesNotContain("-Dspring.profiles.active=dev");
+        assertThat(compose).contains("- SPRING_PROFILES_ACTIVE", "- NACOS_SERVER_ADDR");
+        assertThat(application).doesNotContain("192.168.3.232");
+        assertThat(application).contains("server-addr: ${NACOS_SERVER_ADDR:localhost:8848}");
+        assertThat(application.indexOf("on-profile: dev"))
+                .isLessThan(application.indexOf("nacos:${spring.application.name}"));
+    }
+
+    @Test
+    void relativePathsReceivePreciseDomainChecks() {
+        assertThat(forbiddenPathMarkers("agent-server/src/main/java/com/jowo/agileagent/Helper.java"))
+                .isNotEmpty();
+        assertThat(forbiddenPathMarkers("agent-server/src/main/resources/meshing-guide.md"))
+                .isEmpty();
+        assertThat(forbiddenPathMarkers("agent-server/src/main/resources/crmish-guide.md"))
+                .isEmpty();
+    }
+
+    private static List<String> forbiddenPathMarkers(String relativePath) {
+        List<String> markers = new ArrayList<>();
+        String fileName = Path.of(relativePath).getFileName().toString();
+        if (FORBIDDEN_FILES.contains(fileName)) {
+            markers.add("[forbidden enterprise component]");
+        }
+        for (Pattern forbidden : FORBIDDEN_TEXT) {
+            if (forbidden.matcher(relativePath).find()) {
+                markers.add("[matches " + forbidden.pattern() + "]");
+            }
+        }
+        return markers;
     }
 
     private static List<String> trackedProductFiles(Path root) throws IOException, InterruptedException {

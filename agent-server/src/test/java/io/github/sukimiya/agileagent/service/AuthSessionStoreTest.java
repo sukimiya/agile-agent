@@ -103,4 +103,14 @@ class AuthSessionStoreTest {
 
         assertThat(store.resolve(issuedToken).blockOptional()).contains(refreshed);
     }
+
+    @Test
+    void authUserStringRepresentationOmitsCredentialValues() {
+        String accessSentinel = "sentinel-access-8f37";
+        String refreshSentinel = "sentinel-refresh-2c1a";
+        var user = new AuthSessionStore.AuthUser(
+                "user-1", "周琳琳", accessSentinel, refreshSentinel, EXPIRES, "admin");
+
+        assertThat(user.toString()).doesNotContain(accessSentinel, refreshSentinel);
+    }
 }

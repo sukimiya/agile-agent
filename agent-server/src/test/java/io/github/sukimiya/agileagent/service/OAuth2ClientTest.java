@@ -88,6 +88,41 @@ class OAuth2ClientTest {
     }
 
     @Test
+    void tokenEndpointErrorDoesNotExposeProviderBodyAndKeepsStatus() {
+        String sentinel = "sentinel-oauth2-token-93e8";
+        server.enqueue(new MockResponse().setResponseCode(400)
+                .setBody("{\"error_description\":\"access_token=" + sentinel + "\"}"));
+
+        StepVerifier.create(client.exchangeCode("bad-code", "verifier-1"))
+                .expectErrorSatisfies(error -> assertSafeProviderFailure(error, sentinel, "400",
+                        OAuth2Client.OAuth2AuthException.class))
+                .verify();
+    }
+
+    @Test
+    void userInfoErrorDoesNotExposeProviderBodyAndKeepsStatus() {
+        String sentinel = "sentinel-oauth2-token-userinfo";
+        server.enqueue(new MockResponse().setResponseCode(401).setBody("Bearer " + sentinel));
+
+        StepVerifier.create(client.fetchUserInfo("access-token"))
+                .expectErrorSatisfies(error -> assertSafeProviderFailure(error, sentinel, "401",
+                        OAuth2Client.OAuth2UnavailableException.class))
+                .verify();
+    }
+
+    @Test
+    void revocationErrorDoesNotExposeProviderBodyAndKeepsStatus() {
+        String sentinel = "sentinel-oauth2-token-revoke";
+        var revokingClient = clientWith(props("userType", base + "oauth2/revoke"));
+        server.enqueue(new MockResponse().setResponseCode(503).setBody("refresh_token=" + sentinel));
+
+        StepVerifier.create(revokingClient.revoke("refresh-token"))
+                .expectErrorSatisfies(error -> assertSafeProviderFailure(error, sentinel, "503",
+                        OAuth2Client.OAuth2UnavailableException.class))
+                .verify();
+    }
+
+    @Test
     void refreshPostsRefreshTokenGrant() throws InterruptedException {
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
                 .setBody("{\"access_token\":\"at-2\",\"refresh_token\":\"rt-2\",\"expires_in\":1800}"));
@@ -222,5 +257,32 @@ class OAuth2ClientTest {
         StepVerifier.create(revokingClient.revoke("rt-1"))
                 .expectError(OAuth2Client.OAuth2UnavailableException.class)
                 .verify();
+    }
+
+    @Test
+    void tokenResultStringRepresentationOmitsCredentialValues() {
+        String accessSentinel = "sentinel-access-token-6f40";
+        String refreshSentinel = "sentinel-refresh-token-0ac9";
+        var result = new OAuth2Client.TokenResult(accessSentinel, refreshSentinel, 3600);
+
+        assertThat(result.toString()).doesNotContain(accessSentinel, refreshSentinel);
+    }
+
+    private static void assertSafeProviderFailure(Throwable error, String sentinel, String status,
+                                                  Class<? extends RuntimeException> expectedType) {
+        assertThat(error).isInstanceOf(expectedType);
+        assertThat(error.getMessage()).contains(status).doesNotContain(sentinel);
+        assertThrowableGraphDoesNotContain(error, sentinel);
+    }
+
+    private static void assertThrowableGraphDoesNotContain(Throwable error, String sentinel) {
+        if (error == null) return;
+        if (error.getMessage() != null) {
+            assertThat(error.getMessage()).doesNotContain(sentinel);
+        }
+        for (Throwable suppressed : error.getSuppressed()) {
+            assertThrowableGraphDoesNotContain(suppressed, sentinel);
+        }
+        assertThrowableGraphDoesNotContain(error.getCause(), sentinel);
     }
 }

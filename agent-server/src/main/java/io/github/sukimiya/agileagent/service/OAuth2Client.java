@@ -74,10 +74,14 @@ public class OAuth2Client {
         return http.get().uri(props.userInfoUri())
                 .headers(h -> h.setBearerAuth(accessToken))
                 .retrieve()
-                .onStatus(HttpStatusCode::isError, resp -> resp.bodyToMono(String.class).defaultIfEmpty("")
-                        .map(OAuth2UnavailableException::new))
+                .onStatus(HttpStatusCode::isError, resp -> {
+                    int status = resp.statusCode().value();
+                    return resp.releaseBody().then(Mono.error(new OAuth2UnavailableException(
+                            "OAuth2 userinfo request failed (HTTP " + status + ")")));
+                })
                 .bodyToMono(JsonNode.class)
-                .onErrorMap(WebClientRequestException.class, e -> new OAuth2UnavailableException(e.getMessage()))
+                .onErrorMap(WebClientRequestException.class,
+                        e -> new OAuth2UnavailableException("OAuth2 userinfo provider request failed"))
                 .flatMap(body -> {
                     // The subject is the ownership key for conversations and knowledge documents, so a
                     // missing/blank claim must fail loudly instead of collapsing every such user into "".
@@ -107,10 +111,14 @@ public class OAuth2Client {
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .bodyValue(form)
                 .retrieve()
-                .onStatus(HttpStatusCode::isError, resp -> resp.bodyToMono(String.class).defaultIfEmpty("")
-                        .map(OAuth2UnavailableException::new))
+                .onStatus(HttpStatusCode::isError, resp -> {
+                    int status = resp.statusCode().value();
+                    return resp.releaseBody().then(Mono.error(new OAuth2UnavailableException(
+                            "OAuth2 revocation request failed (HTTP " + status + ")")));
+                })
                 .bodyToMono(Void.class)
-                .onErrorMap(WebClientRequestException.class, e -> new OAuth2UnavailableException(e.getMessage()));
+                .onErrorMap(WebClientRequestException.class,
+                        e -> new OAuth2UnavailableException("OAuth2 revocation provider request failed"));
     }
 
     private void addClientSecretIfPresent(LinkedMultiValueMap<String, String> form) {
@@ -124,12 +132,19 @@ public class OAuth2Client {
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .bodyValue(form)
                 .retrieve()
-                .onStatus(HttpStatusCode::is5xxServerError, resp -> resp.bodyToMono(String.class).defaultIfEmpty("")
-                        .map(OAuth2UnavailableException::new))
-                .onStatus(HttpStatusCode::isError, resp -> resp.bodyToMono(String.class).defaultIfEmpty("")
-                        .map(OAuth2AuthException::new))
+                .onStatus(HttpStatusCode::is5xxServerError, resp -> {
+                    int status = resp.statusCode().value();
+                    return resp.releaseBody().then(Mono.error(new OAuth2UnavailableException(
+                            "OAuth2 token endpoint unavailable (HTTP " + status + ")")));
+                })
+                .onStatus(HttpStatusCode::isError, resp -> {
+                    int status = resp.statusCode().value();
+                    return resp.releaseBody().then(Mono.error(new OAuth2AuthException(
+                            "OAuth2 token endpoint rejected request (HTTP " + status + ")")));
+                })
                 .bodyToMono(JsonNode.class)
-                .onErrorMap(WebClientRequestException.class, e -> new OAuth2UnavailableException(e.getMessage()))
+                .onErrorMap(WebClientRequestException.class,
+                        e -> new OAuth2UnavailableException("OAuth2 token provider request failed"))
                 .map(OAuth2Client::toTokenResult);
     }
 
@@ -140,7 +155,13 @@ public class OAuth2Client {
                 body.path("expires_in").asInt(3600));
     }
 
-    public record TokenResult(String accessToken, String refreshToken, int expiresInSeconds) {}
+    public record TokenResult(String accessToken, String refreshToken, int expiresInSeconds) {
+        @Override
+        public String toString() {
+            return "TokenResult[accessToken=[REDACTED], refreshToken=[REDACTED], expiresInSeconds="
+                    + expiresInSeconds + "]";
+        }
+    }
 
     public record UserInfo(String subject, String name, String userType) {}
 

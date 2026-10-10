@@ -89,5 +89,12 @@ public class AuthSessionStore {
     }
 
     public record AuthUser(String userId, String name, String accessToken, String refreshToken,
-                            Instant expiresAt, String userType) {}
+                            Instant expiresAt, String userType) {
+        @Override
+        public String toString() {
+            return "AuthUser[userId=" + userId + ", name=" + name
+                    + ", accessToken=[REDACTED], refreshToken=[REDACTED]"
+                    + ", expiresAt=" + expiresAt + ", userType=" + userType + "]";
+        }
+    }
 }
