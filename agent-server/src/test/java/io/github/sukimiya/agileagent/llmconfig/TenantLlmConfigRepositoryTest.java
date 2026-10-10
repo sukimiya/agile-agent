@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.llmconfig;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 
 import org.flywaydb.core.Flyway;
@@ -10,10 +11,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactoryOptions;
 import io.r2dbc.spi.Option;
+import io.r2dbc.spi.R2dbcException;
 import reactor.core.publisher.Mono;
 
 class TenantLlmConfigRepositoryTest {
@@ -103,5 +107,34 @@ class TenantLlmConfigRepositoryTest {
         assertThat(config.id()).isIn("config-a", "config-b");
         assertThat(config.presetId()).isEqualTo(config.apiKeyEncrypted().equals("key-a") ? "preset-a" : "preset-b");
         assertThat(config.apiKeyEncrypted()).isIn("key-a", "key-b");
+    }
+
+    @Test
+    void identicalTenantUpsertIsIdempotentAndLeavesOneRow() {
+        var config = row("config-idempotent", "tenant-idempotent", "preset-a", "key-a");
+
+        repository.upsert(config).block();
+        repository.upsert(config).block();
+
+        assertThat(repository.findByTenantId("tenant-idempotent").block()).isEqualTo(config);
+        var rowCount = db.sql("SELECT COUNT(*) AS row_count FROM tenant_llm_config WHERE tenant_id = :tenantId")
+                .bind("tenantId", "tenant-idempotent")
+                .map((row, metadata) -> row.get("row_count", Long.class))
+                .one()
+                .block();
+        assertThat(rowCount).isEqualTo(1L);
+    }
+
+    @Test
+    void duplicateClassifierRecognizesWrappedDatabaseSignalsButNotGenericIntegrityFailures() {
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(new SQLException("duplicate", "23505"))).isTrue();
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(
+                new R2dbcException("duplicate", "23505") { })).isTrue();
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(new DataIntegrityViolationException(
+                "wrapped mysql failure", new R2dbcException("duplicate", "23000", 1062) { })))
+                .isTrue();
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(new DuplicateKeyException("duplicate"))).isTrue();
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(new DataIntegrityViolationException("not a duplicate"))).isFalse();
+        assertThat(TenantLlmConfigRepository.isDuplicateKey(new IllegalStateException("unavailable"))).isFalse();
     }
 }

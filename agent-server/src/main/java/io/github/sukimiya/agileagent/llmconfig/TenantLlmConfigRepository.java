@@ -1,11 +1,14 @@
 package io.github.sukimiya.agileagent.llmconfig;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
 
 import io.r2dbc.spi.Readable;
+import io.r2dbc.spi.R2dbcException;
 import reactor.core.publisher.Mono;
 
 @Repository
@@ -18,15 +21,45 @@ public class TenantLlmConfigRepository {
     }
 
     public Mono<Void> upsert(TenantLlmConfigRow row) {
-        return updateByTenantId(row).flatMap(updated -> {
-            if (updated > 0) {
-                return Mono.empty();
+        return findByTenantId(row.tenantId()).hasElement().flatMap(exists -> exists
+                ? updateAndVerify(row)
+                : insert(row).onErrorResume(insertError -> recoverDuplicateInsert(row, insertError)));
+    }
+
+    private Mono<Void> recoverDuplicateInsert(TenantLlmConfigRow row, Throwable insertError) {
+        if (!isDuplicateKey(insertError)) {
+            return Mono.error(insertError);
+        }
+        return findByTenantId(row.tenantId()).hasElement().flatMap(exists -> exists
+                ? updateAndVerify(row)
+                : Mono.error(insertError));
+    }
+
+    private Mono<Void> updateAndVerify(TenantLlmConfigRow row) {
+        return updateByTenantId(row).then(verifyTenantExists(row.tenantId()));
+    }
+
+    private Mono<Void> verifyTenantExists(String tenantId) {
+        return findByTenantId(tenantId).hasElement().flatMap(exists -> exists
+                ? Mono.empty()
+                : Mono.error(new IllegalStateException("Tenant LLM config disappeared during upsert")));
+    }
+
+    static boolean isDuplicateKey(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof DuplicateKeyException) {
+                return true;
             }
-            return insert(row).onErrorResume(insertError ->
-                    updateByTenantId(row).flatMap(retried -> retried > 0
-                            ? Mono.empty()
-                            : Mono.error(insertError)));
-        });
+            if (cause instanceof R2dbcException r2dbcException
+                    && ("23505".equals(r2dbcException.getSqlState()) || r2dbcException.getErrorCode() == 1062)) {
+                return true;
+            }
+            if (cause instanceof SQLException sqlException
+                    && ("23505".equals(sqlException.getSQLState()) || sqlException.getErrorCode() == 1062)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Mono<Long> updateByTenantId(TenantLlmConfigRow row) {

@@ -32,3 +32,11 @@ Result: failed during test compilation because the three repository classes refe
 - GREEN: `mvn -o -pl agent-server -am -Dtest=TenantLlmConfigRepositoryTest test` — 4 tests, 0 failures, 0 errors. The collision now fails without changing tenant A or creating tenant B; concurrent same-tenant upserts leave one row with a coherent preset/key pair.
 - Full Task 1 focus: `mvn -o -pl agent-server -am -Dtest='LlmProviderPresetRepositoryTest,TenantLlmConfigRepositoryTest,HintRepositoryTest,LlmMigrationTest' test` — 9 tests, 0 failures, 0 errors.
 - Fix committed locally as `fix: scope tenant LLM config upserts by tenant`.
+
+## Fix Round 2
+
+- RED: `mvn -o -pl agent-server -am -Dtest=TenantLlmConfigRepositoryTest test` — test compilation failed because the new regression tests referenced the not-yet-added package-private duplicate classifier.
+- GREEN tenant suite: `mvn -o -pl agent-server -am -Dtest=TenantLlmConfigRepositoryTest test` — 6 tests, 0 failures, 0 errors.
+- GREEN Task 1 suite: `mvn -o -pl agent-server -am -Dtest='LlmProviderPresetRepositoryTest,TenantLlmConfigRepositoryTest,HintRepositoryTest,LlmMigrationTest' test` — 11 tests, 0 failures, 0 errors.
+- Duplicate classification covers wrapped H2 SQLState `23505`, MySQL error code `1062`, Spring `DuplicateKeyException`, and non-duplicate integrity/runtime errors. Same-row repeated upsert is idempotent; existing cross-tenant collision and concurrent same-tenant cases remain covered.
+- Fix committed locally as `fix: only retry tenant config duplicate-key races`.
