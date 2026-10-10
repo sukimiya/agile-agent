@@ -13,6 +13,14 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
+import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
+import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
+import io.github.sukimiya.agileagent.spi.capability.CapabilityDefinition;
+import io.github.sukimiya.agileagent.spi.capability.ToolDefinition;
+import io.github.sukimiya.agileagent.spi.capability.ToolInvocation;
+import io.github.sukimiya.agileagent.spi.capability.ToolResult;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.service.ApiCatalog;
 import io.github.sukimiya.agileagent.service.EnterpriseApiClient;
 import io.github.sukimiya.agileagent.service.LlmClient;
@@ -35,7 +43,7 @@ class DomainAgentTest {
     private DomainAgent newAgent(LlmClient llm, EnterpriseApiClient enterpriseApi, ApiCatalog catalog,
                                   KnowledgeCatalog knowledgeCatalog) {
         var roles = new AgentRoleRegistry(catalog, knowledgeCatalog);
-        return new DomainAgent(llm, enterpriseApi, catalog, knowledgeCatalog, roles);
+        return new DomainAgent(llm, roles.capabilityRegistry(enterpriseApi));
     }
 
     @Test
@@ -163,5 +171,118 @@ class DomainAgentTest {
 
         assertThat(events).containsExactly(new AgentEvent.Failed("NOPE", "unknown role: NOPE"));
         verifyNoInteractions(llm);
+    }
+
+    @Test
+    void undefinedToolIsRejectedWithoutCallingProviderExecute() {
+        LlmClient llm = mock(LlmClient.class);
+        var provider = new RecordingProvider();
+        var agent = new DomainAgent(llm, new CapabilityRegistry(List.of(provider)));
+        var toolCall = new LlmClient.ToolCall("call-1", "notAllowed", "{}");
+        when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("rejected")));
+        var task = new DomainTask("task-1", "conv-9", "KNOWLEDGE", "question", "secret-token");
+
+        agent.run(task).collectList().block();
+
+        assertThat(provider.executeCalls).isZero();
+        assertThat(provider.definitionContext.conversationId()).isEqualTo("conv-9");
+        assertThat(provider.definitionContext.identity().subject()).isEqualTo("conv-9");
+        assertThat(provider.definitionContext.toString()).doesNotContain("secret-token");
+    }
+
+    @Test
+    void passesSameIdentityConversationAndLazyCredentialContextToDefinitionAndExecution() {
+        LlmClient llm = mock(LlmClient.class);
+        var provider = new RecordingProvider();
+        var agent = new DomainAgent(llm, new CapabilityRegistry(List.of(provider)));
+        var toolCall = new LlmClient.ToolCall("call-1", "read", "{}");
+        when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("done")));
+        var identity = new IdentityContext("user-7", "Lin", null, null, null, null,
+                java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), false, false);
+        var task = new DomainTask("task-1", "conv-9", "KNOWLEDGE", "question", "secret-token", identity);
+
+        agent.run(task).collectList().block();
+
+        assertThat(provider.definitionContext.identity()).isSameAs(identity);
+        assertThat(provider.definitionContext.conversationId()).isEqualTo("conv-9");
+        assertThat(provider.executionContext).isSameAs(provider.definitionContext);
+        assertThat(provider.executionToken).isEqualTo("secret-token");
+        assertThat(provider.executionContext.toString()).doesNotContain("secret-token");
+    }
+
+    @Test
+    void invalidDynamicDefinitionFailsBeforeAnyLlmCall() {
+        LlmClient llm = mock(LlmClient.class);
+        var provider = new RecordingProvider() {
+            @Override
+            public Mono<CapabilityDefinition> definition(AgentExecutionContext context) {
+                return Mono.just(new CapabilityDefinition("prompt", List.of(
+                        new ToolDefinition("duplicate", "one", JSON.createObjectNode().put("type", "object")),
+                        new ToolDefinition("duplicate", "two", JSON.createObjectNode().put("type", "object")))));
+            }
+        };
+        var agent = new DomainAgent(llm, new CapabilityRegistry(List.of(provider)));
+
+        assertThatThrownBy(() -> agent.run(new DomainTask("task-1", "conv-1", "KNOWLEDGE", "q", "token"))
+                .collectList().block()).isInstanceOf(IllegalStateException.class)
+                .hasMessage("capability definition failed");
+        verifyNoInteractions(llm);
+    }
+
+    @Test
+    void accessTokenIsRedactedFromProviderToolResults() throws Exception {
+        LlmClient llm = mock(LlmClient.class);
+        EnterpriseApiClient enterpriseApi = mock(EnterpriseApiClient.class);
+        ApiCatalog catalog = mock(ApiCatalog.class);
+        KnowledgeCatalog knowledgeCatalog = mock(KnowledgeCatalog.class);
+        when(catalog.compactIndex("MES")).thenReturn("MES | x | GET /a | d\n");
+        when(catalog.isWhitelisted("MES", "GET", "/a")).thenReturn(true);
+        when(enterpriseApi.call(eq("MES"), eq("GET"), eq("/a"), anyMap(), eq("secret-token")))
+                .thenReturn(Mono.just(json.readTree("{\"echo\":\"secret-token\"}")));
+        var call = new LlmClient.ToolCall("call-1", "callEnterpriseApi",
+                argsJson(Map.of("service", "MES", "method", "GET", "path", "/a")));
+        @SuppressWarnings("unchecked")
+        var toolRoundMessages = new java.util.concurrent.atomic.AtomicReference<List<LlmClient.Message>>();
+        when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(call))))
+                .thenAnswer(invocation -> {
+                    toolRoundMessages.set(invocation.getArgument(0));
+                    return Flux.just(new LlmClient.LlmEvent.Completed("done"));
+                });
+        var task = new DomainTask("t1", "conv-1", "MES", "q", "secret-token");
+        var agent = newAgent(llm, enterpriseApi, catalog, knowledgeCatalog);
+
+        agent.run(task).collectList().block();
+
+        verify(enterpriseApi).call("MES", "GET", "/a", Map.of(), "secret-token");
+        assertThat(toolRoundMessages.get()).filteredOn(m -> "tool".equals(m.role()))
+                .extracting(LlmClient.Message::content).allSatisfy(content -> assertThat(content).doesNotContain("secret-token"));
+    }
+
+    private static class RecordingProvider implements AgentCapabilityProvider {
+        protected static final ObjectMapper JSON = new ObjectMapper();
+        private int executeCalls;
+        private AgentExecutionContext definitionContext;
+        private AgentExecutionContext executionContext;
+        private String executionToken;
+
+        @Override public String code() { return "KNOWLEDGE"; }
+        @Override public String displayName() { return "Knowledge"; }
+        @Override public String routingDescription() { return "Read knowledge"; }
+
+        @Override
+        public Mono<CapabilityDefinition> definition(AgentExecutionContext context) {
+            definitionContext = context;
+            return Mono.just(new CapabilityDefinition("prompt", List.of(new ToolDefinition("read", "Read", JSON.createObjectNode().put("type", "object")))));
+        }
+
+        @Override
+        public Mono<ToolResult> execute(ToolInvocation invocation, AgentExecutionContext context) {
+            executeCalls++;
+            executionContext = context;
+            executionToken = context.accessTokenAccessor().get();
+            return Mono.just(new ToolResult(true, "ok"));
+        }
     }
 }

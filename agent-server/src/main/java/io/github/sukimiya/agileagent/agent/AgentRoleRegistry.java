@@ -5,11 +5,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
+import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
 import io.github.sukimiya.agileagent.service.ApiCatalog;
+import io.github.sukimiya.agileagent.service.EnterpriseApiClient;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 
 /**
  * Assembles the fixed set of {@link AgentRole}s the system knows about: one per
@@ -80,17 +85,28 @@ public class AgentRoleRegistry {
             """;
 
     private final Map<String, AgentRole> rolesByCode;
+    private final ApiCatalog apiCatalog;
+    private final KnowledgeCapabilityProvider knowledgeProvider;
 
-    public AgentRoleRegistry(ApiCatalog apiCatalog, KnowledgeCatalog knowledgeCatalog) {
+    @Autowired
+    public AgentRoleRegistry(ApiCatalog apiCatalog, KnowledgeCatalog knowledgeCatalog,
+                             KnowledgeCapabilityProvider knowledgeProvider) {
+        this.apiCatalog = apiCatalog;
+        this.knowledgeProvider = knowledgeProvider;
         var roles = new LinkedHashMap<String, AgentRole>();
         addApiRole(roles, apiCatalog, "MES", "制造执行系统", "生产工单、设备、5S、质量检验等制造现场数据");
         addApiRole(roles, apiCatalog, "CRM", "客户关系管理系统", "客户、商机、合同、报价等销售数据");
         addApiRole(roles, apiCatalog, "WMS", "仓储管理系统", "入库、出库、库存、盘点等仓储数据");
         addApiRole(roles, apiCatalog, "QMS", "质量管理系统", "检验、不合格品、质量追溯等质量数据");
         addApiRole(roles, apiCatalog, "SRM", "供应商关系管理", "供应商、采购、寻源等供应链数据");
-        roles.put("KNOWLEDGE", new AgentRole("KNOWLEDGE", "知识库", "已审核通过的业务/流程类文档，如低代码平台使用说明",
-                knowledgeCatalog::compactIndex, List.of(READ_KNOWLEDGE_DOC_TOOL), KNOWLEDGE_PROMPT_TEMPLATE));
+        roles.put("KNOWLEDGE", new AgentRole(knowledgeProvider.code(), knowledgeProvider.displayName(),
+                knowledgeProvider.routingDescription(), knowledgeCatalog::compactIndex,
+                List.of(READ_KNOWLEDGE_DOC_TOOL), KNOWLEDGE_PROMPT_TEMPLATE));
         this.rolesByCode = Map.copyOf(roles);
+    }
+
+    public AgentRoleRegistry(ApiCatalog apiCatalog, KnowledgeCatalog knowledgeCatalog) {
+        this(apiCatalog, knowledgeCatalog, new KnowledgeCapabilityProvider(knowledgeCatalog));
     }
 
     private void addApiRole(Map<String, AgentRole> roles, ApiCatalog apiCatalog,
@@ -108,6 +124,21 @@ public class AgentRoleRegistry {
 
     public List<AgentRole> all() {
         return List.copyOf(rolesByCode.values());
+    }
+
+    public List<AgentCapabilityProvider> apiCapabilityProviders(EnterpriseApiClient enterpriseApi) {
+        var providers = new java.util.ArrayList<AgentCapabilityProvider>();
+        rolesByCode.values().stream()
+                .filter(role -> !"KNOWLEDGE".equals(role.code()))
+                .map(role -> (AgentCapabilityProvider) new ApiRoleCapabilityProvider(role, apiCatalog, enterpriseApi))
+                .forEach(providers::add);
+        return List.copyOf(providers);
+    }
+
+    public CapabilityRegistry capabilityRegistry(EnterpriseApiClient enterpriseApi) {
+        var providers = new java.util.ArrayList<>(apiCapabilityProviders(enterpriseApi));
+        providers.add(knowledgeProvider);
+        return new CapabilityRegistry(providers);
     }
 
     public String routingCatalog() {

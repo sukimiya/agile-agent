@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.agent;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -15,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -71,11 +73,17 @@ public class Orchestrator {
     }
 
     public Flux<String> chat(String ownerId, String accessToken, String userMessage) {
+        return chat(ownerId, accessToken, userMessage,
+                new IdentityContext(ownerId, null, null, null, null, null,
+                        Set.of(), Set.of(), Set.of(), false, false));
+    }
+
+    public Flux<String> chat(String ownerId, String accessToken, String userMessage, IdentityContext identity) {
         Flux<String> body = memory.get(ownerId)
                 .flatMapMany(history -> route(history, userMessage)
                         .flatMapMany(roleCodes -> roleCodes.isEmpty()
                                 ? answerDirectly(ownerId, history, userMessage)
-                                : answerViaDomains(ownerId, history, userMessage, roleCodes, accessToken)));
+                                : answerViaDomains(ownerId, history, userMessage, roleCodes, accessToken, identity)));
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
@@ -132,9 +140,9 @@ public class Orchestrator {
     }
 
     private Flux<String> answerViaDomains(String ownerId, List<LlmClient.Message> history, String userMessage,
-                                           List<String> roleCodes, String accessToken) {
+                                           List<String> roleCodes, String accessToken, IdentityContext identity) {
         var tasks = roleCodes.stream()
-                .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken))
+                .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken, identity))
                 .toList();
         Flux<AgentEvent> events = dispatcher.dispatch(tasks).cache();
 

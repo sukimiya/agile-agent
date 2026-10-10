@@ -13,6 +13,7 @@ import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
 import io.github.sukimiya.agileagent.service.ApiCatalog;
 import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -59,6 +60,24 @@ class OrchestratorTest {
         assertThat(capturedTasks()).extracting(DomainTask::roleCode).containsExactly("MES");
         verify(memory).append(eq("conv-1"), eq(List.of(
                 LlmClient.Message.user("有多少个客户"), LlmClient.Message.assistantText("共有 48 个客户"))));
+    }
+
+    @Test
+    void propagatesAuthenticatedIdentityConversationAndTokenToDomainTask() {
+        stubEmptyHistory();
+        when(llm.chatStream(any(), eq(List.of())))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[\"KNOWLEDGE\"]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("回答")));
+        when(dispatcher.dispatch(anyList())).thenReturn(Flux.just(new AgentEvent.Finished("KNOWLEDGE", "知识结果")));
+        var identity = new IdentityContext("user-7", "Lin", "tenant-1", "Tenant", null, null,
+                java.util.Set.of("member"), java.util.Set.of(), java.util.Set.of(), false, false);
+
+        orchestrator.chat("conv-1", "secret-token", "question", identity).collectList().block();
+
+        var task = capturedTasks().getFirst();
+        assertThat(task.sessionId()).isEqualTo("conv-1");
+        assertThat(task.identity()).isSameAs(identity);
+        assertThat(task.accessToken()).isEqualTo("secret-token");
     }
 
     @Test

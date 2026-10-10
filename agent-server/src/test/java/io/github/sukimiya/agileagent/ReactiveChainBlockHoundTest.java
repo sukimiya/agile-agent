@@ -78,7 +78,7 @@ class ReactiveChainBlockHoundTest {
                                 .subscribeOn(Schedulers.parallel()));
 
         var roles = new AgentRoleRegistry(apiCatalog, knowledgeCatalog);
-        var domainAgent = new DomainAgent(llm, enterpriseApi, apiCatalog, knowledgeCatalog, roles);
+        var domainAgent = new DomainAgent(llm, roles.capabilityRegistry(enterpriseApi));
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
         var orchestrator = new Orchestrator(llm, dispatcher, roles, memory);
 

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 import io.github.sukimiya.agileagent.service.SessionService;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
 import io.github.sukimiya.agileagent.web.CurrentUserArgumentResolver;
 import io.github.sukimiya.agileagent.web.WebConfig;
@@ -45,11 +47,17 @@ class ChatControllerTest {
                 Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test")));
     }
 
+    private static IdentityContext user1Identity() {
+        return new IdentityContext("user-1", "Test User", null, null, null, null,
+                Set.of("test"), Set.of(), Set.of(), false, false);
+    }
+
     @Test
     void chatCompletionsStreamsWithoutRequiringAnyBinding() {
         asUser1();
         when(sessionService.touchOrCreate("conv-1", "user-1", "hi")).thenReturn(Mono.just(SessionService.AccessResult.OWNED));
-        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"))).thenReturn(Flux.just("hello back"));
+        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity())))
+                .thenReturn(Flux.just("hello back"));
 
         client.post().uri("/api/chat/completions")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -58,7 +66,7 @@ class ChatControllerTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(orchestrator).chat("conv-1", "sl-tok", "hi");
+        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity());
     }
 
     @Test
@@ -89,7 +97,8 @@ class ChatControllerTest {
     void legacyChatStreamsWithoutRequiringAnyBinding() {
         asUser1();
         when(sessionService.touchOrCreate("conv-1", "user-1", "hi")).thenReturn(Mono.just(SessionService.AccessResult.OWNED));
-        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"))).thenReturn(Flux.just("hello back"));
+        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity())))
+                .thenReturn(Flux.just("hello back"));
 
         client.post().uri("/api/chat")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -98,7 +107,7 @@ class ChatControllerTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(orchestrator).chat("conv-1", "sl-tok", "hi");
+        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity());
     }
 
     @Test

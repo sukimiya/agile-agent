@@ -89,7 +89,7 @@ class AgentLoggingTest {
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("聚合回答"))); // 4) aggregate
 
         var roles = new AgentRoleRegistry(apiCatalog, knowledgeCatalog);
-        var domainAgent = new DomainAgent(llm, enterpriseApi, apiCatalog, knowledgeCatalog, roles);
+        var domainAgent = new DomainAgent(llm, roles.capabilityRegistry(enterpriseApi));
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
         var orchestrator = new Orchestrator(llm, dispatcher, roles, memory);
 
@@ -100,6 +100,7 @@ class AgentLoggingTest {
 
         List<ILoggingEvent> events = appender.list;
         assertThat(events).isNotEmpty();
+        assertThat(events).allSatisfy(e -> assertThat(e.getFormattedMessage()).doesNotContain("sl-tok"));
 
         Set<String> traceIds = events.stream()
                 .map(e -> e.getMDCPropertyMap().get("traceId"))
