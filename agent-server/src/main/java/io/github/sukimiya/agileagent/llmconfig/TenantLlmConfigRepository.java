@@ -1,0 +1,71 @@
+package io.github.sukimiya.agileagent.llmconfig;
+
+import java.time.LocalDateTime;
+
+import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.stereotype.Repository;
+
+import io.r2dbc.spi.Readable;
+import reactor.core.publisher.Mono;
+
+@Repository
+public class TenantLlmConfigRepository {
+
+    private final DatabaseClient db;
+
+    public TenantLlmConfigRepository(DatabaseClient db) {
+        this.db = db;
+    }
+
+    public Mono<Void> upsert(TenantLlmConfigRow row) {
+        return db.sql("""
+                INSERT INTO tenant_llm_config
+                    (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at)
+                VALUES (:id, :tenantId, :presetId, :apiKeyEncrypted, :createdAt, :updatedAt)
+                ON DUPLICATE KEY UPDATE
+                    preset_id = :presetId, api_key_encrypted = :apiKeyEncrypted, updated_at = :updatedAt
+                """)
+                .bind("id", row.id())
+                .bind("tenantId", row.tenantId())
+                .bind("presetId", row.presetId())
+                .bind("apiKeyEncrypted", row.apiKeyEncrypted())
+                .bind("createdAt", row.createdAt())
+                .bind("updatedAt", row.updatedAt())
+                .fetch().rowsUpdated().then();
+    }
+
+    public Mono<TenantLlmConfigRow> findByTenantId(String tenantId) {
+        return db.sql("""
+                SELECT id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at
+                FROM tenant_llm_config WHERE tenant_id = :tenantId
+                """)
+                .bind("tenantId", tenantId)
+                .map(TenantLlmConfigRepository::mapRow)
+                .one();
+    }
+
+    public Mono<Long> deleteByTenantId(String tenantId) {
+        return db.sql("DELETE FROM tenant_llm_config WHERE tenant_id = :tenantId")
+                .bind("tenantId", tenantId)
+                .fetch().rowsUpdated();
+    }
+
+    private static TenantLlmConfigRow mapRow(Readable row) {
+        return new TenantLlmConfigRow(
+                row.get("id", String.class),
+                row.get("tenant_id", String.class),
+                row.get("preset_id", String.class),
+                row.get("api_key_encrypted", String.class),
+                row.get("created_at", LocalDateTime.class),
+                row.get("updated_at", LocalDateTime.class));
+    }
+
+    public record TenantLlmConfigRow(
+            String id,
+            String tenantId,
+            String presetId,
+            String apiKeyEncrypted,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt) {
+    }
+}
