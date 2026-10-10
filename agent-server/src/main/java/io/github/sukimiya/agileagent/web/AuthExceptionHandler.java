@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import io.github.sukimiya.agileagent.auth.IdentityMappingException;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetNotFoundException;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetValidationException;
+import io.github.sukimiya.agileagent.llmconfig.LlmConfigValidationException;
 import io.github.sukimiya.agileagent.service.OAuth2Client.OAuth2UnavailableException;
 
 @RestControllerAdvice
@@ -47,5 +48,11 @@ public class AuthExceptionHandler {
     ResponseEntity<ApiError> handleProviderPresetNotFound(LlmProviderPresetNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ApiError("LLM_PROVIDER_PRESET_NOT_FOUND", "Provider preset not found"));
+    }
+
+    @ExceptionHandler(LlmConfigValidationException.class)
+    ResponseEntity<ApiError> handleLlmConfigValidation(LlmConfigValidationException exception) {
+        return ResponseEntity.status(exception.status())
+                .body(new ApiError(exception.code(), exception.getMessage()));
     }
 }
