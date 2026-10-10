@@ -25,6 +25,7 @@ public final class TenantLlmClientResolver {
     private final ApiKeyCrypto crypto;
     private final WebClient.Builder webClientBuilder;
     private final TtlCache<String, ResolvedClient> cache;
+    private final Runnable afterGenerationCheck;
     private final ConcurrentMap<String, Mono<ResolvedClient>> loads = new ConcurrentHashMap<>();
     private final AtomicLong evictionGeneration = new AtomicLong();
 
@@ -45,11 +46,23 @@ public final class TenantLlmClientResolver {
             WebClient.Builder webClientBuilder,
             Clock clock,
             Duration ttl) {
+        this(configs, presets, crypto, webClientBuilder, clock, ttl, () -> { });
+    }
+
+    TenantLlmClientResolver(
+            TenantLlmConfigRepository configs,
+            LlmProviderPresetRepository presets,
+            ApiKeyCrypto crypto,
+            WebClient.Builder webClientBuilder,
+            Clock clock,
+            Duration ttl,
+            Runnable afterGenerationCheck) {
         this.configs = configs;
         this.presets = presets;
         this.crypto = crypto;
         this.webClientBuilder = webClientBuilder;
         this.cache = new TtlCache<>(ttl, clock);
+        this.afterGenerationCheck = afterGenerationCheck;
     }
 
     public Mono<LlmClient> resolve(String tenantId) {
@@ -62,16 +75,20 @@ public final class TenantLlmClientResolver {
 
     public void evict(String tenantId) {
         if (tenantId != null) {
-            evictionGeneration.incrementAndGet();
-            cache.evict(tenantId);
-            loads.remove(tenantId);
+            synchronized (cache) {
+                evictionGeneration.incrementAndGet();
+                cache.evict(tenantId);
+                loads.remove(tenantId);
+            }
         }
     }
 
     public void evictAll() {
-        evictionGeneration.incrementAndGet();
-        cache.evictAll();
-        loads.clear();
+        synchronized (cache) {
+            evictionGeneration.incrementAndGet();
+            cache.evictAll();
+            loads.clear();
+        }
     }
 
     private Mono<ResolvedClient> resolved(String tenantId) {
@@ -87,9 +104,13 @@ public final class TenantLlmClientResolver {
                 long generation = evictionGeneration.get();
                 var self = new AtomicReference<Mono<ResolvedClient>>();
                 Mono<ResolvedClient> loading = load(key)
-                        .map(value -> evictionGeneration.get() == generation
-                                ? cache.putIfAbsent(key, value)
-                                : value)
+                        .map(value -> {
+                            synchronized (cache) {
+                                boolean generationIsCurrent = evictionGeneration.get() == generation;
+                                afterGenerationCheck.run();
+                                return generationIsCurrent ? cache.putIfAbsent(key, value) : value;
+                            }
+                        })
                         .doFinally(signal -> loads.remove(key, self.get()))
                         .cache();
                 self.set(loading);

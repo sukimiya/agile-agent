@@ -15,6 +15,7 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -144,6 +145,69 @@ class TenantLlmClientResolverTest {
     }
 
     @Test
+    void evictionCannotInterleaveBetweenGenerationCheckAndCacheInsertion() throws Exception {
+        var afterGenerationCheck = new CountDownLatch(1);
+        var continueCacheWrite = new CountDownLatch(1);
+        var fixture = new Fixture(() -> {
+            afterGenerationCheck.countDown();
+            await(continueCacheWrite);
+        });
+        fixture.add("tenant-a", "preset-a", "https://old.example/v1", "old-model", RAW_KEY);
+        fixture.add("tenant-a", "preset-b", "https://new.example/v1", "new-model", "sk-new-secret");
+        var oldConfig = Sinks.<TenantLlmConfigRepository.TenantLlmConfigRow>one();
+        when(fixture.configs.findByTenantId("tenant-a"))
+                .thenReturn(oldConfig.asMono(), Mono.just(config("tenant-a", "preset-b",
+                        fixture.crypto.encrypt("sk-new-secret"))));
+
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            Future<LlmClient> oldResolution = pool.submit(() -> fixture.resolver.resolve("tenant-a").block());
+            oldConfig.tryEmitValue(config("tenant-a", "preset-a", fixture.crypto.encrypt(RAW_KEY)));
+            assertThat(afterGenerationCheck.await(2, TimeUnit.SECONDS)).isTrue();
+
+            var evictionStarted = new CountDownLatch(1);
+            var eviction = new Thread(() -> {
+                evictionStarted.countDown();
+                fixture.resolver.evict("tenant-a");
+            });
+            eviction.start();
+            assertThat(evictionStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            boolean evictionWasSerialized = awaitBlockedOrTerminated(eviction);
+
+            continueCacheWrite.countDown();
+            LlmClient oldClient = oldResolution.get(2, TimeUnit.SECONDS);
+            eviction.join(TimeUnit.SECONDS.toMillis(2));
+
+            assertThat(evictionWasSerialized).isTrue();
+            assertThat(eviction.isAlive()).isFalse();
+            assertThat(fixture.resolver.resolve("tenant-a").block()).isNotSameAs(oldClient);
+        } finally {
+            continueCacheWrite.countDown();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(2, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for the cache write barrier");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for the cache write barrier", exception);
+        }
+    }
+
+    private static boolean awaitBlockedOrTerminated(Thread thread) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            var state = thread.getState();
+            if (state == Thread.State.BLOCKED) return true;
+            if (state == Thread.State.TERMINATED) return false;
+            Thread.onSpinWait();
+        }
+        throw new AssertionError("Eviction thread neither blocked on the cache transaction nor completed");
+    }
+
+    @Test
     void resolvedPresetAndKeyRedactsPlaintextAndClientUsesConfiguredValues() {
         var fixture = new Fixture();
         fixture.add("tenant-a", "preset-a", "https://a.example/v1", "preset-model", RAW_KEY);
@@ -188,8 +252,14 @@ class TenantLlmClientResolverTest {
         final ApiKeyCrypto crypto = new ApiKeyCrypto(secretProperties);
         final MutableClock clock = new MutableClock(Instant.parse("2026-10-10T00:00:00Z"));
         final AtomicInteger configLookups = new AtomicInteger();
-        final TenantLlmClientResolver resolver = new TenantLlmClientResolver(
-                configs, presets, crypto, WebClient.builder(), clock, Duration.ofMinutes(5));
+        final TenantLlmClientResolver resolver;
+
+        Fixture() { this(() -> { }); }
+
+        Fixture(Runnable afterGenerationCheck) {
+            resolver = new TenantLlmClientResolver(
+                    configs, presets, crypto, WebClient.builder(), clock, Duration.ofMinutes(5), afterGenerationCheck);
+        }
 
         void add(String tenant, String presetId, String baseUrl, String model, String key) {
             when(configs.findByTenantId(tenant)).thenAnswer(invocation -> {
