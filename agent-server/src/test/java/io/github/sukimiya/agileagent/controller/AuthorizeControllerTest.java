@@ -43,6 +43,7 @@ class AuthorizeControllerTest {
     void meReturns401WithoutToken() {
         client.get().uri("/api/authorize/me")
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectBody().json("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
     }
 }

@@ -61,7 +61,8 @@ class KnowledgeControllerTest {
         client.post().uri("/api/knowledge/upload")
                 .body(BodyInserters.fromMultipartData(builder.build()))
                 .exchange()
-                .expectStatus().isUnauthorized();
+                .expectStatus().isUnauthorized()
+                .expectBody().json("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
     }
 
     @Test
