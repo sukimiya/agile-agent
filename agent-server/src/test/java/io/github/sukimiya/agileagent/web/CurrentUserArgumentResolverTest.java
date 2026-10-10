@@ -14,6 +14,7 @@ import static io.github.sukimiya.agileagent.TestAuthUsers.identity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -51,6 +52,7 @@ class CurrentUserArgumentResolverTest {
         when(redis.opsForValue()).thenReturn(ops);
         when(ops.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(Mono.just(true));
         when(redis.delete(anyString())).thenReturn(Mono.just(1L));
+        when(redis.hasKey(anyString())).thenReturn(Mono.just(false));
         when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(Flux.just(1L));
         return redis;
     }
@@ -96,6 +98,7 @@ class CurrentUserArgumentResolverTest {
                 java.util.Set.of("admin"), Instant.now());
         var refreshedIdentity = identity("user-1", "周琳琳", Set.of("reader"));
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(refreshedIdentity));
         when(sessions.update(any(), any())).thenReturn(Mono.empty());
@@ -109,7 +112,11 @@ class CurrentUserArgumentResolverTest {
                     org.assertj.core.api.Assertions.assertThat(refreshed.identity()).isEqualTo(refreshedIdentity);
                 })
                 .verifyComplete();
-        verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), any());
+        var callOrder = org.mockito.Mockito.inOrder(sessions, oauth2);
+        callOrder.verify(sessions).delete("tok-1");
+        callOrder.verify(oauth2).refresh("rt-1");
+        callOrder.verify(oauth2).fetchIdentity("at-2");
+        callOrder.verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), any());
     }
 
     @Test
@@ -119,6 +126,7 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", null, 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(expiring.identity()));
         when(sessions.update(any(), any())).thenReturn(Mono.empty());
@@ -128,11 +136,121 @@ class CurrentUserArgumentResolverTest {
                 .assertNext(result -> org.assertj.core.api.Assertions
                         .assertThat(((AuthSessionStore.AuthUser) result).refreshToken()).isEqualTo("rt-1"))
                 .verifyComplete();
+        verify(sessions).delete("tok-1");
 
         var persisted = org.mockito.ArgumentCaptor.forClass(AuthSessionStore.AuthUser.class);
         verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), persisted.capture());
         org.assertj.core.api.Assertions.assertThat(persisted.getValue().refreshToken()).isEqualTo("rt-1");
         org.assertj.core.api.Assertions.assertThat(persisted.getValue().accessToken()).isEqualTo("at-2");
+    }
+
+    @Test
+    void keepsExistingRefreshTokenWhenProviderReturnsTheUnchangedValue() {
+        var sessions = mock(AuthSessionStore.class);
+        var oauth2 = mock(OAuth2Client.class);
+        var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
+                Set.of("admin"), Instant.now());
+        when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-1", 3600)));
+        when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(expiring.identity()));
+        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
+
+        StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
+                .assertNext(result -> {
+                    var refreshed = (AuthSessionStore.AuthUser) result;
+                    org.assertj.core.api.Assertions.assertThat(refreshed.accessToken()).isEqualTo("at-2");
+                    org.assertj.core.api.Assertions.assertThat(refreshed.refreshToken()).isEqualTo("rt-1");
+                })
+                .verifyComplete();
+
+        var persisted = org.mockito.ArgumentCaptor.forClass(AuthSessionStore.AuthUser.class);
+        verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), persisted.capture());
+        org.assertj.core.api.Assertions.assertThat(persisted.getValue().refreshToken()).isEqualTo("rt-1");
+    }
+
+    @Test
+    void refreshNeverStartsWhenPreRefreshSessionInvalidationFails() {
+        var sessions = mock(AuthSessionStore.class);
+        var oauth2 = mock(OAuth2Client.class);
+        var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
+                Set.of("admin"), Instant.now());
+        var refreshCalls = new AtomicInteger();
+        when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(
+                Mono.error(new IllegalStateException("redis unavailable")), Mono.empty());
+        when(oauth2.refresh("rt-1")).thenReturn(Mono.defer(() -> {
+            refreshCalls.incrementAndGet();
+            return Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600));
+        }));
+        when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(identity("user-1", "周琳琳", Set.of("reader"))));
+        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
+
+        StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
+                .expectError(IllegalStateException.class)
+                .verify();
+
+        verify(sessions).delete("tok-1");
+        verifyNoInteractions(oauth2);
+        org.assertj.core.api.Assertions.assertThat(refreshCalls).hasValue(0);
+
+        // The rejected attempt did not consume rt-1; after Redis is available, retry can use it.
+        StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
+                .assertNext(result -> org.assertj.core.api.Assertions
+                        .assertThat(((AuthSessionStore.AuthUser) result).accessToken()).isEqualTo("at-2"))
+                .verifyComplete();
+        org.assertj.core.api.Assertions.assertThat(refreshCalls).hasValue(1);
+        verify(oauth2).refresh("rt-1");
+    }
+
+    @Test
+    void cancellationAfterRotatedRefreshCannotRestoreTheOldSessionAfterLockExpiry() throws InterruptedException {
+        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
+        config.setPassword("FeetxXuFkZIaM2Pq");
+        config.setDatabase(1);
+        var connectionFactory = new LettuceConnectionFactory(config);
+        connectionFactory.afterPropertiesSet();
+        var redis = new ReactiveStringRedisTemplate(connectionFactory);
+        String appToken = null;
+        reactor.core.Disposable request = null;
+        try {
+            var sessions = new AuthSessionStore(redis);
+            var oauth2 = mock(OAuth2Client.class);
+            var oldIdentity = identity("user-1", "周琳琳", Set.of("tenant_admin"));
+            appToken = sessions.create("at-1", "rt-1", Instant.now().minusSeconds(10), oldIdentity,
+                    Instant.now().minus(Duration.ofMinutes(6))).block();
+            var refreshCalls = new AtomicInteger();
+            var userinfoStarted = new CountDownLatch(1);
+            when(oauth2.refresh("rt-1")).thenReturn(Mono.defer(() -> {
+                refreshCalls.incrementAndGet();
+                return Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600));
+            }));
+            when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.create(sink -> userinfoStarted.countDown()),
+                    Mono.error(new OAuth2Client.OAuth2UnavailableException("userinfo unavailable")));
+            var resolver = new CurrentUserArgumentResolver(sessions, oauth2, redis);
+
+            request = resolver.resolveArgument(null, null, bearer(appToken)).subscribe();
+            org.assertj.core.api.Assertions.assertThat(userinfoStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(sessions.resolve(appToken).blockOptional()).isEmpty();
+
+            request.dispose();
+            redis.delete("oauth2refreshlock:" + appToken).block(); // Simulate the bounded lease expiring.
+
+            org.assertj.core.api.Assertions.assertThat(sessions.resolve(appToken).blockOptional()).isEmpty();
+            StepVerifier.create(resolver.resolveArgument(null, null, bearer(appToken)))
+                    .expectError(UnauthorizedException.class)
+                    .verify();
+            org.assertj.core.api.Assertions.assertThat(refreshCalls).hasValue(1);
+        } finally {
+            if (request != null) request.dispose();
+            if (appToken != null) {
+                redis.delete("oauth2refreshlock:" + appToken).block();
+                redis.delete("authsession:" + appToken).block();
+            }
+            connectionFactory.destroy();
+        }
     }
 
     @Test
@@ -142,6 +260,7 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.error(new OAuth2Client.OAuth2AuthException("token revoked")));
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
@@ -157,6 +276,7 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1"))
                 .thenReturn(Mono.error(new OAuth2Client.OAuth2UnavailableException("connection refused")));
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
@@ -223,12 +343,18 @@ class CurrentUserArgumentResolverTest {
     }
 
     @Test
-    void omittedRefreshTokenDoesNotInvalidateSessionWhenIdentityRefreshFails() {
+    void nonRotatingRefreshFailureFailsClosedInsteadOfReusingPotentiallyConsumedRefreshToken() {
         var sessions = mock(AuthSessionStore.class);
         var oauth2 = mock(OAuth2Client.class);
         var stale = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 Set.of("admin"), Instant.now().minus(Duration.ofMinutes(6)));
-        when(sessions.resolve("tok-1")).thenReturn(Mono.just(stale));
+        var sessionPresent = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(sessions.resolve("tok-1")).thenAnswer(ignored -> sessionPresent.get()
+                ? Mono.just(stale) : Mono.empty());
+        when(sessions.delete("tok-1")).thenAnswer(ignored -> {
+            sessionPresent.set(false);
+            return Mono.empty();
+        });
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", null, 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.error(
                 new OAuth2Client.OAuth2UnavailableException("userinfo unavailable")));
@@ -238,11 +364,11 @@ class CurrentUserArgumentResolverTest {
                 .expectError(OAuth2Client.OAuth2UnavailableException.class)
                 .verify();
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
-                .expectError(OAuth2Client.OAuth2UnavailableException.class)
+                .expectError(UnauthorizedException.class)
                 .verify();
 
-        verify(oauth2, times(2)).refresh("rt-1");
-        verify(sessions, times(0)).delete(anyString());
+        verify(oauth2, times(1)).refresh("rt-1");
+        verify(sessions, times(1)).delete("tok-1");
     }
 
     @Test
@@ -362,16 +488,20 @@ class CurrentUserArgumentResolverTest {
     }
 
     @Test
-    void refreshLeaseOutlastsOwnerOperationAndBothCleanupBudgets() {
+    void refreshLeaseOutlastsOwnerOperationAndCleanupBudgets() {
         org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.LOCKED_OPERATION_TIMEOUT)
-                .isEqualTo(Duration.ofSeconds(65));
+                .isEqualTo(Duration.ofSeconds(75));
         org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.LOCK_ACQUIRE_TIMEOUT)
                 .isEqualTo(Duration.ofSeconds(5));
         org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.LOCK_CLEANUP_TIMEOUT)
                 .isEqualTo(Duration.ofSeconds(10));
+        org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.SESSION_INVALIDATION_TIMEOUT)
+                .isEqualTo(Duration.ofSeconds(10));
+        org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.WINNER_WAIT_TIMEOUT)
+                .isEqualTo(Duration.ofSeconds(105));
         org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.LOCKED_OPERATION_TIMEOUT
                         .plus(CurrentUserArgumentResolver.LOCK_ACQUIRE_TIMEOUT)
-                        .plus(CurrentUserArgumentResolver.LOCK_CLEANUP_TIMEOUT.multipliedBy(2)))
+                        .plus(CurrentUserArgumentResolver.LOCK_CLEANUP_TIMEOUT))
                 .isLessThan(CurrentUserArgumentResolver.REFRESH_LOCK_TTL);
         org.assertj.core.api.Assertions.assertThat(CurrentUserArgumentResolver.REFRESH_LOCK_TTL)
                 .isEqualTo(Duration.ofSeconds(120));
@@ -384,6 +514,7 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
+        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.never());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
@@ -419,6 +550,94 @@ class CurrentUserArgumentResolverTest {
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
                 .expectNext(persistedWinner)
                 .verifyComplete();
+    }
+
+    @Test
+    void loserConvergesWhenSessionIsTemporarilyAbsentDuringWinnerRefresh() throws InterruptedException {
+        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
+        config.setPassword("FeetxXuFkZIaM2Pq");
+        config.setDatabase(1);
+        var connectionFactory = new LettuceConnectionFactory(config);
+        connectionFactory.afterPropertiesSet();
+        var redis = new ReactiveStringRedisTemplate(connectionFactory);
+        String appToken = null;
+        var refreshSink = new AtomicReference<reactor.core.publisher.MonoSink<OAuth2Client.TokenResult>>();
+        var refreshStarted = new CountDownLatch(1);
+        var loserSawMissingSession = new CountDownLatch(1);
+        var resolveCalls = new AtomicInteger();
+        var firstDone = new CountDownLatch(1);
+        var secondDone = new CountDownLatch(1);
+        var results = new ConcurrentLinkedQueue<AuthSessionStore.AuthUser>();
+        var failures = new ConcurrentLinkedQueue<Throwable>();
+        try {
+            var sessions = new AuthSessionStore(redis) {
+                @Override
+                public Mono<AuthUser> resolve(String token) {
+                    int call = resolveCalls.incrementAndGet();
+                    return super.resolve(token).doOnEach(signal -> {
+                        if (call == 3 && signal.isOnComplete()) loserSawMissingSession.countDown();
+                    });
+                }
+            };
+            var oauth2 = mock(OAuth2Client.class);
+            var oldIdentity = identity("user-1", "周琳琳", Set.of("tenant_admin", "reader"));
+            var freshIdentity = identity("user-1", "周琳琳", Set.of("reader"));
+            appToken = sessions.create("at-1", "rt-1", Instant.now().minusSeconds(10), oldIdentity,
+                    Instant.now().minus(Duration.ofMinutes(6))).block();
+            var refreshCalls = new AtomicInteger();
+            when(oauth2.refresh("rt-1")).thenReturn(Mono.defer(() -> {
+                refreshCalls.incrementAndGet();
+                return Mono.create(sink -> {
+                    refreshSink.set(sink);
+                    refreshStarted.countDown();
+                });
+            }));
+            when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(freshIdentity));
+            var resolver = new CurrentUserArgumentResolver(sessions, oauth2, redis);
+
+            resolver.resolveArgument(null, null, bearer(appToken)).subscribe(
+                    value -> results.add((AuthSessionStore.AuthUser) value), failures::add, firstDone::countDown);
+            org.assertj.core.api.Assertions.assertThat(refreshStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(redis.hasKey("authsession:" + appToken).block()).isFalse();
+
+            resolver.resolveArgument(null, null, bearer(appToken)).subscribe(
+                    value -> results.add((AuthSessionStore.AuthUser) value), failures::add, secondDone::countDown);
+            org.assertj.core.api.Assertions.assertThat(loserSawMissingSession.await(5, TimeUnit.SECONDS)).isTrue();
+            refreshSink.get().success(new OAuth2Client.TokenResult("at-2", "rt-2", 3600));
+
+            org.assertj.core.api.Assertions.assertThat(firstDone.await(5, TimeUnit.SECONDS)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(secondDone.await(5, TimeUnit.SECONDS)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(failures).isEmpty();
+            org.assertj.core.api.Assertions.assertThat(results).hasSize(2).allSatisfy(resolved -> {
+                org.assertj.core.api.Assertions.assertThat(resolved.accessToken()).isEqualTo("at-2");
+                org.assertj.core.api.Assertions.assertThat(resolved.refreshToken()).isEqualTo("rt-2");
+                org.assertj.core.api.Assertions.assertThat(resolved.identity()).isEqualTo(freshIdentity);
+                org.assertj.core.api.Assertions.assertThat(resolved.identity().tenantAdmin()).isFalse();
+            });
+            org.assertj.core.api.Assertions.assertThat(refreshCalls).hasValue(1);
+        } finally {
+            if (appToken != null) {
+                var sink = refreshSink.get();
+                if (sink != null) sink.error(new IllegalStateException("test cleanup"));
+                redis.delete("oauth2refreshlock:" + appToken).block();
+                redis.delete("authsession:" + appToken).block();
+            }
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    void loserWaitHasAnElapsedTimeoutEvenWhenRedisReadStalls() {
+        var sessions = mock(AuthSessionStore.class);
+        var redis = mock(ReactiveStringRedisTemplate.class);
+        when(sessions.resolve("tok-1")).thenReturn(Mono.empty(), Mono.never());
+        when(redis.hasKey("oauth2refreshlock:tok-1")).thenReturn(Mono.just(true));
+        var resolver = new CurrentUserArgumentResolver(sessions, mock(OAuth2Client.class), redis);
+
+        StepVerifier.withVirtualTime(() -> resolver.resolveArgument(null, null, bearer("tok-1")))
+                .thenAwait(Duration.ofSeconds(105))
+                .expectError(OAuth2Client.OAuth2UnavailableException.class)
+                .verify(Duration.ofSeconds(5));
     }
 
     @Test
@@ -561,9 +780,10 @@ class CurrentUserArgumentResolverTest {
     @Test
     void unknownTokenErrorsUnauthorized() {
         var sessions = mock(AuthSessionStore.class);
+        var redis = mock(ReactiveStringRedisTemplate.class);
         when(sessions.resolve("bad-token")).thenReturn(Mono.empty());
-        var resolver = new CurrentUserArgumentResolver(sessions, mock(OAuth2Client.class),
-                mock(ReactiveStringRedisTemplate.class));
+        when(redis.hasKey("oauth2refreshlock:bad-token")).thenReturn(Mono.just(false));
+        var resolver = new CurrentUserArgumentResolver(sessions, mock(OAuth2Client.class), redis);
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("bad-token")))
                 .expectError(UnauthorizedException.class)

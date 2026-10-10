@@ -3,9 +3,9 @@ package io.github.sukimiya.agileagent.web;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,15 +31,17 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
     private static final Duration REFRESH_SKEW = Duration.ofSeconds(30);
     private static final Duration IDENTITY_FRESHNESS = Duration.ofMinutes(5);
     private static final String REFRESH_LOCK_PREFIX = "oauth2refreshlock:";
-    // SETNX is capped at 5s and the sequential refresh+userinfo pipeline at 65s. Two cleanup
-    // operations are each capped at 10s; the 120s lease therefore leaves at least 30s of margin.
+    // The whole invalidation/refresh/userinfo/persist owner path is capped at 75s, SETNX at 5s,
+    // and owner-scoped lock cleanup at 10s. The 120s lease leaves at least 30s of margin.
     static final Duration LOCK_ACQUIRE_TIMEOUT = Duration.ofSeconds(5);
-    static final Duration LOCKED_OPERATION_TIMEOUT = Duration.ofSeconds(65);
+    static final Duration LOCKED_OPERATION_TIMEOUT = Duration.ofSeconds(75);
+    static final Duration SESSION_INVALIDATION_TIMEOUT = Duration.ofSeconds(10);
     static final Duration LOCK_CLEANUP_TIMEOUT = Duration.ofSeconds(10);
     static final Duration REFRESH_LOCK_TTL = Duration.ofSeconds(120);
     private static final Duration WINNER_POLL_INTERVAL = Duration.ofMillis(100);
-    // Outlast the 65s operation + up to 20s cleanup. A dead owner still fails closed before lease expiry.
-    private static final int WINNER_POLL_COUNT = 900;
+    // Polling is demand-driven (not a fixed-rate timer); this cap also bounds stalled Redis reads.
+    private static final int WINNER_POLL_COUNT = 1_000;
+    static final Duration WINNER_WAIT_TIMEOUT = Duration.ofSeconds(105);
     private static final RedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
             Long.class);
@@ -67,8 +69,10 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
         String token = header != null && header.startsWith("Bearer ") ? header.substring(7) : null;
         if (token == null) return Mono.error(new UnauthorizedException());
         return sessions.resolve(token)
-                .switchIfEmpty(Mono.error(new UnauthorizedException()))
                 .flatMap(user -> refreshIfRequired(token, user))
+                // An owner deletes the old session before consuming its refresh token. A request
+                // arriving during that interval waits on the same lock and then reads the winner.
+                .switchIfEmpty(Mono.defer(() -> awaitWinner(token, REFRESH_LOCK_PREFIX + token)))
                 .cast(Object.class);
     }
 
@@ -95,50 +99,41 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
 
     /** Every terminal path after SETNX, including the second Redis read, is cleaned up by this owner. */
     private Mono<AuthSessionStore.AuthUser> refreshAsLockOwner(String token, String lockKey, String lockOwner) {
-        var replacementTokenIssued = new AtomicBoolean();
-        var completeSessionPersisted = new AtomicBoolean();
         Mono<AuthSessionStore.AuthUser> work = sessions.resolve(token)
                 .switchIfEmpty(Mono.error(new UnauthorizedException()))
                 .flatMap(current -> isReadyToReturn(current, Instant.now())
                         ? Mono.just(current)
-                        : refreshAndPersist(token, current, replacementTokenIssued, completeSessionPersisted));
+                        : refreshAndPersist(token, current));
 
         return work.timeout(LOCKED_OPERATION_TIMEOUT)
                 .flatMap(current -> releaseRefreshLock(lockKey, lockOwner).thenReturn(current))
                 .onErrorResume(error -> {
-                    Mono<Void> invalidate = replacementTokenIssued.get() && !completeSessionPersisted.get()
-                            ? sessions.delete(token).timeout(LOCK_CLEANUP_TIMEOUT)
-                            : Mono.empty();
-                    // Do not make the old token family retryable unless invalidation finished first.
-                    // If Redis cannot invalidate it, leave this owner's bounded lease in place.
-                    return invalidate.then(releaseRefreshLock(lockKey, lockOwner)).then(Mono.error(error));
+                    return releaseRefreshLock(lockKey, lockOwner).then(Mono.error(error));
                 })
                 .doOnError(error -> log.warn("OAuth2 session refresh or identity update failed"))
                 .onErrorMap(OAuth2Client.OAuth2AuthException.class, error -> new UnauthorizedException());
     }
 
-    private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user,
-                                                               AtomicBoolean replacementTokenIssued,
-                                                               AtomicBoolean completeSessionPersisted) {
+    private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user) {
         Instant now = Instant.now();
         boolean refreshAccessToken = isAccessTokenNearExpiry(user, now);
         Mono<TokenFamily> tokenFamily = refreshAccessToken
-                ? oauth2.refresh(user.refreshToken())
+                // A provider may irreversibly rotate the refresh token. Do not call it until Redis
+                // confirms the old app session is gone; cancellation or any later failure then
+                // fails closed instead of making a consumed token family retryable.
+                ? sessions.delete(token).timeout(SESSION_INVALIDATION_TIMEOUT)
+                        .then(Mono.defer(() -> oauth2.refresh(user.refreshToken())))
                         .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
                                 "OAuth2 token provider response was empty")))
                         .map(tokens -> {
                             String refreshToken = tokens.refreshToken();
-                            if (refreshToken != null && !refreshToken.isBlank()
-                                    && !Objects.equals(refreshToken, user.refreshToken())) {
-                                replacementTokenIssued.set(true);
-                            }
                             if (tokens.accessToken() == null || tokens.accessToken().isBlank()
                                     || tokens.expiresInSeconds() <= REFRESH_SKEW.toSeconds()) {
                                 throw new OAuth2Client.OAuth2UnavailableException(
                                         "OAuth2 token provider response was invalid");
                             }
                             refreshToken = refreshToken == null || refreshToken.isBlank()
-                                    ? user.refreshToken() : tokens.refreshToken();
+                                    ? user.refreshToken() : refreshToken;
                             return new TokenFamily(tokens.accessToken(), refreshToken,
                                     Instant.now().plusSeconds(tokens.expiresInSeconds()));
                         })
@@ -154,8 +149,7 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                     return new AuthSessionStore.AuthUser(identity.subject(), identity.displayName(),
                             tokens.accessToken(), tokens.refreshToken(), tokens.expiresAt(), identity, Instant.now());
                 })
-                .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed)
-                        .doOnSuccess(ignored -> completeSessionPersisted.set(true)))
+                .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed))
                 .flatMap(refreshed -> isReadyToReturn(refreshed, Instant.now())
                         ? Mono.just(refreshed)
                         : Mono.error(new OAuth2Client.OAuth2UnavailableException(
@@ -169,16 +163,32 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
      */
     private Mono<AuthSessionStore.AuthUser> awaitWinner(String token, String lockKey) {
         return Mono.defer(() -> sessions.resolve(token)
-                        .switchIfEmpty(Mono.error(new UnauthorizedException()))
-                        .flatMap(current -> isReadyToReturn(current, Instant.now())
-                                ? Mono.just(current)
-                                : redis.hasKey(lockKey).flatMap(lockExists -> Boolean.TRUE.equals(lockExists)
-                                        ? Mono.<AuthSessionStore.AuthUser>empty()
-                                        : Mono.error(new OAuth2Client.OAuth2UnavailableException(
-                                                "OAuth2 session refresh did not complete")))))
+                        .map(Optional::of)
+                        .defaultIfEmpty(Optional.empty())
+                        .flatMap(maybeCurrent -> {
+                            if (maybeCurrent.isPresent()
+                                    && isReadyToReturn(maybeCurrent.get(), Instant.now())) {
+                                return Mono.just(maybeCurrent.get());
+                            }
+                            return redis.hasKey(lockKey)
+                                    .defaultIfEmpty(Boolean.FALSE)
+                                    .flatMap(lockExists -> {
+                                        if (Boolean.TRUE.equals(lockExists)) {
+                                            return Mono.empty();
+                                        }
+                                        if (maybeCurrent.isEmpty()) {
+                                            return Mono.error(new UnauthorizedException());
+                                        }
+                                        return Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                                                "OAuth2 session refresh did not complete"));
+                                    });
+                        }))
                 .repeatWhenEmpty(WINNER_POLL_COUNT, retries -> retries.delayElements(WINNER_POLL_INTERVAL))
                 .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
-                        "OAuth2 session refresh did not complete")));
+                        "OAuth2 session refresh did not complete")))
+                .timeout(WINNER_WAIT_TIMEOUT)
+                .onErrorMap(TimeoutException.class, error -> new OAuth2Client.OAuth2UnavailableException(
+                        "OAuth2 session refresh did not complete"));
     }
 
     private static boolean isReadyToReturn(AuthSessionStore.AuthUser user, Instant now) {
