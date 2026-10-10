@@ -1,5 +1,6 @@
 package io.github.sukimiya.agileagent.knowledge;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -73,13 +74,22 @@ public class KnowledgeDocumentRepository {
     }
 
     public Mono<Long> claimPendingApproval(String id, String claimToken) {
+        return claimPendingApproval(id, claimToken, Duration.ofMinutes(15));
+    }
+
+    public Mono<Long> claimPendingApproval(String id, String claimToken, Duration claimLease) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET approval_claim_token = :claimToken
-                WHERE id = :id AND status = 'PENDING' AND approval_claim_token IS NULL
+                SET approval_claim_token = :claimToken, approval_claimed_at = CURRENT_TIMESTAMP
+                WHERE id = :id AND status = 'PENDING'
+                  AND (approval_claim_token IS NULL OR
+                       (approval_claimed_at IS NOT NULL AND approval_claimed_at <=
+                        TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)))
                 """)
                 .bind("claimToken", claimToken)
                 .bind("id", id)
+                .bind("leaseSeconds", Math.toIntExact(claimLease.getSeconds()
+                        + (claimLease.getNano() > 0 ? 1 : 0)))
                 .fetch().rowsUpdated();
     }
 
@@ -127,15 +137,31 @@ public class KnowledgeDocumentRepository {
                 .fetch().rowsUpdated();
     }
 
-    /** Release a compensated attempt after its library artifacts have been removed. */
+    /** Clear an exact claim after compensation cleanup or a completed approval. */
     public Mono<Long> releasePendingApprovalClaim(String id, String claimToken) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET approval_claim_token = NULL
-                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
+                SET approval_claim_token = NULL, approval_claimed_at = NULL
+                WHERE id = :id AND status IN ('PENDING', 'APPROVED')
+                  AND approval_claim_token = :claimToken
                 """)
                 .bind("id", id)
                 .bind("claimToken", claimToken)
+                .fetch().rowsUpdated();
+    }
+
+    public Mono<Long> rejectClaimedPending(
+            String id, String claimToken, String reviewedByUserId, LocalDateTime reviewedAt) {
+        return db.sql("""
+                UPDATE knowledge_documents
+                SET status = 'REJECTED', reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt,
+                    approval_claim_token = NULL, approval_claimed_at = NULL
+                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
+                """)
+                .bind("reviewedBy", reviewedByUserId)
+                .bind("reviewedAt", reviewedAt)
+                .bind("claimToken", claimToken)
+                .bind("id", id)
                 .fetch().rowsUpdated();
     }
 

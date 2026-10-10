@@ -68,6 +68,12 @@ app:
     lib-dir: ${app.data-dir}/lib
     max-size-mb: 5
     summary-timeout: 30s
+    approval-workflow-timeout: 5m
+    approval-compensation-timeout: 3m
+    approval-claim-lease: 15m
+    approval-claim-safety-margin: 2m
+    approval-claim-release-max-attempts: 3
+    approval-claim-release-retry-delay: 100ms
 
 ---
 spring:

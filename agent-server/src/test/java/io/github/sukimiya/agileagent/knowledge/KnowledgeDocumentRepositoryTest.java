@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.r2dbc.core.DatabaseClient;
 
@@ -23,6 +24,7 @@ import reactor.core.scheduler.Schedulers;
 class KnowledgeDocumentRepositoryTest {
 
     private KnowledgeDocumentRepository repository;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
@@ -31,6 +33,7 @@ class KnowledgeDocumentRepositoryTest {
                 "jdbc:h2:mem:" + dbName + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         dataSource.setDriverClassName("org.h2.Driver");
         Flyway.configure().dataSource(dataSource).load().migrate();
+        jdbc = new JdbcTemplate(dataSource);
         var options = ConnectionFactoryOptions.builder()
                 .option(ConnectionFactoryOptions.DRIVER, "h2")
                 .option(ConnectionFactoryOptions.PROTOCOL, "mem")
@@ -287,6 +290,50 @@ class KnowledgeDocumentRepositoryTest {
         assertThat(repository.statusForApprovalClaim("concurrent-claim", "attempt-a").blockOptional().isPresent()
                 ^ repository.statusForApprovalClaim("concurrent-claim", "attempt-b").blockOptional().isPresent())
                 .isTrue();
+    }
+
+    @Test
+    void unexpiredApprovalClaimCannotBeStolen() {
+        repository.insert(newRow("active-claim", Status.PENDING)).block();
+        assertThat(repository.claimPendingApproval("active-claim", "attempt-a").block()).isEqualTo(1L);
+
+        assertThat(repository.claimPendingApproval("active-claim", "attempt-b").block()).isZero();
+        assertThat(repository.statusForApprovalClaim("active-claim", "attempt-a").block())
+                .isEqualTo(Status.PENDING);
+        assertThat(repository.statusForApprovalClaim("active-claim", "attempt-b").blockOptional()).isEmpty();
+    }
+
+    @Test
+    void expiredApprovalClaimCanBeRecoveredByAStaleApprovalOrRejectAttempt() {
+        repository.insert(newRow("expired-claim", Status.PENDING)).block();
+        assertThat(repository.claimPendingApproval("expired-claim", "attempt-a").block()).isEqualTo(1L);
+        jdbc.update("UPDATE knowledge_documents SET approval_claimed_at = TIMESTAMP '2000-01-01 00:00:00' "
+                + "WHERE id = ?", "expired-claim");
+
+        assertThat(repository.claimPendingApproval("expired-claim", "attempt-b").block()).isEqualTo(1L);
+        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-a").blockOptional()).isEmpty();
+        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-b").block())
+                .isEqualTo(Status.PENDING);
+        assertThat(repository.rejectClaimedPending("expired-claim", "attempt-a", "admin",
+                LocalDateTime.now()).block()).isZero();
+        assertThat(repository.releasePendingApprovalClaim("expired-claim", "attempt-a").block()).isZero();
+        assertThat(repository.rejectClaimedPending("expired-claim", "attempt-b", "admin",
+                LocalDateTime.now()).block()).isEqualTo(1L);
+        assertThat(repository.findById("expired-claim").block().status()).isEqualTo(Status.REJECTED);
+        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-b").blockOptional()).isEmpty();
+    }
+
+    @Test
+    void rejectClaimedPendingRequiresTheCurrentOwnerAndClearsTheLease() {
+        repository.insert(newRow("reject-claim", Status.PENDING)).block();
+        assertThat(repository.claimPendingApproval("reject-claim", "attempt-a").block()).isEqualTo(1L);
+
+        assertThat(repository.rejectClaimedPending("reject-claim", "attempt-b", "admin",
+                LocalDateTime.now()).block()).isZero();
+        assertThat(repository.rejectClaimedPending("reject-claim", "attempt-a", "admin",
+                LocalDateTime.now()).block()).isEqualTo(1L);
+        assertThat(repository.findById("reject-claim").block().status()).isEqualTo(Status.REJECTED);
+        assertThat(repository.statusForApprovalClaim("reject-claim", "attempt-a").blockOptional()).isEmpty();
     }
 
     private static KnowledgeDocumentRow scopedRow(String id, ScopeType scopeType,

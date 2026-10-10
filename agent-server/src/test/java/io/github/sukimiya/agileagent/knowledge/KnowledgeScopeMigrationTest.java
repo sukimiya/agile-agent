@@ -32,7 +32,7 @@ class KnowledgeScopeMigrationTest {
                 .containsExactly("GLOBAL", "GLOBAL", "GLOBAL");
         assertThat(jdbc.queryForList("SELECT tenant_id, tenant_name, org_id, org_name FROM knowledge_documents"))
                 .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
-        assertThat(jdbc.queryForList("SELECT approval_claim_token FROM knowledge_documents"))
+        assertThat(jdbc.queryForList("SELECT approval_claim_token, approval_claimed_at FROM knowledge_documents"))
                 .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
         assertThat(jdbc.queryForList("SELECT status FROM knowledge_documents ORDER BY id", String.class))
                 .containsExactly("APPROVED", "PENDING", "REJECTED");
@@ -40,12 +40,12 @@ class KnowledgeScopeMigrationTest {
                 .containsExactly("approved summary", "pending summary", "rejected summary");
         assertThat(jdbc.queryForList("SELECT \"version\" FROM \"" + historyTable()
                 + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' ORDER BY \"installed_rank\"",
-                String.class)).containsExactly("1", "2", "3", "4", "5", "6");
+                String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7");
 
         flyway(dataSource).migrate();
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM \"" + historyTable()
-                + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' AND \"version\" = '6'", Integer.class))
+                + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' AND \"version\" = '7'", Integer.class))
                 .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_documents", Integer.class)).isEqualTo(3);
     }
@@ -67,18 +67,29 @@ class KnowledgeScopeMigrationTest {
     }
 
     @Test
-    void v6AddsNullableUniqueApprovalClaimToken() {
+    void v6ChecksumRemainsStableAndV7AddsApprovalClaimLeaseAfterV6WasApplied() {
         var dataSource = dataSource("knowledge-approval-claim-" + System.nanoTime());
-        flyway(dataSource).migrate();
+        var v6 = flyway(dataSource, "6");
+        v6.migrate();
         var jdbc = new JdbcTemplate(dataSource);
 
+        assertThat(jdbc.queryForObject("SELECT \"checksum\" FROM \"" + historyTable()
+                + "\" WHERE \"version\" = '6'", Integer.class)).isEqualTo(-1183775273);
         assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-                + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME = 'APPROVAL_CLAIM_TOKEN'",
-                String.class)).containsExactly("APPROVAL_CLAIM_TOKEN");
+                + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME IN "
+                + "('APPROVAL_CLAIM_TOKEN', 'APPROVAL_CLAIMED_AT')", String.class)).isEmpty();
+
+        flyway(dataSource).migrate();
+
+        assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME IN "
+                + "('APPROVAL_CLAIM_TOKEN', 'APPROVAL_CLAIMED_AT') ORDER BY COLUMN_NAME",
+                String.class)).containsExactly("APPROVAL_CLAIMED_AT", "APPROVAL_CLAIM_TOKEN");
 
         insertLegacyRow(jdbc, "one");
         insertLegacyRow(jdbc, "two");
         jdbc.update("UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "one");
+        jdbc.update("UPDATE knowledge_documents SET approval_claimed_at = CURRENT_TIMESTAMP WHERE id = ?", "one");
 
         assertThatThrownBy(() -> jdbc.update(
                 "UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "two"))

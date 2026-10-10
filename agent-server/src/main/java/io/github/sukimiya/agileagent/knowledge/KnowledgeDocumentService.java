@@ -23,6 +23,7 @@ import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.retry.Retry;
 
 @Service
 public class KnowledgeDocumentService {
@@ -45,6 +46,7 @@ public class KnowledgeDocumentService {
         this.catalog = catalog;
         this.policy = policy;
         this.properties = properties;
+        this.properties.validateApprovalClaimSettings();
     }
 
     public enum ActionResult { OK, NOT_FOUND, FORBIDDEN, CONFLICT }
@@ -129,30 +131,69 @@ public class KnowledgeDocumentService {
                     if (existing.status() != Status.PENDING) {
                         return Mono.just(ActionResult.CONFLICT);
                     }
-                    return repository.rejectIfPending(id, identity.subject(), reviewTime())
-                            .map(updated -> updated == 0 ? ActionResult.CONFLICT : ActionResult.OK);
+                    return rejectPending(existing, identity.subject());
                 })
                 .defaultIfEmpty(ActionResult.NOT_FOUND);
+    }
+
+    private Mono<ActionResult> rejectPending(KnowledgeDocumentRow existing, String reviewer) {
+        String claimToken = NonBlockingIds.uuid();
+        var attempt = new ApprovalAttempt();
+        Mono<ActionResult> workflow = repository.claimPendingApproval(
+                        existing.id(), claimToken, properties.getApprovalClaimLease()).cache()
+                .defaultIfEmpty(0L)
+                .flatMap(claimed -> {
+                    if (claimed == 0) return Mono.just(ActionResult.CONFLICT);
+                    attempt.claimed.set(true);
+                    return trackedStorage(attempt, storage.deleteLibraryArtifacts(existing.id()))
+                            .then(Mono.defer(() -> trackedStorage(attempt, reloadCatalog())))
+                            .then(Mono.defer(() -> trackedPersistence(attempt,
+                                    repository.rejectClaimedPending(existing.id(), claimToken, reviewer, reviewTime())))
+                                    .defaultIfEmpty(0L))
+                            .flatMap(updated -> updated == 0
+                                    ? Mono.error(new WorkflowConflictException())
+                                    : Mono.just(ActionResult.OK));
+                })
+                .timeout(properties.getApprovalWorkflowTimeout())
+                .onErrorResume(error -> {
+                    if (error instanceof WorkflowConflictException && !attempt.claimed.get()) {
+                        return Mono.just(ActionResult.CONFLICT);
+                    }
+                    return compensateOwnedAttempt(existing, claimToken, attempt).cache()
+                            .timeout(properties.getApprovalCompensationTimeout())
+                            .onErrorResume(compensationError -> {
+                                log.warn("knowledge rejection compensation could not be confirmed for {}", existing.id());
+                                return Mono.empty();
+                            })
+                            .then(Mono.error(sanitizeWorkflowFailure(error)));
+                })
+                .onErrorResume(WorkflowConflictException.class, error -> Mono.just(ActionResult.CONFLICT));
+        return workflow.cache();
     }
 
     private Mono<KnowledgeDocumentRow> promoteAndApprove(
             KnowledgeDocumentRow existing, String reviewer, String summary) {
         String claimToken = NonBlockingIds.uuid();
-        var claimAcquired = new AtomicBoolean();
-        var workflow = repository.claimPendingApproval(existing.id(), claimToken)
+        var attempt = new ApprovalAttempt();
+        var workflow = repository.claimPendingApproval(
+                        existing.id(), claimToken, properties.getApprovalClaimLease()).cache()
                 .defaultIfEmpty(0L)
                 .flatMap(claimed -> {
                     if (claimed == 0) {
                         return Mono.error(new WorkflowConflictException());
                     }
-                    claimAcquired.set(true);
-                    return promoteClaimedDocument(existing, reviewer, summary, claimToken);
+                    attempt.claimed.set(true);
+                    return trackedStorage(attempt, storage.deleteLibraryArtifacts(existing.id()))
+                            .then(Mono.defer(() -> promoteClaimedDocument(
+                                    existing, reviewer, summary, claimToken, attempt)));
                 })
+                .timeout(properties.getApprovalWorkflowTimeout())
                 .onErrorResume(error -> {
-                    if (error instanceof WorkflowConflictException && !claimAcquired.get()) {
+                    if (error instanceof WorkflowConflictException && !attempt.claimed.get()) {
                         return Mono.error(error);
                     }
-                    return compensateOwnedAttempt(existing, claimToken)
+                    return compensateOwnedAttempt(existing, claimToken, attempt).cache()
+                            .timeout(properties.getApprovalCompensationTimeout())
                             .onErrorResume(compensationError -> {
                                 log.warn("knowledge approval compensation could not be confirmed for {}", existing.id());
                                 return Mono.empty();
@@ -166,14 +207,15 @@ public class KnowledgeDocumentService {
     }
 
     private Mono<KnowledgeDocumentRow> promoteClaimedDocument(
-            KnowledgeDocumentRow existing, String reviewer, String summary, String claimToken) {
+            KnowledgeDocumentRow existing, String reviewer, String summary, String claimToken,
+            ApprovalAttempt attempt) {
         LocalDateTime reviewedAt = reviewTime();
         var metadata = new KnowledgeFileStorage.LibraryMetadata(existing.title(), summary, reviewer, reviewedAt,
                 existing.scopeType(), existing.tenantId(), existing.tenantName(),
                 existing.orgId(), existing.orgName());
-        return storage.promoteToLib(existing.id(), metadata)
-                .then(Mono.defer(() -> repository.approveClaimedPending(
-                        existing.id(), claimToken, summary, reviewer, reviewedAt).defaultIfEmpty(0L)))
+        return trackedStorage(attempt, storage.promoteToLib(existing.id(), metadata))
+                .then(Mono.defer(() -> trackedPersistence(attempt, repository.approveClaimedPending(
+                        existing.id(), claimToken, summary, reviewer, reviewedAt)).defaultIfEmpty(0L)))
                 .flatMap(updated -> updated == 0
                         ? Mono.error(new WorkflowConflictException())
                         : repository.findById(existing.id())
@@ -182,24 +224,61 @@ public class KnowledgeDocumentService {
                     if (approved.status() != Status.APPROVED) {
                         return Mono.error(new WorkflowConflictException());
                     }
-                    return reloadCatalog()
+                    return trackedStorage(attempt, reloadCatalog())
                             .then(Mono.defer(() -> cleanupTemp(existing.id())))
-                            .thenReturn(approved);
+                            .then(Mono.defer(() -> trackedPersistence(attempt,
+                                    repository.releasePendingApprovalClaim(existing.id(), claimToken))
+                                    .defaultIfEmpty(0L)))
+                            .flatMap(released -> released == 0
+                                    ? Mono.error(new WorkflowConflictException())
+                                    : Mono.just(approved));
                 });
     }
 
-    private Mono<Void> compensateOwnedAttempt(KnowledgeDocumentRow existing, String claimToken) {
-        return repository.recoverPendingApprovalClaim(existing.id(), claimToken, existing.summary())
-                .defaultIfEmpty(0L)
-                .onErrorResume(recoveryError -> repository.statusForApprovalClaim(existing.id(), claimToken)
-                        .filter(status -> status == Status.PENDING)
-                        .map(status -> 1L)
-                        .defaultIfEmpty(0L))
+    private Mono<Void> compensateOwnedAttempt(
+            KnowledgeDocumentRow existing, String claimToken, ApprovalAttempt attempt) {
+        return awaitInFlight(attempt)
+                .then(repository.recoverPendingApprovalClaim(existing.id(), claimToken, existing.summary())
+                        .defaultIfEmpty(0L)
+                        .onErrorResume(recoveryError -> repository.statusForApprovalClaim(existing.id(), claimToken)
+                                .filter(status -> status == Status.PENDING)
+                                .map(status -> 1L)
+                                .defaultIfEmpty(0L)))
                 .flatMap(recovered -> recovered == 0
                         ? Mono.empty()
-                        : storage.deleteLibraryArtifacts(existing.id())
-                                .then(repository.releasePendingApprovalClaim(existing.id(), claimToken))
-                                .then());
+                        : trackedStorage(attempt, storage.deleteLibraryArtifacts(existing.id()))
+                                .then(Mono.defer(() -> trackedStorage(attempt, reloadCatalog())
+                                        .onErrorResume(error -> Mono.empty())))
+                                .then(releaseClaimWithRetry(existing.id(), claimToken)));
+    }
+
+    private Mono<Void> releaseClaimWithRetry(String id, String claimToken) {
+        int retries = properties.getApprovalClaimReleaseMaxAttempts() - 1;
+        return Mono.defer(() -> repository.releasePendingApprovalClaim(id, claimToken))
+                .retryWhen(Retry.fixedDelay(retries, properties.getApprovalClaimReleaseRetryDelay()))
+                .then();
+    }
+
+    private static Mono<Void> awaitInFlight(ApprovalAttempt attempt) {
+        Mono<Void> storageOperation = attempt.storageOperation.get();
+        Mono<Long> persistenceOperation = attempt.persistenceOperation.get();
+        Mono<Void> waitStorage = storageOperation == null ? Mono.empty()
+                : storageOperation.onErrorResume(error -> Mono.empty());
+        Mono<Void> waitPersistence = persistenceOperation == null ? Mono.empty()
+                : persistenceOperation.onErrorResume(error -> Mono.empty()).then();
+        return waitStorage.then(waitPersistence);
+    }
+
+    private static Mono<Void> trackedStorage(ApprovalAttempt attempt, Mono<Void> operation) {
+        Mono<Void> shielded = operation.cache();
+        attempt.storageOperation.set(shielded);
+        return shielded;
+    }
+
+    private static Mono<Long> trackedPersistence(ApprovalAttempt attempt, Mono<Long> operation) {
+        Mono<Long> shielded = operation.cache();
+        attempt.persistenceOperation.set(shielded);
+        return shielded;
     }
 
     private Mono<Void> reloadCatalog() {
@@ -258,6 +337,12 @@ public class KnowledgeDocumentService {
     }
 
     private static final class WorkflowConflictException extends RuntimeException {}
+
+    private static final class ApprovalAttempt {
+        private final AtomicBoolean claimed = new AtomicBoolean();
+        private final AtomicReference<Mono<Void>> storageOperation = new AtomicReference<>();
+        private final AtomicReference<Mono<Long>> persistenceOperation = new AtomicReference<>();
+    }
 
     private static final class WorkflowFailureException extends RuntimeException {
         private WorkflowFailureException() {
