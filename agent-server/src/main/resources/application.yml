@@ -18,6 +18,8 @@ server:
   port: 8088
 
 llm:
+  provider-preset:
+    allow-http: false
   config:
     secret: ${LLM_CONFIG_SECRET:}
   client-cache:

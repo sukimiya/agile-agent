@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import io.github.sukimiya.agileagent.auth.IdentityMappingException;
+import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetNotFoundException;
+import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetValidationException;
 import io.github.sukimiya.agileagent.service.OAuth2Client.OAuth2UnavailableException;
 
 @RestControllerAdvice
@@ -33,5 +35,17 @@ public class AuthExceptionHandler {
     ResponseEntity<ApiError> handleIdentityProviderUnavailable(OAuth2UnavailableException exception) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ApiError("IDENTITY_PROVIDER_UNAVAILABLE", "Identity provider unavailable"));
+    }
+
+    @ExceptionHandler(LlmProviderPresetValidationException.class)
+    ResponseEntity<ApiError> handleInvalidProviderPreset(LlmProviderPresetValidationException exception) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("INVALID_LLM_PROVIDER_PRESET", "Provider preset input is invalid"));
+    }
+
+    @ExceptionHandler(LlmProviderPresetNotFoundException.class)
+    ResponseEntity<ApiError> handleProviderPresetNotFound(LlmProviderPresetNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("LLM_PROVIDER_PRESET_NOT_FOUND", "Provider preset not found"));
     }
 }
