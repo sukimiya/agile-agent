@@ -1,11 +1,13 @@
 package io.github.sukimiya.agileagent.knowledge;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.dao.DataAccessException;
 
 class KnowledgeScopeMigrationTest {
 
@@ -29,6 +31,8 @@ class KnowledgeScopeMigrationTest {
         assertThat(jdbc.queryForList("SELECT scope_type FROM knowledge_documents ORDER BY id", String.class))
                 .containsExactly("GLOBAL", "GLOBAL", "GLOBAL");
         assertThat(jdbc.queryForList("SELECT tenant_id, tenant_name, org_id, org_name FROM knowledge_documents"))
+                .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
+        assertThat(jdbc.queryForList("SELECT approval_claim_token FROM knowledge_documents"))
                 .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
         assertThat(jdbc.queryForList("SELECT status FROM knowledge_documents ORDER BY id", String.class))
                 .containsExactly("APPROVED", "PENDING", "REJECTED");
@@ -60,6 +64,32 @@ class KnowledgeScopeMigrationTest {
         assertThat(jdbc.queryForList("SELECT INDEX_NAME FROM INFORMATION_SCHEMA.INDEXES "
                 + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS'", String.class))
                 .contains("IDX_KNOWLEDGE_DOCUMENTS_STATUS");
+    }
+
+    @Test
+    void v6AddsNullableUniqueApprovalClaimToken() {
+        var dataSource = dataSource("knowledge-approval-claim-" + System.nanoTime());
+        flyway(dataSource).migrate();
+        var jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME = 'APPROVAL_CLAIM_TOKEN'",
+                String.class)).containsExactly("APPROVAL_CLAIM_TOKEN");
+
+        insertLegacyRow(jdbc, "one");
+        insertLegacyRow(jdbc, "two");
+        jdbc.update("UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "one");
+
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "two"))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    private static void insertLegacyRow(JdbcTemplate jdbc, String id) {
+        jdbc.update("INSERT INTO knowledge_documents "
+                + "(id, title, original_filename, temp_path, status, summary, uploader_user_id, uploaded_at) "
+                + "VALUES (?, ?, ?, ?, 'PENDING', '', 'uploader', CURRENT_TIMESTAMP)",
+                id, "title", id + ".md", "/tmp/" + id + ".md");
     }
 
     private static DriverManagerDataSource dataSource(String dbName) {

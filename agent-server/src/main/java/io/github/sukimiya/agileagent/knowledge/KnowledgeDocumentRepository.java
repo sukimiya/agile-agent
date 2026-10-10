@@ -72,31 +72,70 @@ public class KnowledgeDocumentRepository {
                 .all();
     }
 
-    public Mono<Long> approveIfPending(String id, String summary, String reviewedByUserId, LocalDateTime reviewedAt) {
+    public Mono<Long> claimPendingApproval(String id, String claimToken) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET status = 'APPROVED', summary = :summary, reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
-                WHERE id = :id AND status = 'PENDING'
+                SET approval_claim_token = :claimToken
+                WHERE id = :id AND status = 'PENDING' AND approval_claim_token IS NULL
                 """)
-                .bind("summary", summary == null ? "" : summary)
-                .bind("reviewedBy", reviewedByUserId)
-                .bind("reviewedAt", reviewedAt)
+                .bind("claimToken", claimToken)
                 .bind("id", id)
                 .fetch().rowsUpdated();
     }
 
-    public Mono<Long> revertApprovalIfMatching(
-            String id, String originalSummary, String reviewedByUserId, LocalDateTime reviewedAt) {
+    public Mono<Long> approveClaimedPending(
+            String id, String claimToken, String summary, String reviewedByUserId, LocalDateTime reviewedAt) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET status = 'PENDING', summary = :summary, reviewed_by_user_id = NULL, reviewed_at = NULL
-                WHERE id = :id AND status = 'APPROVED'
-                  AND reviewed_by_user_id = :reviewedBy AND reviewed_at = :reviewedAt
+                SET status = 'APPROVED', summary = :summary,
+                    reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
+                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
                 """)
-                .bind("summary", originalSummary == null ? "" : originalSummary)
+                .bind("summary", summary == null ? "" : summary)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)
+                .bind("claimToken", claimToken)
                 .bind("id", id)
+                .fetch().rowsUpdated();
+    }
+
+    /** Return an exact attempt's status without exposing the internal claim token on document rows. */
+    public Mono<KnowledgeDocumentRow.Status> statusForApprovalClaim(String id, String claimToken) {
+        return db.sql("""
+                SELECT status FROM knowledge_documents
+                WHERE id = :id AND approval_claim_token = :claimToken
+                """)
+                .bind("id", id)
+                .bind("claimToken", claimToken)
+                .map((row, metadata) -> KnowledgeDocumentRow.Status.valueOf(row.get("status", String.class)))
+                .one();
+    }
+
+    /** Restore PENDING only while this exact attempt still owns the claim; keep the claim through file cleanup. */
+    public Mono<Long> recoverPendingApprovalClaim(String id, String claimToken, String originalSummary) {
+        return db.sql("""
+                UPDATE knowledge_documents
+                SET status = 'PENDING',
+                    summary = :summary,
+                    reviewed_by_user_id = NULL, reviewed_at = NULL
+                WHERE id = :id AND approval_claim_token = :claimToken
+                  AND status IN ('PENDING', 'APPROVED')
+                """)
+                .bind("summary", originalSummary == null ? "" : originalSummary)
+                .bind("id", id)
+                .bind("claimToken", claimToken)
+                .fetch().rowsUpdated();
+    }
+
+    /** Release a compensated attempt after its library artifacts have been removed. */
+    public Mono<Long> releasePendingApprovalClaim(String id, String claimToken) {
+        return db.sql("""
+                UPDATE knowledge_documents
+                SET approval_claim_token = NULL
+                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
+                """)
+                .bind("id", id)
+                .bind("claimToken", claimToken)
                 .fetch().rowsUpdated();
     }
 
@@ -104,7 +143,7 @@ public class KnowledgeDocumentRepository {
         return db.sql("""
                 UPDATE knowledge_documents
                 SET status = 'REJECTED', reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
-                WHERE id = :id AND status = 'PENDING'
+                WHERE id = :id AND status = 'PENDING' AND approval_claim_token IS NULL
                 """)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)

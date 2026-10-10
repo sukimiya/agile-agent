@@ -3,6 +3,8 @@ package io.github.sukimiya.agileagent.knowledge;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +63,7 @@ public class KnowledgeDocumentService {
 
     private Mono<KnowledgeDocumentRow> saveAndPersist(String id, IdentityContext identity, UploadScope scope,
             String title, FilePart file, LlmClient llm) {
+        var insertAttempt = new PendingInsertAttempt();
         return Mono.usingWhen(
                 storage.saveTemp(id, file),
                 saved -> summarize(id, saved.content(), llm)
@@ -69,10 +72,10 @@ public class KnowledgeDocumentService {
                                 file.filename(), saved.tempPath(), scope.initialStatus(), summary,
                                 identity.subject(), LocalDateTime.now(), null, null, scope.scopeType(),
                                 scope.tenantId(), scope.tenantName(), scope.orgId(), scope.orgName()))
-                        .flatMap(row -> repository.insert(row).thenReturn(row)),
+                        .flatMap(row -> insertAttempt.persist(() -> repository.insert(row)).thenReturn(row)),
                 saved -> Mono.empty(),
-                (saved, error) -> cleanupTemp(id),
-                saved -> cleanupTemp(id))
+                (saved, error) -> cleanupTempAfterInsertOutcome(id, insertAttempt),
+                saved -> cleanupTempAfterInsertOutcome(id, insertAttempt))
                 .flatMap(row -> scope.autoApprove()
                         ? promoteAndApprove(row, identity.subject(), row.summary())
                         : Mono.just(row));
@@ -134,71 +137,76 @@ public class KnowledgeDocumentService {
 
     private Mono<KnowledgeDocumentRow> promoteAndApprove(
             KnowledgeDocumentRow existing, String reviewer, String summary) {
+        String claimToken = NonBlockingIds.uuid();
+        var claimAcquired = new AtomicBoolean();
+        var workflow = repository.claimPendingApproval(existing.id(), claimToken)
+                .defaultIfEmpty(0L)
+                .flatMap(claimed -> {
+                    if (claimed == 0) {
+                        return Mono.error(new WorkflowConflictException());
+                    }
+                    claimAcquired.set(true);
+                    return promoteClaimedDocument(existing, reviewer, summary, claimToken);
+                })
+                .onErrorResume(error -> {
+                    if (error instanceof WorkflowConflictException && !claimAcquired.get()) {
+                        return Mono.error(error);
+                    }
+                    return compensateOwnedAttempt(existing, claimToken)
+                            .onErrorResume(compensationError -> {
+                                log.warn("knowledge approval compensation could not be confirmed for {}", existing.id());
+                                return Mono.empty();
+                            })
+                            .then(Mono.error(sanitizeWorkflowFailure(error)));
+                });
+
+        // Once a claim or filesystem/database side effect begins, client cancellation must not
+        // interrupt the ownership protocol halfway through.
+        return workflow.cache();
+    }
+
+    private Mono<KnowledgeDocumentRow> promoteClaimedDocument(
+            KnowledgeDocumentRow existing, String reviewer, String summary, String claimToken) {
         LocalDateTime reviewedAt = reviewTime();
         var metadata = new KnowledgeFileStorage.LibraryMetadata(existing.title(), summary, reviewer, reviewedAt,
                 existing.scopeType(), existing.tenantId(), existing.tenantName(),
                 existing.orgId(), existing.orgName());
-        var promotionCompleted = new AtomicBoolean();
-        var casAttempted = new AtomicBoolean();
-        var casResultKnown = new AtomicBoolean();
-        var approvalApplied = new AtomicBoolean();
-
-        return Mono.usingWhen(
-                Mono.just(existing.id()),
-                id -> storage.promoteToLib(id, metadata)
-                        .doOnSuccess(ignored -> promotionCompleted.set(true))
-                        .then(Mono.defer(() -> {
-                            casAttempted.set(true);
-                            return repository.approveIfPending(id, summary, reviewer, reviewedAt)
-                                    .defaultIfEmpty(0L)
-                                    .doOnNext(updated -> {
-                                        casResultKnown.set(true);
-                                        approvalApplied.set(updated > 0);
-                                    });
-                        }))
-                        .flatMap(updated -> updated == 0
-                                ? Mono.error(new WorkflowConflictException())
-                                : repository.findById(id).defaultIfEmpty(approvedSnapshot(existing, summary, reviewer, reviewedAt)))
-                        .flatMap(approved -> {
-                            if (approved.status() != Status.APPROVED) {
-                                return Mono.error(new WorkflowConflictException());
-                            }
-                            return reloadCatalog().thenReturn(approved);
-                        }),
-                id -> Mono.empty(),
-                (id, error) -> promotionCompleted.get()
-                        ? compensatePromotion(existing, reviewer, reviewedAt,
-                                casAttempted.get() && (!casResultKnown.get() || approvalApplied.get()))
-                        : Mono.empty(),
-                id -> promotionCompleted.get()
-                        ? compensatePromotion(existing, reviewer, reviewedAt,
-                                casAttempted.get() && (!casResultKnown.get() || approvalApplied.get()))
-                        : Mono.empty())
-                .flatMap(approved -> cleanupTemp(existing.id()).thenReturn(approved));
-    }
-
-    private Mono<Void> compensatePromotion(KnowledgeDocumentRow existing, String reviewer,
-            LocalDateTime reviewedAt, boolean approvalMayHaveApplied) {
-        Mono<Long> rollback = approvalMayHaveApplied
-                ? repository.revertApprovalIfMatching(existing.id(), existing.summary(), reviewer, reviewedAt)
-                : Mono.just(0L);
-        return rollback
-                .flatMap(reverted -> reverted > 0
-                        ? deleteLibraryArtifacts(existing.id())
+        return storage.promoteToLib(existing.id(), metadata)
+                .then(Mono.defer(() -> repository.approveClaimedPending(
+                        existing.id(), claimToken, summary, reviewer, reviewedAt).defaultIfEmpty(0L)))
+                .flatMap(updated -> updated == 0
+                        ? Mono.error(new WorkflowConflictException())
                         : repository.findById(existing.id())
-                                .map(current -> current.status() != Status.APPROVED)
-                                .defaultIfEmpty(true)
-                                .flatMap(shouldDelete -> shouldDelete
-                                        ? deleteLibraryArtifacts(existing.id())
-                                        : Mono.empty()))
-                .onErrorResume(error -> {
-                    log.warn("knowledge approval compensation could not be confirmed for {}", existing.id());
-                    return Mono.empty();
+                                .defaultIfEmpty(approvedSnapshot(existing, summary, reviewer, reviewedAt)))
+                .flatMap(approved -> {
+                    if (approved.status() != Status.APPROVED) {
+                        return Mono.error(new WorkflowConflictException());
+                    }
+                    return reloadCatalog()
+                            .then(Mono.defer(() -> cleanupTemp(existing.id())))
+                            .thenReturn(approved);
                 });
     }
 
+    private Mono<Void> compensateOwnedAttempt(KnowledgeDocumentRow existing, String claimToken) {
+        return repository.recoverPendingApprovalClaim(existing.id(), claimToken, existing.summary())
+                .defaultIfEmpty(0L)
+                .onErrorResume(recoveryError -> repository.statusForApprovalClaim(existing.id(), claimToken)
+                        .filter(status -> status == Status.PENDING)
+                        .map(status -> 1L)
+                        .defaultIfEmpty(0L))
+                .flatMap(recovered -> recovered == 0
+                        ? Mono.empty()
+                        : storage.deleteLibraryArtifacts(existing.id())
+                                .then(repository.releasePendingApprovalClaim(existing.id(), claimToken))
+                                .then());
+    }
+
     private Mono<Void> reloadCatalog() {
-        return Mono.fromRunnable(catalog::reload).subscribeOn(Schedulers.boundedElastic()).then();
+        return Mono.fromRunnable(catalog::reload)
+                .subscribeOn(Schedulers.boundedElastic())
+                .onErrorMap(error -> new WorkflowFailureException())
+                .then();
     }
 
     private Mono<Void> cleanupTemp(String id) {
@@ -208,11 +216,30 @@ public class KnowledgeDocumentService {
         });
     }
 
-    private Mono<Void> deleteLibraryArtifacts(String id) {
-        return storage.deleteLibraryArtifacts(id).onErrorResume(error -> {
-            log.warn("knowledge library cleanup failed for {}", id);
-            return Mono.empty();
-        });
+    private Mono<Void> cleanupTempAfterInsertOutcome(String id, PendingInsertAttempt attempt) {
+        Mono<Void> insert = attempt.operation();
+        if (insert == null) {
+            return cleanupTemp(id);
+        }
+        return insert.onErrorResume(error -> Mono.empty())
+                .then(repository.findById(id).hasElement()
+                        .flatMap(referenced -> referenced ? Mono.empty() : cleanupTemp(id)))
+                .onErrorResume(error -> {
+                    // If the persistence outcome cannot be verified, retaining temp content is safer
+                    // than deleting a file a committed row may reference.
+                    log.warn("knowledge temporary file cleanup deferred for {}", id);
+                    return Mono.empty();
+                });
+    }
+
+    private static RuntimeException sanitizeWorkflowFailure(Throwable error) {
+        if (error instanceof WorkflowConflictException
+                || error instanceof KnowledgeFileStorage.RejectedException
+                || error instanceof KnowledgeFileStorage.StorageFailureException
+                || error instanceof WorkflowFailureException) {
+            return (RuntimeException) error;
+        }
+        return new WorkflowFailureException();
     }
 
     private static KnowledgeDocumentRow approvedSnapshot(
@@ -231,4 +258,24 @@ public class KnowledgeDocumentService {
     }
 
     private static final class WorkflowConflictException extends RuntimeException {}
+
+    private static final class WorkflowFailureException extends RuntimeException {
+        private WorkflowFailureException() {
+            super("knowledge approval workflow failed");
+        }
+    }
+
+    private static final class PendingInsertAttempt {
+        private final AtomicReference<Mono<Void>> operation = new AtomicReference<>();
+
+        private Mono<Void> persist(Supplier<Mono<Void>> insert) {
+            return operation.updateAndGet(existing -> existing == null
+                    ? Mono.defer(insert).cache()
+                    : existing);
+        }
+
+        private Mono<Void> operation() {
+            return operation.get();
+        }
+    }
 }
