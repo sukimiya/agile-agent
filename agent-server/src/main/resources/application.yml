@@ -20,6 +20,8 @@ server:
 llm:
   config:
     secret: ${LLM_CONFIG_SECRET:}
+  client-cache:
+    ttl: ${LLM_CLIENT_CACHE_TTL:5m}
   default:
     base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
     api-key: ${LLM_API_KEY:}
