@@ -20,10 +20,10 @@ import org.slf4j.LoggerFactory;
 
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.config.MdcContextConfig;
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
-import io.github.sukimiya.agileagent.service.ApiCatalog;
+import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
 import io.github.sukimiya.agileagent.service.ChatMemory;
-import io.github.sukimiya.agileagent.service.EnterpriseApiClient;
 import io.github.sukimiya.agileagent.service.LlmClient;
 
 import ch.qos.logback.classic.Logger;
@@ -71,9 +71,6 @@ class AgentLoggingTest {
         knowledgeProps.setLibDir(libDir.toString());
         var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps);
 
-        ApiCatalog apiCatalog = mock(ApiCatalog.class);
-        when(apiCatalog.compactIndex(any())).thenReturn("MES | x | GET /a | d\n");
-        EnterpriseApiClient enterpriseApi = mock(EnterpriseApiClient.class);
         ChatMemory memory = mock(ChatMemory.class);
         when(memory.get(any())).thenReturn(Mono.just(List.of()));
         when(memory.append(any(), anyList())).thenReturn(Mono.empty());
@@ -88,10 +85,10 @@ class AgentLoggingTest {
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("已读取文档"))) // 3) domain round 2
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("聚合回答"))); // 4) aggregate
 
-        var roles = new AgentRoleRegistry(apiCatalog, knowledgeCatalog);
-        var domainAgent = new DomainAgent(llm, roles.capabilityRegistry(enterpriseApi));
+        var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
+        var domainAgent = new DomainAgent(llm, capabilities);
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(llm, dispatcher, roles, memory);
+        var orchestrator = new Orchestrator(llm, dispatcher, capabilities, memory);
 
         orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用")
                 .subscribeOn(Schedulers.parallel())

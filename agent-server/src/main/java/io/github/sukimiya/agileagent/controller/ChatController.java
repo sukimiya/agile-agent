@@ -161,17 +161,6 @@ class ChatController {
     void deleteConversation(@PathVariable String id) {
     }
 
-    @GetMapping("/services")
-    List<ServiceInfo> listServices() {
-        return List.of(
-                new ServiceInfo("MES", "制造执行系统", "/api/mes"),
-                new ServiceInfo("CRM", "客户关系管理系统", "/api/crm"),
-                new ServiceInfo("WMS", "仓储管理系统", "/api/wms"),
-                new ServiceInfo("QMS", "质量管理系统", "/api/qms"),
-                new ServiceInfo("SRM", "供应商关系管理", "/api/srm")
-        );
-    }
-
     record ChatRequest(String conversationId, String message) {}
 
     private static IdentityContext identity(AuthSessionStore.AuthUser user) {
@@ -181,5 +170,4 @@ class ChatController {
 
     record ConversationSummary(String id, String title, LocalDateTime updatedAt) {}
 
-    record ServiceInfo(String code, String name, String basePath) {}
 }

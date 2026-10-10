@@ -121,15 +121,6 @@ class ChatControllerTest {
     }
 
     @Test
-    void servicesEndpointListsAllFiveServices() {
-        asUser1();
-        client.get().uri("/api/services").header("Authorization", "Bearer test-token")
-                .exchange()
-                .expectStatus().isOk()
-                .expectBody().jsonPath("$.length()").isEqualTo(5);
-    }
-
-    @Test
     void listConversationsReturnsOnlyCurrentUsersSessions() {
         asUser1();
         var now = LocalDateTime.now();

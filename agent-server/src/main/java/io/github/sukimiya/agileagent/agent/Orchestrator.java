@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
@@ -22,8 +23,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Entry point for a chat turn: routes the question to zero or more domain agents
- * (one per enterprise API service, plus the knowledge base), fans out via
+ * Entry point for a chat turn: routes the question to zero or more capabilities,
+ * fans out via
  * {@link TaskDispatcher}, and aggregates the results into one streamed answer.
  * Output line format (control-line JSON / plain final-text line / done) is unchanged
  * from the single-agent predecessor so the frontend needs no changes.
@@ -36,39 +37,39 @@ public class Orchestrator {
     private static final Duration TOTAL_BUDGET = Duration.ofSeconds(180);
 
     private static final String ROUTING_PROMPT_TEMPLATE = """
-            你是企业内部智能助手的路由模块。根据用户问题和对话历史，判断需要查询以下哪些系统/知识库才能回答。
+            你是智能助手的路由模块。根据用户问题和对话历史，判断需要使用以下哪些能力才能回答。
 
-            可选系统（格式：代码 | 名称 | 说明）：
+            可选能力（格式：代码 | 名称 | 说明）：
             %s
 
             规则：
             1. 只输出一个 JSON 数组，元素为上面代码列表中的代码，不要输出任何其他文字。
-            2. 如果问题明显只涉及一个系统，只输出该系统代码，如 ["MES"]。
-            3. 如果问题涉及多个系统的数据，输出多个代码，如 ["MES","CRM"]。
-            4. 如果问题是打招呼、闲聊、询问助手能力等，与任何系统都无关，输出空数组 []。
+            2. 如果问题明显只涉及一个能力，只输出该能力代码。
+            3. 如果问题涉及多个能力，输出多个代码。
+            4. 如果问题是打招呼、闲聊、询问助手能力等，与任何能力都无关，输出空数组 []。
             5. 不确定时倾向少选而不是多选。
             """;
 
     private static final String DIRECT_ANSWER_PROMPT = """
-            你是企业内部智能助手，可以帮助用户查询 MES/CRM/WMS/QMS/SRM 等系统数据，以及已审核通过的知识库文档。
-            当前问题不涉及具体系统查询，请直接自然地回答（如打招呼、介绍自身能力等），不要编造具体数据。
+            你是智能助手，可以回答一般问题，也可以使用已注册的能力。
+            当前问题不涉及已注册能力，请直接自然地回答（如打招呼、介绍自身能力等），不要编造具体数据。
             """;
 
     private static final String AGGREGATE_PROMPT = """
-            你是企业内部智能助手，以下是各系统/知识库针对用户问题分别给出的查询结果，请综合这些结果，
+            你是智能助手，以下是各能力针对用户问题分别给出的结果，请综合这些结果，
             用自然语言给出统一、连贯的最终回答。可用表格/分组呈现，不要原样输出 JSON。
-            如果某个系统查询失败或超时，如实告知用户对应部分暂时无法获取，不要编造。
+            如果某项能力执行失败或超时，如实告知用户对应部分暂时无法获取，不要编造。
             """;
 
     private final LlmClient llm;
     private final TaskDispatcher dispatcher;
-    private final AgentRoleRegistry roles;
+    private final CapabilityRegistry capabilities;
     private final ChatMemory memory;
 
-    public Orchestrator(LlmClient llm, TaskDispatcher dispatcher, AgentRoleRegistry roles, ChatMemory memory) {
+    public Orchestrator(LlmClient llm, TaskDispatcher dispatcher, CapabilityRegistry capabilities, ChatMemory memory) {
         this.llm = llm;
         this.dispatcher = dispatcher;
-        this.roles = roles;
+        this.capabilities = capabilities;
         this.memory = memory;
     }
 
@@ -81,9 +82,9 @@ public class Orchestrator {
     public Flux<String> chat(String ownerId, String accessToken, String userMessage, IdentityContext identity) {
         Flux<String> body = memory.get(ownerId)
                 .flatMapMany(history -> route(history, userMessage)
-                        .flatMapMany(roleCodes -> roleCodes.isEmpty()
+                        .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
                                 ? answerDirectly(ownerId, history, userMessage)
-                                : answerViaDomains(ownerId, history, userMessage, roleCodes, accessToken, identity)));
+                                : answerViaCapabilities(ownerId, history, userMessage, capabilityCodes, accessToken, identity)));
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
@@ -98,7 +99,7 @@ public class Orchestrator {
 
     private Mono<List<String>> route(List<LlmClient.Message> history, String userMessage) {
         var messages = new ArrayList<LlmClient.Message>();
-        messages.add(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(roles.routingCatalog())));
+        messages.add(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
         messages.addAll(history);
         messages.add(LlmClient.Message.user(userMessage));
         long start = System.currentTimeMillis();
@@ -107,20 +108,26 @@ public class Orchestrator {
                 .map(LlmClient.LlmEvent.Completed::fullText)
                 .next()
                 .defaultIfEmpty("")
-                .map(this::parseRoutingRoles)
-                .doOnNext(codes -> log.info("routing question=\"{}\" roles={} elapsedMs={}",
+                .map(this::parseRoutingCapabilities)
+                .doOnNext(codes -> log.info("routing question=\"{}\" capabilities={} elapsedMs={}",
                         truncate(userMessage, 60), codes, System.currentTimeMillis() - start));
     }
 
-    private List<String> parseRoutingRoles(String text) {
+    private String routingCatalog() {
+        return capabilities.all().stream()
+                .map(provider -> provider.code() + " | " + provider.displayName() + " | " + provider.routingDescription())
+                .collect(Collectors.joining("\n"));
+    }
+
+    private List<String> parseRoutingCapabilities(String text) {
         if (text == null || text.isBlank()) return List.of();
         try {
             JsonNode node = JSON.readTree(text.trim());
             if (!node.isArray()) return List.of();
             var result = new ArrayList<String>();
             for (JsonNode n : node) {
-                roles.byCode(n.asText("")).ifPresent(role -> {
-                    if (!result.contains(role.code())) result.add(role.code());
+                capabilities.byCode(n.asText("")).ifPresent(provider -> {
+                    if (!result.contains(provider.code())) result.add(provider.code());
                 });
             }
             return result;
@@ -131,7 +138,7 @@ public class Orchestrator {
     }
 
     private Flux<String> answerDirectly(String ownerId, List<LlmClient.Message> history, String userMessage) {
-        log.info("routing no-domain, answering directly");
+        log.info("routing no-capability, answering directly");
         var messages = new ArrayList<LlmClient.Message>();
         messages.add(LlmClient.Message.system(DIRECT_ANSWER_PROMPT));
         messages.addAll(history);
@@ -139,9 +146,9 @@ public class Orchestrator {
         return streamFinalAnswer(ownerId, userMessage, messages);
     }
 
-    private Flux<String> answerViaDomains(String ownerId, List<LlmClient.Message> history, String userMessage,
-                                           List<String> roleCodes, String accessToken, IdentityContext identity) {
-        var tasks = roleCodes.stream()
+    private Flux<String> answerViaCapabilities(String ownerId, List<LlmClient.Message> history, String userMessage,
+                                               List<String> capabilityCodes, String accessToken, IdentityContext identity) {
+        var tasks = capabilityCodes.stream()
                 .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken, identity))
                 .toList();
         Flux<AgentEvent> events = dispatcher.dispatch(tasks).cache();
@@ -158,20 +165,20 @@ public class Orchestrator {
     }
 
     private Flux<String> aggregate(String ownerId, List<LlmClient.Message> history, String userMessage,
-                                    List<AgentEvent> domainResults) {
+                                    List<AgentEvent> capabilityResults) {
         long start = System.currentTimeMillis();
-        String summary = domainResults.stream().map(this::describe).collect(Collectors.joining("\n\n"));
-        List<String> roleCodes = domainResults.stream().map(this::roleOf).toList();
-        log.info("aggregate roles={}", roleCodes);
+        String summary = capabilityResults.stream().map(this::describe).collect(Collectors.joining("\n\n"));
+        List<String> capabilityCodes = capabilityResults.stream().map(this::roleOf).toList();
+        log.info("aggregate capabilities={}", capabilityCodes);
 
         var messages = new ArrayList<LlmClient.Message>();
         messages.add(LlmClient.Message.system(AGGREGATE_PROMPT));
         messages.addAll(history);
         messages.add(LlmClient.Message.user(userMessage));
-        messages.add(LlmClient.Message.user("各系统查询结果：\n" + summary));
+        messages.add(LlmClient.Message.user("各能力执行结果：\n" + summary));
 
         return streamFinalAnswer(ownerId, userMessage, messages)
-                .doOnComplete(() -> log.info("aggregate roles={} totalElapsedMs={}", roleCodes, System.currentTimeMillis() - start));
+                .doOnComplete(() -> log.info("aggregate capabilities={} totalElapsedMs={}", capabilityCodes, System.currentTimeMillis() - start));
     }
 
     private String describe(AgentEvent event) {

@@ -23,19 +23,6 @@ llm:
     api-key: ${LLM_API_KEY:}
     model: ${LLM_MODEL:gpt-4o-mini}
 
-enterprise-api:
-  services:
-    MES:
-      base-url: ${MES_BASE_URL:http://CHANGE_ME}
-    CRM:
-      base-url: ${CRM_BASE_URL:http://CHANGE_ME}
-    WMS:
-      base-url: ${WMS_BASE_URL:http://CHANGE_ME}
-    QMS:
-      base-url: ${QMS_BASE_URL:http://CHANGE_ME}
-    SRM:
-      base-url: ${SRM_BASE_URL:http://CHANGE_ME}
-
 oauth2:
   authorization-uri: ${OAUTH2_AUTHORIZATION_URI:http://CHANGE_ME/oauth2/authorize}
   token-uri: ${OAUTH2_TOKEN_URI:http://CHANGE_ME/oauth2/token}

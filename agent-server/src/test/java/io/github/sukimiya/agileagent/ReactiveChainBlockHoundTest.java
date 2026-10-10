@@ -13,12 +13,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import io.github.sukimiya.agileagent.agent.AgentRoleRegistry;
 import io.github.sukimiya.agileagent.agent.DomainAgent;
 import io.github.sukimiya.agileagent.agent.InProcessTaskDispatcher;
 import io.github.sukimiya.agileagent.agent.Orchestrator;
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
+import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
 import io.github.sukimiya.agileagent.service.*;
 
 import reactor.blockhound.BlockHound;
@@ -54,9 +55,6 @@ class ReactiveChainBlockHoundTest {
         knowledgeProps.setLibDir(libDir.toString());
         var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps);
 
-        ApiCatalog apiCatalog = mock(ApiCatalog.class);
-        when(apiCatalog.compactIndex(any())).thenReturn("MES | x | GET /a | d\n");
-        EnterpriseApiClient enterpriseApi = mock(EnterpriseApiClient.class);
         ChatMemory memory = mock(ChatMemory.class);
         when(memory.get(any())).thenReturn(Mono.just(List.of()));
         when(memory.append(any(), anyList())).thenReturn(Mono.empty());
@@ -77,10 +75,10 @@ class ReactiveChainBlockHoundTest {
                         Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("聚合回答"))
                                 .subscribeOn(Schedulers.parallel()));
 
-        var roles = new AgentRoleRegistry(apiCatalog, knowledgeCatalog);
-        var domainAgent = new DomainAgent(llm, roles.capabilityRegistry(enterpriseApi));
+        var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
+        var domainAgent = new DomainAgent(llm, capabilities);
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(llm, dispatcher, roles, memory);
+        var orchestrator = new Orchestrator(llm, dispatcher, capabilities, memory);
 
         StepVerifier.create(orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用")
                         .subscribeOn(Schedulers.parallel()))
