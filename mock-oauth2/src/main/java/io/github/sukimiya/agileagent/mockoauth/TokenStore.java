@@ -22,6 +22,7 @@ public final class TokenStore {
     private final SecureRandom secureRandom;
     private final Map<String, AccessGrant> accessTokens = new ConcurrentHashMap<>();
     private final Map<String, TokenFamily> refreshTokens = new ConcurrentHashMap<>();
+    private final Map<String, TokenFamily> spentRefreshTokens = new ConcurrentHashMap<>();
 
     public TokenStore(MockIdentityCatalog identities, Clock clock, SecureRandom secureRandom) {
         this.identities = Objects.requireNonNull(identities);
@@ -46,9 +47,19 @@ public final class TokenStore {
             throw new InvalidTokenException();
         }
         TokenFamily family = refreshTokens.remove(refreshToken);
-        if (family == null || family.revoked) {
+        if (family == null) {
+            TokenFamily replayedFamily = spentRefreshTokens.get(refreshToken);
+            if (replayedFamily != null) {
+                revokeFamily(replayedFamily);
+            }
             throw new InvalidTokenException();
         }
+        if (family.revoked) {
+            throw new InvalidTokenException();
+        }
+        family.activeRefreshTokens.remove(refreshToken);
+        family.spentRefreshTokens.add(refreshToken);
+        spentRefreshTokens.put(refreshToken, family);
         return rotate(family);
     }
 
@@ -57,7 +68,10 @@ public final class TokenStore {
         if (token == null) {
             throw new InvalidTokenException();
         }
-        TokenFamily family = refreshTokens.remove(token);
+        TokenFamily family = refreshTokens.get(token);
+        if (family == null) {
+            family = spentRefreshTokens.get(token);
+        }
         if (family == null) {
             AccessGrant access = accessTokens.get(token);
             family = access == null ? null : access.family();
@@ -65,12 +79,10 @@ public final class TokenStore {
         if (family == null) {
             throw new InvalidTokenException();
         }
-        family.revoked = true;
-        family.refreshTokens.forEach(refreshTokens::remove);
-        family.accessTokens.forEach(accessTokens::remove);
+        revokeFamily(family);
     }
 
-    public Optional<JsonNode> findIdentityByAccessToken(String accessToken) {
+    public synchronized Optional<JsonNode> findIdentityByAccessToken(String accessToken) {
         if (accessToken == null) {
             return Optional.empty();
         }
@@ -80,6 +92,7 @@ public final class TokenStore {
         }
         if (grant.family().revoked || !clock.instant().isBefore(grant.expiresAt())) {
             accessTokens.remove(accessToken, grant);
+            grant.family().activeAccessTokens.remove(accessToken);
             return Optional.empty();
         }
         return identities.userInfo(grant.family().subject);
@@ -89,17 +102,29 @@ public final class TokenStore {
         String access;
         do {
             access = randomValue();
-        } while (accessTokens.containsKey(access) || refreshTokens.containsKey(access));
+        } while (accessTokens.containsKey(access) || refreshTokens.containsKey(access)
+                || spentRefreshTokens.containsKey(access));
         String refresh;
         do {
             refresh = randomValue();
-        } while (access.equals(refresh) || accessTokens.containsKey(refresh) || refreshTokens.containsKey(refresh));
+        } while (access.equals(refresh) || accessTokens.containsKey(refresh) || refreshTokens.containsKey(refresh)
+                || spentRefreshTokens.containsKey(refresh));
         Instant expiresAt = clock.instant().plus(ACCESS_TTL);
-        family.accessTokens.add(access);
-        family.refreshTokens.add(refresh);
+        family.activeAccessTokens.add(access);
+        family.activeRefreshTokens.add(refresh);
         accessTokens.put(access, new AccessGrant(family, expiresAt));
         refreshTokens.put(refresh, family);
         return new TokenPair(access, refresh, expiresAt);
+    }
+
+    private void revokeFamily(TokenFamily family) {
+        family.revoked = true;
+        family.activeAccessTokens.forEach(accessTokens::remove);
+        family.activeRefreshTokens.forEach(refreshTokens::remove);
+        family.spentRefreshTokens.forEach(spentRefreshTokens::remove);
+        family.activeAccessTokens.clear();
+        family.activeRefreshTokens.clear();
+        family.spentRefreshTokens.clear();
     }
 
     private String randomValue() {
@@ -112,8 +137,9 @@ public final class TokenStore {
 
     private static final class TokenFamily {
         private final String subject;
-        private final Set<String> accessTokens = new HashSet<>();
-        private final Set<String> refreshTokens = new HashSet<>();
+        private final Set<String> activeAccessTokens = new HashSet<>();
+        private final Set<String> activeRefreshTokens = new HashSet<>();
+        private final Set<String> spentRefreshTokens = new HashSet<>();
         private volatile boolean revoked;
 
         private TokenFamily(String subject) {

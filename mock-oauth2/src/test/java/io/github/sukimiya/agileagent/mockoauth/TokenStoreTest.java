@@ -23,7 +23,38 @@ class TokenStoreTest {
         TokenStore.TokenPair second = store.refresh(first.refreshToken());
         assertNotEquals(first.refreshToken(), second.refreshToken());
         assertThrows(TokenStore.InvalidTokenException.class, () -> store.refresh(first.refreshToken()));
-        assertTrue(store.findIdentityByAccessToken(second.accessToken()).isPresent());
+        assertTrue(store.findIdentityByAccessToken(second.accessToken()).isEmpty());
+    }
+
+    @Test
+    void replayingSpentRefreshRevokesRotatedAccessAndRefreshTokens() {
+        TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
+                new java.security.SecureRandom());
+        TokenStore.TokenPair first = store.issue("demo-user");
+        TokenStore.TokenPair rotated = store.refresh(first.refreshToken());
+
+        var exception = assertThrows(TokenStore.InvalidTokenException.class,
+                () -> store.refresh(first.refreshToken()));
+        assertFalse(exception.getMessage().contains(first.refreshToken()));
+        assertTrue(store.findIdentityByAccessToken(rotated.accessToken()).isEmpty());
+        assertThrows(TokenStore.InvalidTokenException.class, () -> store.refresh(rotated.refreshToken()));
+        assertFalse(store.findIdentityByAccessToken(first.accessToken()).isPresent());
+    }
+
+    @Test
+    void replayingAnySpentAncestorAfterMultipleRotationsRevokesLatestPair() {
+        TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
+                new java.security.SecureRandom());
+        TokenStore.TokenPair first = store.issue("demo-user");
+        TokenStore.TokenPair second = store.refresh(first.refreshToken());
+        TokenStore.TokenPair latest = store.refresh(second.refreshToken());
+
+        assertThrows(TokenStore.InvalidTokenException.class, () -> store.refresh(first.refreshToken()));
+        assertTrue(store.findIdentityByAccessToken(latest.accessToken()).isEmpty());
+        assertThrows(TokenStore.InvalidTokenException.class, () -> store.refresh(latest.refreshToken()));
+        assertFalse(store.toString().contains(latest.accessToken()));
+        assertFalse(latest.toString().contains(latest.accessToken()));
+        assertFalse(latest.toString().contains(latest.refreshToken()));
     }
 
     @Test
