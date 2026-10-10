@@ -60,6 +60,11 @@ class KnowledgeControllerIntegrationTest {
     @MockBean TenantLlmClientResolver resolver;
     String token;
     String reviewerToken;
+    String otherTenantToken;
+    String otherOrgToken;
+    String restrictedAdminToken;
+    String platformToken;
+    String missingScopeToken;
 
     @BeforeEach
     void setUp() {
@@ -73,6 +78,29 @@ class KnowledgeControllerIntegrationTest {
                 new io.github.sukimiya.agileagent.spi.identity.IdentityContext("knowledge-reviewer", "Knowledge Reviewer",
                         "tenant-1", "Tenant", null, null, java.util.Set.of("tenant_admin"),
                         java.util.Set.of("org-1"), java.util.Set.of(), false, true), Instant.now()).block();
+        otherTenantToken = sessions.create("other-tenant-sl-tok", "other-tenant-refresh-tok", Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("other-tenant-user", "Other Tenant User",
+                        "tenant-2", "Other Tenant", "org-1", "Support", java.util.Set.of(),
+                        java.util.Set.of(), java.util.Set.of(), false, false), Instant.now()).block();
+        otherOrgToken = sessions.create("other-org-sl-tok", "other-org-refresh-tok", Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("other-org-user", "Other Org User",
+                        "tenant-1", "Tenant", "org-2", "Sales", java.util.Set.of(),
+                        java.util.Set.of(), java.util.Set.of(), false, false), Instant.now()).block();
+        restrictedAdminToken = sessions.create("restricted-admin-sl-tok", "restricted-admin-refresh-tok",
+                Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("restricted-admin", "Restricted Admin",
+                        "tenant-1", "Tenant", null, null, java.util.Set.of("tenant_admin"),
+                        java.util.Set.of(), java.util.Set.of(), false, true), Instant.now()).block();
+        platformToken = sessions.create("platform-sl-tok", "platform-refresh-tok", Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("platform-admin", "Platform Admin",
+                        null, null, null, null, java.util.Set.of("platform_admin"),
+                        java.util.Set.of(), java.util.Set.of(), true, false), Instant.now()).block();
+        missingScopeToken = sessions.create("missing-scope-sl-tok", "missing-scope-refresh-tok",
+                Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("missing-scope-user", "Missing Scope User",
+                        "tenant-1", "Tenant", null, null, java.util.Set.of(), java.util.Set.of(),
+                        java.util.Set.of(), false, false),
+                Instant.now()).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }
@@ -81,6 +109,11 @@ class KnowledgeControllerIntegrationTest {
     void tearDown() {
         sessions.delete(token).block();
         sessions.delete(reviewerToken).block();
+        sessions.delete(otherTenantToken).block();
+        sessions.delete(otherOrgToken).block();
+        sessions.delete(restrictedAdminToken).block();
+        sessions.delete(platformToken).block();
+        sessions.delete(missingScopeToken).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }
@@ -129,7 +162,11 @@ class KnowledgeControllerIntegrationTest {
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
-                .jsonPath("$[?(@.id=='" + id + "')]").exists();
+                .jsonPath("$[?(@.id=='" + id + "')]").exists()
+                .jsonPath("$[?(@.id=='" + id + "')].scopeType").isEqualTo("ORG")
+                .jsonPath("$[?(@.id=='" + id + "')].scopeName").isEqualTo("Support")
+                .jsonPath("$[?(@.id=='" + id + "')].tenantId").isEqualTo("tenant-1")
+                .jsonPath("$[?(@.id=='" + id + "')].orgId").isEqualTo("org-1");
 
         client.post().uri("/api/knowledge/" + id + "/approve")
                 .header("Authorization", "Bearer " + reviewerToken)
@@ -154,6 +191,183 @@ class KnowledgeControllerIntegrationTest {
         var metaFile = Path.of(props.getLibDir(), id + ".v1.meta.json");
         org.assertj.core.api.Assertions.assertThat(Files.exists(libFile)).isTrue();
         org.assertj.core.api.Assertions.assertThat(Files.exists(metaFile)).isTrue();
+    }
+
+    @Test
+    void ordinaryUserCanOnlyListAndDownloadOwnDocumentsWithinTenant() {
+        String ownId = uploadWithUntrustedScope(token, "own.md");
+        String otherOrgId = upload(otherOrgToken, "other-org.md");
+        String otherTenantId = upload(otherTenantToken, "other-tenant.md");
+
+        client.get().uri("/api/knowledge?status=PENDING")
+                .header("Authorization", "Bearer " + token)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[?(@.id=='" + ownId + "')]").exists()
+                .jsonPath("$[?(@.id=='" + otherOrgId + "')]").doesNotExist()
+                .jsonPath("$[?(@.id=='" + otherTenantId + "')]").doesNotExist();
+
+        client.get().uri("/api/knowledge/" + otherOrgId + "/download")
+                .header("Authorization", "Bearer " + token)
+                .exchange().expectStatus().isNotFound()
+                .expectBody().json("{\"code\":\"KNOWLEDGE_DOCUMENT_NOT_FOUND\",\"message\":\"Knowledge document not found\"}");
+        client.get().uri("/api/knowledge/" + otherTenantId + "/download")
+                .header("Authorization", "Bearer " + token)
+                .exchange().expectStatus().isNotFound()
+                .expectBody().json("{\"code\":\"KNOWLEDGE_DOCUMENT_NOT_FOUND\",\"message\":\"Knowledge document not found\"}");
+    }
+
+    @Test
+    void ordinaryUserCannotApproveOrRejectAnExistingDocument() {
+        String id = upload(otherOrgToken, "managed-by-someone-else.md");
+
+        client.post().uri("/api/knowledge/" + id + "/approve")
+                .header("Authorization", "Bearer " + token)
+                .exchange().expectStatus().isForbidden();
+        client.post().uri("/api/knowledge/" + id + "/reject")
+                .header("Authorization", "Bearer " + token)
+                .exchange().expectStatus().isForbidden();
+    }
+
+    @Test
+    void tenantAdminCanManageSameTenantDocumentsButNotOtherTenantDocuments() {
+        String sameTenantId = upload(token, "same-tenant.md");
+        String otherTenantId = upload(otherTenantToken, "other-tenant.md");
+
+        client.get().uri("/api/knowledge?status=PENDING")
+                .header("Authorization", "Bearer " + reviewerToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[?(@.id=='" + sameTenantId + "')]").exists()
+                .jsonPath("$[?(@.id=='" + otherTenantId + "')]").doesNotExist();
+
+        client.get().uri("/api/knowledge/" + otherTenantId + "/download")
+                .header("Authorization", "Bearer " + reviewerToken)
+                .exchange().expectStatus().isNotFound();
+        client.post().uri("/api/knowledge/" + otherTenantId + "/approve")
+                .header("Authorization", "Bearer " + reviewerToken)
+                .exchange().expectStatus().isForbidden();
+        client.post().uri("/api/knowledge/" + otherTenantId + "/reject")
+                .header("Authorization", "Bearer " + reviewerToken)
+                .exchange().expectStatus().isForbidden();
+    }
+
+    @Test
+    void tenantAdminCannotManageUnmanageableOrgButCanManageTenantScope() {
+        String orgId = upload(token, "org-document.md");
+        String tenantId = upload(reviewerToken, "tenant-document.md");
+
+        client.get().uri("/api/knowledge?status=PENDING")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[?(@.id=='" + orgId + "')]").doesNotExist();
+        client.get().uri("/api/knowledge?status=APPROVED")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody().jsonPath("$[?(@.id=='" + tenantId + "')]").exists();
+
+        client.get().uri("/api/knowledge/" + orgId + "/download")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange().expectStatus().isNotFound();
+        client.post().uri("/api/knowledge/" + orgId + "/approve")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange().expectStatus().isForbidden();
+        client.post().uri("/api/knowledge/" + orgId + "/reject")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange().expectStatus().isForbidden();
+        client.get().uri("/api/knowledge/" + tenantId + "/download")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange().expectStatus().isOk();
+        client.post().uri("/api/knowledge/" + tenantId + "/approve")
+                .header("Authorization", "Bearer " + restrictedAdminToken)
+                .exchange().expectStatus().isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void platformAdminCanListAndDownloadAcrossAllScopesAndTenants() {
+        String orgId = upload(token, "org-document.md");
+        String otherTenantOrgId = upload(otherTenantToken, "other-tenant-org.md");
+        String tenantId = upload(reviewerToken, "tenant-document.md");
+        String globalId = upload(platformToken, "global-document.md");
+
+        client.get().uri("/api/knowledge?status=PENDING")
+                .header("Authorization", "Bearer " + platformToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[?(@.id=='" + orgId + "')]").exists()
+                .jsonPath("$[?(@.id=='" + otherTenantOrgId + "')]").exists();
+        client.get().uri("/api/knowledge?status=APPROVED")
+                .header("Authorization", "Bearer " + platformToken)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[?(@.id=='" + tenantId + "')]").exists()
+                .jsonPath("$[?(@.id=='" + tenantId + "')].scopeType").isEqualTo("TENANT")
+                .jsonPath("$[?(@.id=='" + tenantId + "')].scopeName").isEqualTo("Tenant")
+                .jsonPath("$[?(@.id=='" + tenantId + "')].tenantId").isEqualTo("tenant-1")
+                .jsonPath("$[?(@.id=='" + globalId + "')]").exists();
+
+        for (String id : java.util.List.of(orgId, otherTenantOrgId, tenantId, globalId)) {
+            client.get().uri("/api/knowledge/" + id + "/download")
+                    .header("Authorization", "Bearer " + platformToken)
+                    .exchange().expectStatus().isOk();
+        }
+        client.post().uri("/api/knowledge/" + orgId + "/approve")
+                .header("Authorization", "Bearer " + platformToken)
+                .exchange().expectStatus().isOk();
+        client.post().uri("/api/knowledge/" + otherTenantOrgId + "/reject")
+                .header("Authorization", "Bearer " + platformToken)
+                .exchange().expectStatus().isOk();
+    }
+
+    @Test
+    void uploadRequiresTrustedTenantAndOrganizationForOrdinaryUser() {
+        var builder = new MultipartBodyBuilder();
+        builder.part("file", textPart("missing-scope.md", "content")).contentType(MediaType.TEXT_MARKDOWN);
+
+        client.post().uri("/api/knowledge/upload")
+                .header("Authorization", "Bearer " + missingScopeToken)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody().json("{\"code\":\"IDENTITY_SCOPE_REQUIRED\",\"message\":\"tenant and organization identity are required for this upload\"}");
+    }
+
+    private String upload(String accessToken, String filename) {
+        var builder = new MultipartBodyBuilder();
+        builder.part("file", textPart(filename, "content for " + filename)).contentType(MediaType.TEXT_MARKDOWN);
+        var body = client.post().uri("/api/knowledge/upload")
+                .header("Authorization", "Bearer " + accessToken)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody().returnResult().getResponseBody();
+        return extractId(body);
+    }
+
+    private String uploadWithUntrustedScope(String accessToken, String filename) {
+        var builder = new MultipartBodyBuilder();
+        builder.part("file", textPart(filename, "content for " + filename)).contentType(MediaType.TEXT_MARKDOWN);
+        builder.part("tenantId", "attacker-tenant");
+        builder.part("orgId", "attacker-org");
+        var body = client.post().uri("/api/knowledge/upload")
+                .header("Authorization", "Bearer " + accessToken)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.tenantId").isEqualTo("tenant-1")
+                .jsonPath("$.orgId").isEqualTo("org-1")
+                .jsonPath("$.scopeType").isEqualTo("ORG")
+                .jsonPath("$.scopeName").isEqualTo("Support")
+                .returnResult().getResponseBody();
+        return extractId(body);
     }
 
     @Test

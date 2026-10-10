@@ -179,7 +179,8 @@ class KnowledgeControllerTest {
 
         client.get().uri("/api/knowledge/missing/download").header("Authorization", "Bearer test-token")
                 .exchange()
-                .expectStatus().isNotFound();
+                .expectStatus().isNotFound()
+                .expectBody().json("{\"code\":\"KNOWLEDGE_DOCUMENT_NOT_FOUND\",\"message\":\"Knowledge document not found\"}");
     }
 
     @Test
@@ -190,7 +191,8 @@ class KnowledgeControllerTest {
 
         client.post().uri("/api/knowledge/missing/approve").header("Authorization", "Bearer test-token")
                 .exchange()
-                .expectStatus().isNotFound();
+                .expectStatus().isNotFound()
+                .expectBody().json("{\"code\":\"KNOWLEDGE_DOCUMENT_NOT_FOUND\",\"message\":\"Knowledge document not found\"}");
     }
 
     @Test
@@ -201,7 +203,8 @@ class KnowledgeControllerTest {
 
         client.post().uri("/api/knowledge/k1/approve").header("Authorization", "Bearer test-token")
                 .exchange()
-                .expectStatus().isEqualTo(HttpStatus.CONFLICT);
+                .expectStatus().isEqualTo(HttpStatus.CONFLICT)
+                .expectBody().json("{\"code\":\"KNOWLEDGE_STATE_CONFLICT\",\"message\":\"Knowledge document is not pending\"}");
     }
 
     @Test
@@ -212,7 +215,8 @@ class KnowledgeControllerTest {
 
         client.post().uri("/api/knowledge/k1/approve").header("Authorization", "Bearer test-token")
                 .exchange()
-                .expectStatus().isForbidden();
+                .expectStatus().isForbidden()
+                .expectBody().json("{\"code\":\"KNOWLEDGE_FORBIDDEN\",\"message\":\"Knowledge document is outside your management scope\"}");
     }
 
     @Test

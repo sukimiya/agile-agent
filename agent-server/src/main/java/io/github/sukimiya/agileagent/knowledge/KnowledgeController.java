@@ -25,6 +25,7 @@ import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
+import io.github.sukimiya.agileagent.web.ApiError;
 import io.github.sukimiya.agileagent.web.CurrentUser;
 
 import reactor.core.publisher.Flux;
@@ -58,8 +59,8 @@ class KnowledgeController {
                         ResponseEntity.badRequest().body((Object) Map.of(
                                 "code", e.getCode(), "reason", e.getMessage()))))
                 .onErrorResume(KnowledgeAccessPolicy.UploadIdentityException.class, e -> Mono.just(
-                        ResponseEntity.badRequest().body((Object) Map.of(
-                                "code", "IDENTITY_SCOPE_REQUIRED", "reason", e.getMessage()))));
+                        ResponseEntity.badRequest().body((Object) new ApiError(
+                                "IDENTITY_SCOPE_REQUIRED", e.getMessage()))));
     }
 
     @GetMapping
@@ -81,13 +82,13 @@ class KnowledgeController {
                                         Path.of(props.getLibDir()).toAbsolutePath().normalize(),
                                         pointer.id(), pointer.owner(), pointer.version(), ".md")))
                         : fileResponse(Path.of(row.tempPath())))
-                .defaultIfEmpty((ResponseEntity<?>) ResponseEntity.notFound().build());
+                .defaultIfEmpty(notFound());
     }
 
     private static Mono<ResponseEntity<?>> fileResponse(Path path) {
         return Mono.fromCallable(() -> {
             if (Files.isSymbolicLink(path) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-                return (ResponseEntity<?>) ResponseEntity.notFound().build();
+                return notFound();
             }
             return ResponseEntity.ok()
                     .contentType(MediaType.TEXT_PLAIN)
@@ -96,7 +97,7 @@ class KnowledgeController {
     }
 
     @PostMapping("/{id}/approve")
-    Mono<ResponseEntity<Void>> approve(@PathVariable String id,
+    Mono<ResponseEntity<?>> approve(@PathVariable String id,
             @RequestBody(required = false) ApproveRequest body,
             @CurrentUser AuthSessionStore.AuthUser user) {
         String override = body == null ? null : body.summary();
@@ -104,26 +105,43 @@ class KnowledgeController {
     }
 
     @PostMapping("/{id}/reject")
-    Mono<ResponseEntity<Void>> reject(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
+    Mono<ResponseEntity<?>> reject(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
         return service.reject(id, user.identity()).map(KnowledgeController::toStatus);
     }
 
-    private static ResponseEntity<Void> toStatus(KnowledgeDocumentService.ActionResult result) {
+    private static ResponseEntity<?> toStatus(KnowledgeDocumentService.ActionResult result) {
         return switch (result) {
             case OK -> ResponseEntity.ok().build();
-            case NOT_FOUND -> ResponseEntity.notFound().build();
-            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-            case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+            case NOT_FOUND -> notFound();
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ApiError("KNOWLEDGE_FORBIDDEN", "Knowledge document is outside your management scope"));
+            case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new ApiError("KNOWLEDGE_STATE_CONFLICT", "Knowledge document is not pending"));
         };
+    }
+
+    private static ResponseEntity<?> notFound() {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("KNOWLEDGE_DOCUMENT_NOT_FOUND", "Knowledge document not found"));
     }
 
     private static KnowledgeDocumentSummary toSummary(KnowledgeDocumentRow row) {
         return new KnowledgeDocumentSummary(row.id(), row.title(), row.uploaderUserId(), row.summary(),
-                row.uploadedAt(), row.status().name(), "/api/knowledge/" + row.id() + "/download");
+                row.uploadedAt(), row.status().name(), "/api/knowledge/" + row.id() + "/download",
+                row.scopeType().name(), scopeName(row), row.tenantId(), row.orgId());
+    }
+
+    private static String scopeName(KnowledgeDocumentRow row) {
+        return switch (row.scopeType()) {
+            case GLOBAL -> null;
+            case TENANT -> row.tenantName();
+            case ORG -> row.orgName();
+        };
     }
 
     record ApproveRequest(String summary) {}
 
     record KnowledgeDocumentSummary(String id, String title, String uploaderUserId, String summary,
-            LocalDateTime uploadedAt, String status, String downloadUrl) {}
+            LocalDateTime uploadedAt, String status, String downloadUrl, String scopeType,
+            String scopeName, String tenantId, String orgId) {}
 }
