@@ -19,6 +19,8 @@ docker compose -f docker/docker-compose.yml --profile local-mock up --build agil
 
 The local profile builds its own server image and does not depend on the default deployment image. Without `--profile local-mock`, Compose still selects only the existing server service. To stop the local services, press Ctrl-C. Remove the local development databases and uploaded files with `docker compose -f docker/docker-compose.yml --profile local-mock down -v`.
 
+The local-mock profile publishes the server and mock provider ports on `127.0.0.1` only. They are reachable from the same host and cannot be reached directly from other machines. The mock provider listens on all interfaces inside its container so the server can reach it over the Compose network.
+
 Open `http://localhost:8088/api/auth/oauth2/authorize` to begin login. The server redirects to the mock identity chooser on port 8090; choosing a seed identity returns through the OAuth2 callback and redirects to `http://localhost:5173/login/callback#token=...`. The fragment contains the Agile Agent application token. A frontend development server on port 5173 is only needed to render that final route.
 
 The mock provider seeds five neutral identities:
@@ -35,7 +37,7 @@ These identities and their organization scopes are local fixtures, not accounts 
 
 For an external identity provider, activate a deployment-specific profile or provide configuration for the authorization, token, user-info, and revocation endpoints; client ID and secret; callback and frontend redirect URIs; scopes; JSON Pointer claim mappings; and role names. Register the exact callback URI with that provider. The local profile defaults to client ID `agile-agent-local`, callback `http://localhost:8088/api/auth/oauth2/callback`, and empty client secret. No production secret is included.
 
-The cross-module OAuth2 end-to-end test starts temporary loopback Redis and H2 instances and requires `redis-server` on `PATH`:
+Redis-backed tests use an isolated test-only Redis server on a random loopback port; the cross-module OAuth2 end-to-end test also starts a temporary H2 database. Run the tests on a machine with `redis-server` available on `PATH`:
 
 ```sh
 mvn -pl agent-server -am -Dtest=MockOAuth2EndToEndTest test

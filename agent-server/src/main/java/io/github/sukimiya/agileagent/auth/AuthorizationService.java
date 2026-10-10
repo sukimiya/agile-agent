@@ -32,27 +32,26 @@ public class AuthorizationService {
         if (orgId == null || orgId.isBlank()) {
             return false;
         }
-        if (identity == null) {
+        if (identity == null || !hasTenant(identity)) {
             return false;
         }
         if (identity.platformAdmin()) {
             return true;
         }
-        return hasTenant(identity) && identity.manageableOrgIds().contains(orgId);
+        return identity.manageableOrgIds().contains(orgId);
     }
 
     public boolean canReadOrg(IdentityContext identity, String orgId) {
         if (orgId == null || orgId.isBlank()) {
             return false;
         }
-        if (identity == null) {
+        if (identity == null || !hasTenant(identity)) {
             return false;
         }
         if (identity.platformAdmin()) {
             return true;
         }
-        return hasTenant(identity)
-                && (identity.manageableOrgIds().contains(orgId) || identity.readableOrgIds().contains(orgId));
+        return identity.manageableOrgIds().contains(orgId) || identity.readableOrgIds().contains(orgId);
     }
 
     private static boolean hasTenant(IdentityContext identity) {

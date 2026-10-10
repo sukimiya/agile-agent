@@ -11,14 +11,14 @@
 这是子项目二（子项目一是 Nacos 配置中心接入，已完成）：把这份历史持久化到 Redis，
 不再受进程重启影响。子项目一已经把 `dev` profile 的 Redis 连接信息放进了 Nacos
 管理的 `l7-skill-backend-dev.yaml`（`spring.data.redis.host/port/password/database/
-lettuce.pool.*`，host `192.168.3.232`，port `6379`），本设计直接复用这份基础设施。
+lettuce.pool.*`，host `${TEST_REDIS_HOST}`，port `6379`），本设计直接复用这份基础设施。
 
 ## 目标
 
 - 把 `ChatMemory` 的存储从内存换成 Redis，重启/重新部署后对话历史不丢失。
 - 完全保留现有行为：每个 owner 最多 20 条消息、按数量截断时跳过开头孤立的 `tool`
   消息、owner 之间相互隔离、不设 TTL（一直保留，直到被 20 条上限自然截断）。
-- `local` profile 也要求连接真实可达的 Redis（跟 `dev` 共用同一台 `192.168.3.232:6379`），
+- `local` profile 也要求连接真实可达的 Redis（跟 `dev` 共用同一台 `${TEST_REDIS_HOST}:6379`），
   不引入内存/Redis 双实现分支。
 - 测试连真实 Redis（同一台机器），但用独立的 database index（`1`）隔离，避免
   污染 `dev`/`local` 使用的真实对话数据（database `0`）。
@@ -55,14 +55,14 @@ lettuce.pool.*`，host `192.168.3.232`，port `6379`），本设计直接复用�
 
 - `dev`：已在 Nacos 的 `l7-skill-backend-dev.yaml` 中配置好，本设计不改动。
 - `local`：在 `src/main/resources/application-local.yml` 新增一段，连到同一台
-  共享 Redis（`192.168.3.232:6379`，与 `dev` 相同的真实密码），database 用 `0`：
+  共享 Redis（`${TEST_REDIS_HOST}:6379`，与 `dev` 相同的真实密码），database 用 `0`：
   ```yaml
   spring:
     data:
       redis:
-        host: 192.168.3.232
+        host: ${TEST_REDIS_HOST}
         port: 6379
-        password: FeetxXuFkZIaM2Pq
+        password: ${TEST_REDIS_PASSWORD}
         database: 0
         lettuce:
           pool:

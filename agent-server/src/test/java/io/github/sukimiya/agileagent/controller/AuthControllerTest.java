@@ -25,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpStatus;
@@ -33,6 +32,7 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import io.github.sukimiya.agileagent.LocalRedisTestServer;
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
@@ -254,9 +254,7 @@ class AuthControllerTest {
 
     @Test
     void logoutWinsOverAnInFlightRefreshAndPreventsSessionRecreation() throws InterruptedException {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var realRedis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -323,9 +321,7 @@ class AuthControllerTest {
 
     @Test
     void logoutBetweenOwnerRereadAndPreRefreshInvalidationCannotResurrectSession() throws InterruptedException {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var realRedis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -414,9 +410,7 @@ class AuthControllerTest {
 
     @Test
     void logoutForUnknownBearerReturns204WithoutCreatingRedisKey() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var realRedis = new ReactiveStringRedisTemplate(connectionFactory);

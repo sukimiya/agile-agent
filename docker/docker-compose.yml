@@ -19,7 +19,7 @@ services:
     container_name: agile-agent-mock-oauth2
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     environment:
       MOCK_OAUTH2_PORT: 8090
       MOCK_OAUTH2_CLIENT_ID: agile-agent-local
@@ -38,7 +38,7 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     ports:
-      - "8088:8088"
+      - "127.0.0.1:8088:8088"
     environment:
       APP_DATA_DIR: /data
       SPRING_PROFILES_ACTIVE: local-mock

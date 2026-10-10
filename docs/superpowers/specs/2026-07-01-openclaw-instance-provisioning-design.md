@@ -8,7 +8,7 @@
 
 We want a self-service way to spin up isolated OpenClaw instances on demand. A caller
 supplies only a **DeepSeek API key** and an **instance name**, and the system deploys a
-running OpenClaw container onto the Portainer host at `http://192.168.3.232:19002`,
+running OpenClaw container onto the Portainer host at `http://redacted-host.invalid:19002`,
 pulling the OpenClaw image from the private Harbor registry at `192.168.3.119`.
 
 This builds on prior work: we already produced and pushed a full OpenClaw image to
@@ -37,13 +37,13 @@ POST /api/instances {instanceName, deepseekApiKey}
    InstanceController (com.jowo.agent.controller)
         │
    InstanceService  ──►  PortainerClient (Spring RestClient, X-API-Key)
-        │                     Portainer @ http://192.168.3.232:19002/api
+        │                     Portainer @ http://redacted-host.invalid:19002/api
         │                     ├─ POST /endpoints/{id}/docker/images/create      (pull harbor base image)
         │                     ├─ POST /endpoints/{id}/docker/containers/create   (name, env, expose, publish-all, volume, restart)
         │                     ├─ POST /endpoints/{id}/docker/containers/{cid}/start
         │                     └─ GET  /endpoints/{id}/docker/containers/{cid}/json (read assigned host port)
         │
-   returns {instanceName, containerId, url: http://192.168.3.232:<port>, gatewayToken, status}
+   returns {instanceName, containerId, url: http://redacted-host.invalid:<port>, gatewayToken, status}
 ```
 
 Inside the container the entrypoint bootstraps (once per fresh volume): sets the DeepSeek
@@ -82,7 +82,7 @@ Implemented as a new `--strip-secrets` mode in `~/openclaw-pkg/build-image.sh`.
   `InstanceResponse {instanceName, containerId, url, gatewayToken, status}`.
 
 **Config**
-- `application.yml`: `portainer.base-url: http://192.168.3.232:19002`,
+- `application.yml`: `portainer.base-url: http://redacted-host.invalid:19002`,
   `portainer.endpoint-id: 1`, `portainer.image: 192.168.3.119/jowosmart/openclaw-base:<tag>`.
 - `application-local.yml`: `portainer.api-key: ptr_…` (kept out of the committed main file,
   like the existing deepseek/enterprise secrets).
@@ -118,7 +118,7 @@ header on the image-create call.
 - **PortainerClient** (`@RestClientTest` / MockWebServer): the 4 calls + error mappings.
 - **Manual E2E**: build & push `openclaw-base`; `POST /api/instances
   {instanceName:"demo", deepseekApiKey:"sk-…"}`; confirm the container in Portainer; hit
-  the returned `http://192.168.3.232:<port>` gateway health; verify the injected key
+  the returned `http://redacted-host.invalid:<port>` gateway health; verify the injected key
   works with one agent turn.
 
 ## Open items to resolve in the plan

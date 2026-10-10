@@ -14,7 +14,7 @@
 - SSE 行协议保持兼容：控制行仍为 `{"type":...,"content":...}\n`；**新增** `{"type":"delta","content":"<token>"}` 增量事件；最终完整回答仍以纯文本行输出（legacy 前端依赖）。
 - 设计文档：`docs/goal/2026-07-15-reactive-multi-agent-design.md`（阶段一章节）。
 - 测试命令统一 `mvn -q test` / 单类 `mvn -q -Dtest=<ClassName> test`。
-- Redis 集成测试沿用现有约定：直连 `192.168.3.232:6379`（密码 `FeetxXuFkZIaM2Pq`）database 1，`@AfterEach` 清理自己的 key。
+- Redis 集成测试沿用现有约定：直连 `${TEST_REDIS_HOST}:6379`（密码 `${TEST_REDIS_PASSWORD}`）database 1，`@AfterEach` 清理自己的 key。
 - 每个 Task 一次 commit，消息格式 `feat|refactor: <描述>`，结尾加 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
 - 不改动：`ApiCatalog`、`UploadCleanupTask`、Flyway 迁移脚本、Nacos 配置块、前端。
 
@@ -1016,7 +1016,7 @@ Mono<ResponseEntity<List<Map<String, String>>>> getConversationMessages(@PathVar
 
 - [ ] **Step 4: 回归 + 提交**
 
-Run: `mvn -q test` Expected: 全部 PASS（Redis 集成测试需能连通 192.168.3.232）
+Run: `mvn -q test` Expected: 全部 PASS（Redis 集成测试需能连通 ${TEST_REDIS_HOST}）
 
 ```bash
 git add -A src/main/java/com/jowo/agent src/test/java/com/jowo/agent

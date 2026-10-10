@@ -6,12 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -19,12 +15,10 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,7 +34,6 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.MapPropertySource;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
@@ -58,6 +51,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.github.sukimiya.agileagent.mockoauth.MockOAuth2Application;
+import io.github.sukimiya.agileagent.LocalRedisTestServer;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryOptions;
@@ -76,22 +70,16 @@ class MockOAuth2EndToEndTest {
 
     @Test
     void completesLoginRefreshAndLogoutWithoutLeakingProviderCredentials() throws Exception {
-        int redisPort = availablePort();
+        int redisPort = LocalRedisTestServer.port();
         int mockPort = availablePort();
         int serverPort = availablePort();
         String h2Database = "oauth2_e2e_" + UUID.randomUUID().toString().replace("-", "");
         String jdbcUrl = h2JdbcUrl(h2Database);
-        Path redisDirectory = Files.createTempDirectory("agile-agent-oauth2-e2e-redis-");
-        Process redisProcess = null;
         LettuceConnectionFactory redisFactory = null;
         StringRedisTemplate redis = null;
 
         try {
-            redisProcess = startRedis(redisPort, redisDirectory);
-            awaitRedis(redisProcess, redisPort);
-
-            RedisStandaloneConfiguration redisConfiguration = new RedisStandaloneConfiguration("127.0.0.1", redisPort);
-            redisConfiguration.setDatabase(TEST_REDIS_DATABASE);
+            var redisConfiguration = LocalRedisTestServer.configuration(TEST_REDIS_DATABASE);
             redisFactory = new LettuceConnectionFactory(redisConfiguration);
             redisFactory.afterPropertiesSet();
             redis = new StringRedisTemplate(redisFactory);
@@ -226,17 +214,7 @@ class MockOAuth2EndToEndTest {
                         flushTestDatabase(redis);
                     }
                 } finally {
-                    try {
-                        if (redisFactory != null) {
-                            redisFactory.destroy();
-                        }
-                    } finally {
-                        try {
-                            stopProcess(redisProcess);
-                        } finally {
-                            deleteTree(redisDirectory);
-                        }
-                    }
+                    if (redisFactory != null) redisFactory.destroy();
                 }
             }
         }
@@ -456,55 +434,8 @@ class MockOAuth2EndToEndTest {
         }
     }
 
-    private static Process startRedis(int port, Path directory) throws IOException {
-        return new ProcessBuilder("redis-server", "--bind", "127.0.0.1", "--port", Integer.toString(port),
-                "--protected-mode", "yes", "--save", "", "--appendonly", "no", "--dir", directory.toString(),
-                "--loglevel", "warning")
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD)
-                .start();
-    }
-
-    private static void awaitRedis(Process process, int port) throws Exception {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (System.nanoTime() < deadline) {
-            if (!process.isAlive()) {
-                throw new IllegalStateException("test Redis process exited before becoming ready");
-            }
-            try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", port), 100);
-                return;
-            } catch (IOException notReady) {
-                TimeUnit.MILLISECONDS.sleep(50);
-            }
-        }
-        throw new IllegalStateException("test Redis process did not become ready");
-    }
-
     private static void flushTestDatabase(StringRedisTemplate redis) {
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
-    }
-
-    private static void stopProcess(Process process) throws InterruptedException {
-        if (process == null) {
-            return;
-        }
-        process.destroy();
-        if (!process.waitFor(5, TimeUnit.SECONDS)) {
-            process.destroyForcibly();
-            process.waitFor(5, TimeUnit.SECONDS);
-        }
-    }
-
-    private static void deleteTree(Path directory) throws IOException {
-        if (directory == null || !Files.exists(directory)) {
-            return;
-        }
-        try (Stream<Path> files = Files.walk(directory)) {
-            for (Path file : files.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(file);
-            }
-        }
     }
 
     private record HttpResult(int status, HttpHeaders headers, String body) {

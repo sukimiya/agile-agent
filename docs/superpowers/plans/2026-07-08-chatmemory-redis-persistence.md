@@ -14,7 +14,7 @@
 - No Redis-native List storage (`RPUSH`/`LTRIM`) — one `String` key per owner holding the whole history as a JSON array.
 - No `WATCH`/`MULTI`/Lua atomicity — plain `GET` then `SET`, matching the existing in-memory version's actual concurrency guarantees (none beyond what `ConcurrentHashMap.compute()` gave, which is now a two-round-trip operation instead of in-process).
 - Key format: `chatmemory:{ownerId}`. No `EXPIRE`/TTL is ever set.
-- `local` and `dev` share Redis database index `0`. Tests use database index `1` for isolation. Redis connection: host `192.168.3.232`, port `6379`, password `FeetxXuFkZIaM2Pq`.
+- `local` and `dev` share Redis database index `0`. Tests use database index `1` for isolation. Redis connection: host `${TEST_REDIS_HOST}`, port `6379`, password `${TEST_REDIS_PASSWORD}`.
 - `spring-boot-starter-data-redis` + `commons-pool2` are the only new dependencies (matches `crm-service`'s `pom.xml` pattern for Lettuce pooling).
 - `ChatMemoryTest` must NOT use `@SpringBootTest` or a `src/test/resources/application.yml` — that shadowing footgun was already hit and reverted during the Nacos-integration work (a test-scoped `application.yml` fully replaces, not merges with, `src/main/resources/application.yml` on the test classpath). Construct the `StringRedisTemplate` directly in the test instead.
 
@@ -76,9 +76,9 @@ At the end of `src/main/resources/application-local.yml`, merge a new `data.redi
 ```yaml
   data:
     redis:
-      host: 192.168.3.232
+      host: ${TEST_REDIS_HOST}
       port: 6379
-      password: FeetxXuFkZIaM2Pq
+      password: ${TEST_REDIS_PASSWORD}
       database: 0
       lettuce:
         pool:
@@ -126,7 +126,7 @@ This task changes the `ChatMemory` constructor, so anything that calls `new Chat
 
 - [ ] **Step 1: Confirm this environment can reach the shared test Redis**
 
-Run: `nc -z -w3 192.168.3.232 6379 && echo REACHABLE || echo UNREACHABLE`
+Run: `nc -z -w3 ${TEST_REDIS_HOST} 6379 && echo REACHABLE || echo UNREACHABLE`
 Expected: `REACHABLE`. If not reachable from wherever this task runs, stop and report BLOCKED — the rest of this task requires a real Redis connection, per the design's explicit choice not to mock Redis in `ChatMemoryTest`.
 
 - [ ] **Step 2: Rewrite `ChatMemoryTest.java` to use a real Redis connection (this will fail to compile until Step 4)**
@@ -158,8 +158,8 @@ class ChatMemoryTest {
 
     @BeforeEach
     void setUp() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
+        var config = new RedisStandaloneConfiguration("${TEST_REDIS_HOST}", 6379);
+        config.setPassword("${TEST_REDIS_PASSWORD}");
         config.setDatabase(1);
         connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
@@ -337,7 +337,7 @@ Expected: `BUILD SUCCESS`, 49 tests total (same count as before — no tests add
 
 - [ ] **Step 8: Manually verify no leftover keys after a full test run**
 
-Run: `redis-cli -h 192.168.3.232 -p 6379 -a 'FeetxXuFkZIaM2Pq' -n 1 KEYS 'chatmemory:*'` (the `-a` password flag will print a harmless "Warning: Using a password with '-a'..." line to stderr — ignore it)
+Run: `redis-cli -h ${TEST_REDIS_HOST} -p 6379 -a '${TEST_REDIS_PASSWORD}' -n 1 KEYS 'chatmemory:*'` (the `-a` password flag will print a harmless "Warning: Using a password with '-a'..." line to stderr — ignore it)
 Expected: empty output — confirms `ChatMemoryTest`'s `@AfterEach` cleanup actually deletes every key it wrote, leaving database `1` clean for the next run (whether by you or a colleague).
 
 - [ ] **Step 9: Commit**

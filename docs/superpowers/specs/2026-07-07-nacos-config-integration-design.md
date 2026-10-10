@@ -80,7 +80,7 @@ spring:
   cloud:
     nacos:
       config:
-        server-addr: 192.168.3.232:8848
+        server-addr: redacted-host.invalid:8848
         namespace: jowo-im-${spring.profiles.active}
         group: DEFAULT_GROUP
   config:
@@ -93,7 +93,7 @@ data-id `l7-skill-backend-dev.yaml`——与用户在 Nacos 控制台核实到�
 
 ### Nacos 数据准备（已完成）
 
-用户已在 Nacos 控制台（`192.168.3.232:8848`）的命名空间 `jowo-im-dev`、分组
+用户已在 Nacos 控制台（`redacted-host.invalid:8848`）的命名空间 `jowo-im-dev`、分组
 `DEFAULT_GROUP` 下创建好 data-id 为 `l7-skill-backend-dev.yaml` 的配置，内容覆盖了
 `application-dev.yml` 原有的全部键，外加 MySQL（`spring.datasource.*`）、RabbitMQ、
 Redis（`REDIS_PASSWORD` 走环境变量、带默认值）、MinIO、`smartlink`、`jowo.*`、

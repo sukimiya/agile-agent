@@ -13,7 +13,7 @@
 - Java 21, Spring Boot 3.5 (`pom.xml` — do not change dependency versions).
 - Reactive end-to-end: every new method returns `Mono`/`Flux`, never blocks (no `.block()` outside tests).
 - No Spring Security dependency is added. Auth continues to be hand-rolled (`CurrentUserArgumentResolver`, `@CurrentUser`, `AuthSessionStore`, `UnauthorizedException` → 401 via `AuthExceptionHandler`).
-- All Redis-backed stores use `ReactiveStringRedisTemplate` and are tested against the real dev Redis instance already used by `AuthSessionStoreTest` (`192.168.3.232:6379`, database `1`), matching the existing test convention — no embedded/fake Redis is introduced.
+- All Redis-backed stores use `ReactiveStringRedisTemplate` and are tested against the real dev Redis instance already used by `AuthSessionStoreTest` (`${TEST_REDIS_HOST}:6379`, database `1`), matching the existing test convention — no embedded/fake Redis is introduced.
 - WebClient-based HTTP clients are tested with OkHttp `MockWebServer`, matching `SmartLinkClientTest`'s existing pattern.
 - Controller tests use `@WebFluxTest` + `@MockBean` + `@Import({WebConfig.class, AuthExceptionHandler.class, CurrentUserArgumentResolver.class})`, matching `AuthControllerTest`'s existing pattern.
 - No frontend code exists in this repository (`start.sh` expects a sibling `web/` checkout that isn't part of this repo) — this plan covers backend only. The one frontend-visible contract change (login trigger becomes a redirect, not a password POST) is called out in Task 6 but is not a task here.
@@ -239,8 +239,8 @@ class OAuth2StateStoreTest {
 
     @BeforeEach
     void setUp() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
+        var config = new RedisStandaloneConfiguration("${TEST_REDIS_HOST}", 6379);
+        config.setPassword("${TEST_REDIS_PASSWORD}");
         config.setDatabase(1);
         connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
@@ -695,8 +695,8 @@ class AuthSessionStoreTest {
 
     @BeforeEach
     void setUp() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
+        var config = new RedisStandaloneConfiguration("${TEST_REDIS_HOST}", 6379);
+        config.setPassword("${TEST_REDIS_PASSWORD}");
         config.setDatabase(1);
         connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
@@ -1607,7 +1607,7 @@ Expected: both return `200` with the expected user id/name/userType.
 
 - [ ] **Step 5: Verify silent refresh**
 
-If the provider supports a short-lived access token (e.g. configure it to expire in under 30 seconds for this test), wait past expiry, then re-issue the `/api/auth/me` call with the same opaque token. Expected: still `200` (the resolver transparently refreshed server-side), and `redis-cli -h 192.168.3.232 -n 1 GET authsession:<opaque-token>` shows an updated `accessToken`/`expiresAt`.
+If the provider supports a short-lived access token (e.g. configure it to expire in under 30 seconds for this test), wait past expiry, then re-issue the `/api/auth/me` call with the same opaque token. Expected: still `200` (the resolver transparently refreshed server-side), and `redis-cli -h ${TEST_REDIS_HOST} -n 1 GET authsession:<opaque-token>` shows an updated `accessToken`/`expiresAt`.
 
 - [ ] **Step 6: Verify a downstream enterprise API call still works**
 

@@ -14,16 +14,27 @@ class AuthorizationServiceTest {
     private final AuthorizationService authorization = new AuthorizationService();
 
     @Test
-    void platformAdminCanManageAndReadAnyNamedOrgWithoutTenantSynthesis() {
+    void tenantlessPlatformAdminCannotManageOrReadOrganizationResources() {
         var platformAdmin = identity(null, true, false, Set.of(), Set.of());
+        var blankTenantPlatformAdmin = identity("  ", true, false, Set.of(), Set.of());
 
         authorization.requirePlatformAdmin(platformAdmin);
-        assertThat(authorization.canManageOrg(platformAdmin, "org-outside-tenant")).isTrue();
-        assertThat(authorization.canReadOrg(platformAdmin, "org-outside-tenant")).isTrue();
+        assertThat(authorization.canManageOrg(platformAdmin, "org-outside-tenant")).isFalse();
+        assertThat(authorization.canReadOrg(platformAdmin, "org-outside-tenant")).isFalse();
+        assertThat(authorization.canManageOrg(blankTenantPlatformAdmin, "org-outside-tenant")).isFalse();
+        assertThat(authorization.canReadOrg(blankTenantPlatformAdmin, "org-outside-tenant")).isFalse();
         assertThat(authorization.canManageOrg(platformAdmin, null)).isFalse();
         assertThat(authorization.canReadOrg(platformAdmin, " ")).isFalse();
         assertThatThrownBy(() -> authorization.requireTenant(platformAdmin))
                 .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    void tenantBearingPlatformAdminCanManageAndReadAnyNamedOrg() {
+        var platformAdmin = identity("tenant-platform", true, false, Set.of(), Set.of());
+
+        assertThat(authorization.canManageOrg(platformAdmin, "org-outside-scopes")).isTrue();
+        assertThat(authorization.canReadOrg(platformAdmin, "org-outside-scopes")).isTrue();
     }
 
     @Test

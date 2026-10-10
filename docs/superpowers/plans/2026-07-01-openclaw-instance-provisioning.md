@@ -15,7 +15,7 @@
 - All secrets live in `application-local.yml`, never in the committed `application.yml`.
 - **Never log** `deepseekApiKey` or gateway tokens; mask in any error message.
 - Container gateway port is `18789/tcp`. Base image ref: `192.168.3.119/jowosmart/openclaw-base:<tag>`.
-- Portainer base URL `http://192.168.3.232:19002`, API key auth via `X-API-Key` header, `endpoint-id` default `1`.
+- Portainer base URL `http://redacted-host.invalid:19002`, API key auth via `X-API-Key` header, `endpoint-id` default `1`.
 - The runtime base image has `node` but **not** `python3` — any in-container JSON edit uses `node`.
 - Work on a feature branch (repo default branch is `main`); commit per task.
 
@@ -190,7 +190,7 @@ Ensure the main application class carries `@ConfigurationPropertiesScan` (add th
 
 ```yaml
 portainer:
-  base-url: http://192.168.3.232:19002
+  base-url: http://redacted-host.invalid:19002
   endpoint-id: 1
   image: 192.168.3.119/jowosmart/openclaw-base:20260701
 ```
@@ -420,7 +420,7 @@ import com.jowo.agent.config.PortainerProperties;
 class InstanceServiceTest {
 
     private final PortainerProperties props = new PortainerProperties(
-            "http://192.168.3.232:19002", "ptr_abc", 1,
+            "http://redacted-host.invalid:19002", "ptr_abc", 1,
             "192.168.3.119/jowosmart/openclaw-base:test");
 
     @Test
@@ -432,7 +432,7 @@ class InstanceServiceTest {
 
         var r = service.deploy("Demo", "sk-secret");
 
-        assertThat(r.url()).isEqualTo("http://192.168.3.232:49155");
+        assertThat(r.url()).isEqualTo("http://redacted-host.invalid:49155");
         assertThat(r.containerId()).isEqualTo("cid1");
         assertThat(r.gatewayToken()).isNotBlank();
         verify(client).pullImage("192.168.3.119/jowosmart/openclaw-base:test");
@@ -606,11 +606,11 @@ class InstanceControllerTest {
     void deployReturns200WithUrl() throws Exception {
         when(service.deploy("demo", "sk-x")).thenReturn(
             new InstanceService.InstanceResult("demo", "cid1",
-                "http://192.168.3.232:49155", "tok", "running"));
+                "http://redacted-host.invalid:49155", "tok", "running"));
         mvc.perform(post("/api/instances").contentType("application/json")
                 .content("{\"instanceName\":\"demo\",\"deepseekApiKey\":\"sk-x\"}"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.url").value("http://192.168.3.232:49155"))
+           .andExpect(jsonPath("$.url").value("http://redacted-host.invalid:49155"))
            .andExpect(jsonPath("$.containerId").value("cid1"));
     }
 
@@ -728,13 +728,13 @@ curl -s -X POST http://localhost:8088/api/instances \
   -H 'Content-Type: application/json' \
   -d '{"instanceName":"demo","deepseekApiKey":"sk-REPLACE"}'
 ```
-Expected: JSON with `url: http://192.168.3.232:<port>`, a `containerId`, `status: running`.
+Expected: JSON with `url: http://redacted-host.invalid:<port>`, a `containerId`, `status: running`.
 
 - [ ] **Step 3: Verify the instance is live**
 
 ```bash
 # container visible in Portainer UI, and the gateway answers:
-curl -s http://192.168.3.232:<port>/  # expect a WebSocket/HTTP response from the gateway
+curl -s http://redacted-host.invalid:<port>/  # expect a WebSocket/HTTP response from the gateway
 ```
 Expected: the deployed OpenClaw gateway responds; a quick agent turn using the injected key succeeds.
 

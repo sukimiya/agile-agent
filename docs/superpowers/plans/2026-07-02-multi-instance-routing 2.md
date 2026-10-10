@@ -320,7 +320,7 @@ import com.jowo.agent.config.PortainerProperties;
 class InstanceServiceTest {
 
     private final PortainerProperties props = new PortainerProperties(
-            "http://192.168.3.232:19002", "ptr_abc", 1,
+            "http://redacted-host.invalid:19002", "ptr_abc", 1,
             "192.168.3.119/jowosmart/openclaw-base:test");
 
     @Test
@@ -333,7 +333,7 @@ class InstanceServiceTest {
 
         var r = service.deploy("Demo", "sk-secret", "conv-1");
 
-        assertThat(r.url()).isEqualTo("http://192.168.3.232:49155");
+        assertThat(r.url()).isEqualTo("http://redacted-host.invalid:49155");
         assertThat(r.containerId()).isEqualTo("cid1");
         assertThat(r.gatewayToken()).isNotBlank();
         verify(client).pullImage("192.168.3.119/jowosmart/openclaw-base:test");
@@ -381,7 +381,7 @@ class InstanceServiceTest {
         var captor = org.mockito.ArgumentCaptor.forClass(InstanceRegistry.InstanceRecord.class);
         verify(registry).save(captor.capture());
         assertThat(captor.getValue().instanceName()).isEqualTo("demo");
-        assertThat(captor.getValue().url()).isEqualTo("http://192.168.3.232:49155");
+        assertThat(captor.getValue().url()).isEqualTo("http://redacted-host.invalid:49155");
         verify(registry).bind("conv-1", "demo");
     }
 
@@ -551,11 +551,11 @@ class InstanceControllerTest {
     void deployReturns200WithUrl() throws Exception {
         when(service.deploy("demo", "sk-x", "conv-1")).thenReturn(
             new InstanceService.InstanceResult("demo", "cid1",
-                "http://192.168.3.232:49155", "tok", "running"));
+                "http://redacted-host.invalid:49155", "tok", "running"));
         mvc.perform(post("/api/instances").contentType("application/json")
                 .content("{\"instanceName\":\"demo\",\"deepseekApiKey\":\"sk-x\",\"conversationId\":\"conv-1\"}"))
            .andExpect(status().isOk())
-           .andExpect(jsonPath("$.url").value("http://192.168.3.232:49155"))
+           .andExpect(jsonPath("$.url").value("http://redacted-host.invalid:49155"))
            .andExpect(jsonPath("$.containerId").value("cid1"));
     }
 
@@ -699,11 +699,11 @@ class AgentServiceTest {
     @Test
     void buildCommandTargetsWsUrlAndCarriesParams() throws Exception {
         var instance = new InstanceRegistry.InstanceRecord(
-                "demo", "cid1", "http://192.168.3.232:49155", "tok-secret", "running", "2026-07-02T10:00:00Z");
+                "demo", "cid1", "http://redacted-host.invalid:49155", "tok-secret", "running", "2026-07-02T10:00:00Z");
 
         var cmd = AgentService.buildCommand(instance, "conv-1", "hello there");
 
-        assertThat(cmd).containsSubsequence("--url", "ws://192.168.3.232:49155");
+        assertThat(cmd).containsSubsequence("--url", "ws://redacted-host.invalid:49155");
         assertThat(cmd).containsSubsequence("--token", "tok-secret");
         assertThat(cmd).contains("--expect-final", "--json");
         assertThat(cmd).containsSubsequence("--timeout", "120000");
@@ -1971,7 +1971,7 @@ curl -s -X POST http://localhost:8088/api/instances \
   -H 'Content-Type: application/json' \
   -d '{"instanceName":"e2e-demo","deepseekApiKey":"<real-deepseek-key>","conversationId":"e2e-conv-1"}'
 ```
-Expected: JSON response with `status: "running"` and a `url` like `http://192.168.3.232:<port>`. Then run:
+Expected: JSON response with `status: "running"` and a `url` like `http://redacted-host.invalid:<port>`. Then run:
 ```bash
 cat ~/.jowo-agent/instances.json
 ```

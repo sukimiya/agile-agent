@@ -23,7 +23,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.ReactiveValueOperations;
@@ -37,6 +36,7 @@ import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.auth.IdentityMappingException;
 import io.github.sukimiya.agileagent.auth.JsonPointerOAuth2IdentityMapper;
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
+import io.github.sukimiya.agileagent.LocalRedisTestServer;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -213,9 +213,7 @@ class CurrentUserArgumentResolverTest {
 
     @Test
     void cancellationAfterRotatedRefreshCannotRestoreTheOldSessionAfterLockExpiry() throws InterruptedException {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var redis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -386,9 +384,7 @@ class CurrentUserArgumentResolverTest {
 
     @Test
     void rotatedRefreshThenSessionWriteFailureInvalidatesSessionBeforeRetry() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var redis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -434,9 +430,7 @@ class CurrentUserArgumentResolverTest {
     @Test
     void rotatedRefreshThenIdentityFailureInvalidatesSessionAndCannotDeleteSuccessorLock()
             throws InterruptedException {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var redis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -568,9 +562,7 @@ class CurrentUserArgumentResolverTest {
 
     @Test
     void loserConvergesWhenSessionIsTemporarilyAbsentDuringWinnerRefresh() throws InterruptedException {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var redis = new ReactiveStringRedisTemplate(connectionFactory);
@@ -727,9 +719,7 @@ class CurrentUserArgumentResolverTest {
 
     @Test
     void concurrentNearExpiryAndStaleIdentityRequestsConvergeOnPersistedWinner() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         var connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         var redis = new ReactiveStringRedisTemplate(connectionFactory);

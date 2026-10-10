@@ -94,7 +94,7 @@ deployment).
     "demo": {
       "instanceName": "demo",
       "containerId": "...",
-      "url": "http://192.168.3.232:32768",
+      "url": "http://redacted-host.invalid:32768",
       "gatewayToken": "...",
       "status": "running",
       "createdAt": "2026-07-02T10:00:00Z"

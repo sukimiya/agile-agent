@@ -148,7 +148,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `spring-cloud-starter-alibaba-nacos-config` from Task 1 (provides the `nacos:` scheme for `spring.config.import`).
-- Produces: when started with `spring.profiles.active=dev`, the app registers as `l7-skill-backend` with Nacos and imports `l7-skill-backend-dev.yaml` (namespace `jowo-im-dev`, group `DEFAULT_GROUP`) from `192.168.3.232:8848`. When no profile (or `local`) is active, this block is inert — behavior unchanged.
+- Produces: when started with `spring.profiles.active=dev`, the app registers as `l7-skill-backend` with Nacos and imports `l7-skill-backend-dev.yaml` (namespace `jowo-im-dev`, group `DEFAULT_GROUP`) from `redacted-host.invalid:8848`. When no profile (or `local`) is active, this block is inert — behavior unchanged.
 
 - [ ] **Step 1: Rename the application name**
 
@@ -184,7 +184,7 @@ spring:
   cloud:
     nacos:
       config:
-        server-addr: 192.168.3.232:8848
+        server-addr: redacted-host.invalid:8848
         namespace: jowo-im-${spring.profiles.active}
         group: DEFAULT_GROUP
 ```
@@ -194,12 +194,12 @@ spring:
 Run: `mvn -q test`
 Expected: `BUILD SUCCESS`. Tests run with no active profile, so this new document (scoped to `on-profile: dev`) never activates and requires no network access — this only proves the YAML is syntactically valid and the base app context still loads.
 
-- [ ] **Step 4: Manually verify the `dev` profile actually reaches Nacos (requires internal network access to `192.168.3.232`)**
+- [ ] **Step 4: Manually verify the `dev` profile actually reaches Nacos (requires internal network access to `redacted-host.invalid`)**
 
 Run: `mvn spring-boot:run -Dspring-boot.run.profiles=dev`
 Expected: log shows the app successfully pulling config from Nacos (look for `Nacos` client connection log lines and no `NacosException`/connection-refused errors), and the app reaches `Started AgentApplication`. Stop it with Ctrl-C once confirmed.
 
-If this machine can't reach `192.168.3.232:8848`, skip this step here and run it once on a machine that can before merging — this is the one step in this plan that a sandboxed/offline worker cannot verify itself.
+If this machine can't reach `redacted-host.invalid:8848`, skip this step here and run it once on a machine that can before merging — this is the one step in this plan that a sandboxed/offline worker cannot verify itself.
 
 - [ ] **Step 5: Commit**
 

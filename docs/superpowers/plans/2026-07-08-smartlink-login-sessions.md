@@ -22,7 +22,7 @@ Flyway, MySQL. Frontend: React 19, TypeScript, Vite, Tailwind v4, Zustand, Vites
 - Backend controllers stay package-private classes (matches existing `ChatController`/`UploadController`).
 - No javadoc / comment blocks unless documenting a non-obvious constraint (matches existing style).
 - `local` profile now requires a **reachable local MySQL** in addition to the already-required shared
-  Redis (`192.168.3.232:6379`). Start it once before running any backend task in this plan:
+  Redis (`${TEST_REDIS_HOST}:6379`). Start it once before running any backend task in this plan:
   `brew services start mysql@8.0`, then create the schema used by `application-local.yml`'s defaults
   (`db_jowo_im`, user `root`, password `123456`, host `127.0.0.1:3306`):
   ```bash
@@ -597,8 +597,8 @@ class AuthSessionStoreTest {
 
     @BeforeEach
     void setUp() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
+        var config = new RedisStandaloneConfiguration("${TEST_REDIS_HOST}", 6379);
+        config.setPassword("${TEST_REDIS_PASSWORD}");
         config.setDatabase(1);
         connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();

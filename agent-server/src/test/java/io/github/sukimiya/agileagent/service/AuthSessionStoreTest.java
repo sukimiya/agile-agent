@@ -13,9 +13,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+
+import io.github.sukimiya.agileagent.LocalRedisTestServer;
 
 class AuthSessionStoreTest {
 
@@ -28,9 +29,7 @@ class AuthSessionStoreTest {
 
     @BeforeEach
     void setUp() {
-        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
-        config.setPassword("FeetxXuFkZIaM2Pq");
-        config.setDatabase(1);
+        var config = LocalRedisTestServer.configuration(1);
         connectionFactory = new LettuceConnectionFactory(config);
         connectionFactory.afterPropertiesSet();
         redisTemplate = new ReactiveStringRedisTemplate(connectionFactory);
