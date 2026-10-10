@@ -55,6 +55,9 @@ class OpenSourceBoundaryTest {
             String content = Files.readString(root.resolve(relativePath), StandardCharsets.UTF_8);
             if (relativePath.equals("agent-server/src/main/resources/application.yml")) {
                 content = content.replace("    table: l7_skill_flyway_schema_history" + System.lineSeparator(), "");
+            } else if (relativePath.equals("docs/spec/migration-from-single-module.md")) {
+                content = content.replaceAll(
+                        "(?<![A-Za-z0-9_])l7_skill_flyway_schema_history(?![A-Za-z0-9_])", "");
             }
             for (Pattern forbidden : FORBIDDEN_TEXT) {
                 if (forbidden.matcher(content).find()) {
@@ -132,6 +135,9 @@ class OpenSourceBoundaryTest {
         String startScript = Files.readString(root.resolve("start.sh"), StandardCharsets.UTF_8);
         String jenkinsfile = Files.readString(root.resolve("Jenkinsfile"), StandardCharsets.UTF_8);
 
+        assertThat(isProductFile("docs/oauth2-provider-integration.md")).isTrue();
+        assertThat(isProductFile("docs/spec/migration-from-single-module.md")).isTrue();
+        assertThat(isProductFile("docs/capability-adapters.md")).isTrue();
         assertThat(readme)
                 .contains("JDK 21", "mvn -pl agent-server -am test",
                         "mvn -pl agent-server,mock-oauth2 -am -DskipTests package",
@@ -163,8 +169,13 @@ class OpenSourceBoundaryTest {
 
         String productionServer = composeServiceSection(compose, "agile-agent-server");
         String mockProvider = composeServiceSection(compose, "agile-agent-mock-oauth2");
-        assertThat(productionServer).doesNotContain("mock-oauth2", "OAUTH2_AUTHORIZATION_URI");
+        String mysql = composeServiceSection(compose, "mysql");
+        String redis = composeServiceSection(compose, "redis");
+        assertThat(productionServer)
+                .doesNotContain("mock-oauth2", "OAUTH2_AUTHORIZATION_URI", "depends_on:", "mysql", "redis");
         assertThat(mockProvider).contains("profiles: [local-mock]");
+        assertThat(mysql).contains("profiles: [local-mock]");
+        assertThat(redis).contains("profiles: [local-mock]");
         assertThat(compose).doesNotContain("LLM_CONFIG_SECRET:-");
     }
 
@@ -263,11 +274,15 @@ class OpenSourceBoundaryTest {
                 || path.matches("docker/.*")
                 || path.equals("Jenkinsfile")
                 || path.equals("start.sh")
-                || path.matches("README(?:\\..*)?");
+                || path.matches("README(?:\\..*)?")
+                || path.equals("docs/capability-adapters.md")
+                || path.equals("docs/oauth2-provider-integration.md")
+                || path.equals("docs/spec/migration-from-single-module.md");
     }
 
     private static boolean excluded(String path) {
-        return path.startsWith("docs/spec/") || path.startsWith("docs/superpowers/")
+        return path.startsWith("docs/superpowers/")
+                || (path.startsWith("docs/spec/") && !path.equals("docs/spec/migration-from-single-module.md"))
                 || path.contains("/.git/") || path.startsWith(".git/")
                 || path.contains("/target/") || path.startsWith("target/")
                 || path.startsWith(".superpowers/sdd/") || path.startsWith(".superpowers/reviews/");
