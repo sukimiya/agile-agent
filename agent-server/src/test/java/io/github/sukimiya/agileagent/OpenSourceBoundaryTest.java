@@ -82,7 +82,18 @@ class OpenSourceBoundaryTest {
                 "image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}",
                 "- APP_DATA_DIR=/data", "- DEBUG=${DEBUG:-false}",
                 "- SPRING_PROFILES_ACTIVE", "- NACOS_SERVER_ADDR");
+        assertThat(compose).contains(
+                "LLM_CONFIG_SECRET=${LLM_CONFIG_SECRET:?LLM_CONFIG_SECRET must be set}",
+                "LLM_CONFIG_SECRET: ${LLM_CONFIG_SECRET:?LLM_CONFIG_SECRET must be set}")
+                .doesNotContain("${LLM_CONFIG_SECRET:-");
+        assertThat(composeServiceSection(compose, "agile-agent-server"))
+                .contains("LLM_CONFIG_SECRET=${LLM_CONFIG_SECRET:?LLM_CONFIG_SECRET must be set}");
+        assertThat(composeServiceSection(compose, "agile-agent-server-local-mock"))
+                .contains("LLM_CONFIG_SECRET: ${LLM_CONFIG_SECRET:?LLM_CONFIG_SECRET must be set}");
         assertThat(application).contains("server-addr: ${NACOS_SERVER_ADDR:localhost:8848}");
+        assertThat(application).contains("secret: ${LLM_CONFIG_SECRET:}");
+        assertThat(Files.readString(root.resolve("README.md"), StandardCharsets.UTF_8))
+                .contains("openssl rand -base64 32", "never commit it");
         assertThat(application.indexOf("on-profile: dev"))
                 .isLessThan(application.indexOf("nacos:${spring.application.name}"));
     }

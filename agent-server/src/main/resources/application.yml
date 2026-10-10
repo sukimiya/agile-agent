@@ -18,6 +18,8 @@ server:
   port: 8088
 
 llm:
+  config:
+    secret: ${LLM_CONFIG_SECRET:}
   default:
     base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
     api-key: ${LLM_API_KEY:}

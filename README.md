@@ -10,6 +10,14 @@ External adapters are regular Spring Boot dependencies built against `agent-spi`
 
 ## Local OAuth2 development
 
+The server encrypts tenant LLM API keys with `LLM_CONFIG_SECRET`. Generate a standard Base64 secret containing 32 random bytes, then export it in the shell used to run Compose:
+
+```sh
+export LLM_CONFIG_SECRET="$(openssl rand -base64 32)"
+```
+
+Both the default server and the `local-mock` server require this host variable. Keep the value in a secret manager or local shell configuration; never commit it. Retain the same value while encrypted tenant keys need to be read.
+
 The `local-mock` Compose profile starts an isolated agent server, the mock identity provider, MySQL, and Redis. It uses its own local data volumes and development-only database credentials. Package the two applications first so Compose can mount the mock provider JAR:
 
 ```sh

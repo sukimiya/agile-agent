@@ -60,6 +60,9 @@
 					<configuration>
 						<argLine>${argLine}</argLine>
 						<failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+						<systemPropertyVariables>
+							<llm.config.secret>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</llm.config.secret>
+						</systemPropertyVariables>
 					</configuration>
 				</plugin>
 			</plugins>
