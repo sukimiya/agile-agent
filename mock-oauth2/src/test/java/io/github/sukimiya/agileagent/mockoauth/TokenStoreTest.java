@@ -18,7 +18,7 @@ class TokenStoreTest {
     void rotatesRefreshTokenAndRejectsReplay() {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-10T00:00:00Z"));
         TokenStore store = new TokenStore(new MockIdentityCatalog(), clock, new java.security.SecureRandom());
-        TokenStore.TokenPair first = store.issue("demo-user");
+        TokenStore.TokenPair first = store.issue("tenant-a-user");
 
         TokenStore.TokenPair second = store.refresh(first.refreshToken());
         assertNotEquals(first.refreshToken(), second.refreshToken());
@@ -30,7 +30,7 @@ class TokenStoreTest {
     void replayingSpentRefreshRevokesRotatedAccessAndRefreshTokens() {
         TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
                 new java.security.SecureRandom());
-        TokenStore.TokenPair first = store.issue("demo-user");
+        TokenStore.TokenPair first = store.issue("tenant-a-user");
         TokenStore.TokenPair rotated = store.refresh(first.refreshToken());
 
         var exception = assertThrows(TokenStore.InvalidTokenException.class,
@@ -45,7 +45,7 @@ class TokenStoreTest {
     void replayingAnySpentAncestorAfterMultipleRotationsRevokesLatestPair() {
         TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
                 new java.security.SecureRandom());
-        TokenStore.TokenPair first = store.issue("demo-user");
+        TokenStore.TokenPair first = store.issue("tenant-a-user");
         TokenStore.TokenPair second = store.refresh(first.refreshToken());
         TokenStore.TokenPair latest = store.refresh(second.refreshToken());
 
@@ -61,7 +61,7 @@ class TokenStoreTest {
     void expiresAccessTokenAfterOneHour() {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-10T00:00:00Z"));
         TokenStore store = new TokenStore(new MockIdentityCatalog(), clock, new java.security.SecureRandom());
-        TokenStore.TokenPair tokens = store.issue("demo-user");
+        TokenStore.TokenPair tokens = store.issue("tenant-a-user");
         clock.advanceSeconds(3600);
 
         assertTrue(store.findIdentityByAccessToken(tokens.accessToken()).isEmpty());
@@ -71,7 +71,7 @@ class TokenStoreTest {
     void revocationInvalidatesBothAccessAndRefreshTokens() {
         TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
                 new java.security.SecureRandom());
-        TokenStore.TokenPair tokens = store.issue("demo-user");
+        TokenStore.TokenPair tokens = store.issue("tenant-a-user");
         store.revoke(tokens.refreshToken());
 
         assertTrue(store.findIdentityByAccessToken(tokens.accessToken()).isEmpty());
@@ -82,7 +82,7 @@ class TokenStoreTest {
     void revokingByAccessTokenInvalidatesItsRefreshToken() {
         TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
                 new java.security.SecureRandom());
-        TokenStore.TokenPair tokens = store.issue("demo-user");
+        TokenStore.TokenPair tokens = store.issue("tenant-a-user");
         store.revoke(tokens.accessToken());
 
         assertTrue(store.findIdentityByAccessToken(tokens.accessToken()).isEmpty());
@@ -92,23 +92,32 @@ class TokenStoreTest {
     @Test
     void seededUserInfoHasMapperCompatibleClaimsAndDistinctTenantScopes() {
         MockIdentityCatalog catalog = new MockIdentityCatalog();
-        var demo = catalog.userInfo("demo-user").orElseThrow();
-        var analyst = catalog.userInfo("analyst-user").orElseThrow();
+        assertEquals(5, catalog.identities().size());
+        var platformAdmin = catalog.userInfo("platform-admin").orElseThrow();
+        var tenantAAdmin = catalog.userInfo("tenant-a-admin").orElseThrow();
+        var tenantAUser = catalog.userInfo("tenant-a-user").orElseThrow();
+        var tenantBAdmin = catalog.userInfo("tenant-b-admin").orElseThrow();
+        var tenantBUser = catalog.userInfo("tenant-b-user").orElseThrow();
 
-        assertEquals("demo-user", demo.at("/sub").textValue());
-        assertTrue(demo.at("/primary_org/id").isTextual());
-        assertTrue(demo.at("/manageable_org_ids").isArray());
-        assertTrue(demo.at("/readable_org_ids").isArray());
-        assertTrue(!demo.at("/tenant_id").textValue().equals(analyst.at("/tenant_id").textValue()));
-        assertTrue(!demo.at("/manageable_org_ids").equals(analyst.at("/manageable_org_ids")));
-        assertTrue(!demo.at("/readable_org_ids").equals(analyst.at("/readable_org_ids")));
+        assertEquals("platform_admin", platformAdmin.at("/roles/0").textValue());
+        assertEquals("tenant_admin", tenantAAdmin.at("/roles/0").textValue());
+        assertEquals("tenant_admin", tenantBAdmin.at("/roles/0").textValue());
+        assertEquals("user", tenantAUser.at("/roles/0").textValue());
+        assertEquals("user", tenantBUser.at("/roles/0").textValue());
+        assertEquals("tenant-a", tenantAUser.at("/tenant_id").textValue());
+        assertEquals("tenant-b", tenantBUser.at("/tenant_id").textValue());
+        assertTrue(tenantAAdmin.at("/manageable_org_ids").size() >= 2);
+        assertTrue(tenantBAdmin.at("/manageable_org_ids").size() >= 2);
+        assertTrue(!tenantAUser.at("/manageable_org_ids").equals(tenantAUser.at("/readable_org_ids")));
+        assertTrue(!tenantBUser.at("/manageable_org_ids").equals(tenantBUser.at("/readable_org_ids")));
+        assertTrue(!tenantAAdmin.at("/readable_org_ids").equals(tenantBAdmin.at("/readable_org_ids")));
     }
 
     @Test
     void concurrentRefreshReplayHasOnlyOneWinner() throws Exception {
         TokenStore store = new TokenStore(new MockIdentityCatalog(), new MutableClock(Instant.EPOCH),
                 new java.security.SecureRandom());
-        TokenStore.TokenPair tokens = store.issue("demo-user");
+        TokenStore.TokenPair tokens = store.issue("tenant-a-user");
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger successes = new AtomicInteger();

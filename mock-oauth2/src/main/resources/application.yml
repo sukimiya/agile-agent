@@ -1,0 +1,9 @@
+server:
+  address: 127.0.0.1
+  port: ${MOCK_OAUTH2_PORT:8090}
+
+mock:
+  oauth2:
+    client-id: ${MOCK_OAUTH2_CLIENT_ID:agile-agent-local}
+    client-secret: ${MOCK_OAUTH2_CLIENT_SECRET:}
+    redirect-uris: ${MOCK_OAUTH2_REDIRECT_URIS:http://localhost:8088/api/auth/oauth2/callback}

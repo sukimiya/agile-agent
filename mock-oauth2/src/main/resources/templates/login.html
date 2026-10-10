@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Choose a local identity</title>
+</head>
+<body>
+<main>
+    <h1>Choose a local identity</h1>
+    <p>This development provider will continue the authorization request for the selected identity.</p>
+    <form method="post" action="/oauth2/authorize">
+        <input type="hidden" name="response_type" th:value="${request.responseType}">
+        <input type="hidden" name="client_id" th:value="${request.clientId}">
+        <input type="hidden" name="redirect_uri" th:value="${request.redirectUri}">
+        <input type="hidden" name="state" th:value="${request.state}">
+        <input type="hidden" name="code_challenge" th:value="${request.codeChallenge}">
+        <input type="hidden" name="code_challenge_method" th:value="${request.codeChallengeMethod}">
+        <fieldset>
+            <legend>Local users</legend>
+            <label th:each="identity : ${identities}">
+                <input type="radio" name="subject" th:value="${identity.subject}" required>
+                <span th:text="${identity.displayName}">Local User</span>
+                <span th:text="${identity.tenantName}">Tenant</span>
+                <span th:text="${identity.roles}">Roles</span>
+            </label>
+        </fieldset>
+        <button type="submit">Continue</button>
+    </form>
+</main>
+</body>
+</html>

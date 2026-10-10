@@ -15,12 +15,25 @@ public final class MockIdentityCatalog {
 
     public MockIdentityCatalog() {
         this(List.of(
-                new Identity("demo-user", "Demo User", "tenant-demo", "Demo Tenant",
-                        "org-demo", "Demo Organization", Set.of("USER"),
-                        Set.of("org-demo"), Set.of("org-demo", "org-demo-readonly")),
-                new Identity("analyst-user", "Analyst User", "tenant-research", "Research Tenant",
-                        "org-lab-a", "Laboratory A", Set.of("ANALYST"),
-                        Set.of("org-lab-a"), Set.of("org-lab-a", "org-lab-b", "org-lab-c"))));
+                new Identity("platform-admin", "Platform Admin", "tenant-platform", "Platform Tenant",
+                        "platform-root", "Platform Root", Set.of("platform_admin"),
+                        Set.of("platform-root", "tenant-a-root", "tenant-b-root"),
+                        Set.of("platform-root", "tenant-a-root", "tenant-a-team-1", "tenant-b-root",
+                                "tenant-b-team-1")),
+                new Identity("tenant-a-admin", "Tenant A Admin", "tenant-a", "Tenant A",
+                        "tenant-a-team-1", "Tenant A Team 1", Set.of("tenant_admin"),
+                        Set.of("tenant-a-root", "tenant-a-team-1", "tenant-a-team-2"),
+                        Set.of("tenant-a-root", "tenant-a-team-1", "tenant-a-team-2")),
+                new Identity("tenant-a-user", "Tenant A User", "tenant-a", "Tenant A",
+                        "tenant-a-team-1", "Tenant A Team 1", Set.of("user"),
+                        Set.of("tenant-a-team-1"), Set.of("tenant-a-team-1", "tenant-a-team-2")),
+                new Identity("tenant-b-admin", "Tenant B Admin", "tenant-b", "Tenant B",
+                        "tenant-b-team-1", "Tenant B Team 1", Set.of("tenant_admin"),
+                        Set.of("tenant-b-root", "tenant-b-team-1", "tenant-b-team-2"),
+                        Set.of("tenant-b-root", "tenant-b-team-1", "tenant-b-team-2")),
+                new Identity("tenant-b-user", "Tenant B User", "tenant-b", "Tenant B",
+                        "tenant-b-team-1", "Tenant B Team 1", Set.of("user"),
+                        Set.of("tenant-b-team-1"), Set.of("tenant-b-team-1", "tenant-b-team-2"))));
     }
 
     public MockIdentityCatalog(List<Identity> identities) {
