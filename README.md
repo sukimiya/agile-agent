@@ -1,31 +1,44 @@
 # Agile Agent
 
-Agile Agent is a Maven multi-module project for a general-purpose agent server with a stable capability SPI.
+Agile Agent is an open-source Maven multi-module project for a general-purpose agent server with a stable capability SPI. Build with JDK 21.
 
 - `agent-spi` contains the public identity and capability contracts used by server-side adapters.
 - `agent-server` contains HTTP APIs, authentication, orchestration, model integration, and the generic `KNOWLEDGE` capability.
 - `mock-oauth2` is a standalone development identity service for local OAuth2 login flows.
 
-External adapters are regular Spring Boot dependencies built against `agent-spi`; see the [capability adapter guide](docs/capability-adapters.md). The project boundaries and migration decisions are recorded in the [open-source migration specification](docs/spec/2026-10-09-open-source-multimodule-migration.md).
+External adapters are regular Spring Boot dependencies built against `agent-spi`; see the [capability adapter guide](docs/capability-adapters.md). For moving an existing deployment, see the [single-module migration guide](docs/spec/migration-from-single-module.md). Configure a production identity provider using the [OAuth2 provider guide](docs/oauth2-provider-integration.md).
+
+## Build commands
+
+Run Maven from the repository root so reactor dependencies are built together:
+
+```sh
+mvn -pl agent-spi -am test
+mvn -pl agent-server -am test
+mvn -pl agent-server -am package
+mvn -pl agent-server,mock-oauth2 -am -DskipTests package
+```
+
+From `agent-server/`, the equivalent server test command is `mvn -f ../pom.xml -pl agent-server -am test`.
 
 ## Local OAuth2 development
 
-The server encrypts tenant LLM API keys with `LLM_CONFIG_SECRET`. Generate a standard Base64 secret containing 32 random bytes, then export it in the shell used to run Compose:
+The server encrypts tenant LLM API keys with `LLM_CONFIG_SECRET`. Generate a Base64-encoded 32-byte key and provide it through the shell or your secret manager. Compose has no fallback value for this secret:
 
 ```sh
 export LLM_CONFIG_SECRET="$(openssl rand -base64 32)"
 ```
 
-Both the default server and the `local-mock` server require this host variable. Keep the value in a secret manager or local shell configuration; never commit it. Retain the same value while encrypted tenant keys need to be read.
+Keep `LLM_CONFIG_SECRET` stable while encrypted tenant keys need to be read, and use the same value on every server instance sharing that configuration; never commit it. The server's other production OAuth settings include `OAUTH2_AUTHORIZATION_URI`, `OAUTH2_TOKEN_URI`, `OAUTH2_USERINFO_URI`, optional `OAUTH2_REVOCATION_URI`, `OAUTH2_CLIENT_ID`, and `OAUTH2_CLIENT_SECRET`. Configure the claim mappings such as `OAUTH2_CLAIM_SUBJECT`, `OAUTH2_CLAIM_DISPLAY_NAME`, `OAUTH2_CLAIM_ROLES`, `OAUTH2_CLAIM_MANAGEABLE_ORG_IDS`, and `OAUTH2_CLAIM_READABLE_ORG_IDS` for your provider's user-info response. See the OAuth2 guide for the complete variable list and HTTPS requirements.
 
-The `local-mock` Compose profile starts an isolated agent server, the mock identity provider, MySQL, and Redis. It uses its own local data volumes and development-only database credentials. Package the two applications first so Compose can mount the mock provider JAR:
+The default Compose service is the server image and does not enable or depend on the mock OAuth2 provider. The opt-in `local-mock` profile starts an isolated server, the mock identity provider, MySQL, and Redis with separate local data volumes. Package the server and mock applications first so Compose can mount the mock provider JAR:
 
 ```sh
 mvn -pl agent-server,mock-oauth2 -am -DskipTests package
 docker compose -f docker/docker-compose.yml --profile local-mock up --build agile-agent-server-local-mock
 ```
 
-The local profile builds its own server image and does not depend on the default deployment image. Without `--profile local-mock`, Compose still selects only the existing server service. To stop the local services, press Ctrl-C. Remove the local development databases and uploaded files with `docker compose -f docker/docker-compose.yml --profile local-mock down -v`.
+The local profile builds its own server image and does not depend on the default deployment image. Without `--profile local-mock`, Compose selects only the server service. To stop the local services, press Ctrl-C. Remove the local development databases and uploaded files with `docker compose -f docker/docker-compose.yml --profile local-mock down -v`.
 
 The local-mock profile publishes the server and mock provider ports on `127.0.0.1` only. They are reachable from the same host and cannot be reached directly from other machines. The mock provider listens on all interfaces inside its container so the server can reach it over the Compose network.
 
@@ -43,7 +56,9 @@ The mock provider seeds five neutral identities:
 
 These identities and their organization scopes are local fixtures, not accounts for a business system. The mock is for development and isolated testing only. Do not expose it to the internet, connect it to real business data, or reuse the Compose development passwords outside this local profile.
 
-For an external identity provider, activate a deployment-specific profile or provide configuration for the authorization, token, user-info, and revocation endpoints; client ID and secret; callback and frontend redirect URIs; scopes; JSON Pointer claim mappings; and role names. Register the exact callback URI with that provider. The local profile defaults to client ID `agile-agent-local`, callback `http://localhost:8088/api/auth/oauth2/callback`, and empty client secret. No production secret is included.
+The local profile defaults to client ID `agile-agent-local`, callback `http://localhost:8088/api/auth/oauth2/callback`, and an empty client secret. This mock configuration is only for loopback development. Production deployments must supply real provider endpoints and all required secrets externally, use HTTPS for provider endpoints and public redirect URLs, and register the exact callback URI with the provider. No production secret is included in Compose or the image.
+
+To run the server and optional frontend without Compose, set `LLM_CONFIG_SECRET` and run `./start.sh`. The script builds the reactor's server dependencies before starting the server JAR. Add `web/node_modules` if you also want it to start the Vite frontend.
 
 Redis-backed tests use an isolated test-only Redis server on a random loopback port; the cross-module OAuth2 end-to-end test also starts a temporary H2 database. Run the tests on a machine with `redis-server` available on `PATH`:
 

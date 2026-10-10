@@ -9,6 +9,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$ROOT/logs"
 mkdir -p "$LOG_DIR"
 
+if [[ -z "${LLM_CONFIG_SECRET:-}" ]]; then
+  echo "[backend] LLM_CONFIG_SECRET must be set in the environment" >&2
+  exit 1
+fi
+
 is_alive() {
   local pidfile=$1
   [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null
@@ -31,7 +36,8 @@ start_in_bg() {
   echo "[$name] 已启动 pid=$(cat "$pidfile"), 日志: $logfile"
 }
 
-start_in_bg backend "$ROOT" mvn -pl agent-server spring-boot:run
+mvn -pl agent-server -am -DskipTests package
+start_in_bg backend "$ROOT" java -jar "$ROOT/agent-server/target/agile-agent-server-0.0.1-SNAPSHOT.jar"
 
 if [[ -d "$ROOT/web/node_modules" ]]; then
   start_in_bg frontend "$ROOT/web" npm run dev

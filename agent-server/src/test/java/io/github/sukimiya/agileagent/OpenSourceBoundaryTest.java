@@ -118,6 +118,57 @@ class OpenSourceBoundaryTest {
     }
 
     @Test
+    void releaseDocumentationCoversMigrationDeploymentAndAdapterPackaging() throws IOException {
+        Path root = findRepositoryRoot(Path.of("").toAbsolutePath());
+        String readme = Files.readString(root.resolve("README.md"), StandardCharsets.UTF_8);
+        Path migrationPath = root.resolve("docs/spec/migration-from-single-module.md");
+        Path oauth2Path = root.resolve("docs/oauth2-provider-integration.md");
+        assertThat(migrationPath).exists();
+        assertThat(oauth2Path).exists();
+        String migration = Files.readString(migrationPath, StandardCharsets.UTF_8);
+        String oauth2 = Files.readString(oauth2Path, StandardCharsets.UTF_8);
+        String adapters = Files.readString(root.resolve("docs/capability-adapters.md"), StandardCharsets.UTF_8);
+        String compose = Files.readString(root.resolve("docker/docker-compose.yml"), StandardCharsets.UTF_8);
+        String startScript = Files.readString(root.resolve("start.sh"), StandardCharsets.UTF_8);
+        String jenkinsfile = Files.readString(root.resolve("Jenkinsfile"), StandardCharsets.UTF_8);
+
+        assertThat(readme)
+                .contains("JDK 21", "mvn -pl agent-server -am test",
+                        "mvn -pl agent-server,mock-oauth2 -am -DskipTests package",
+                        "LLM_CONFIG_SECRET", "OAUTH2_CLIENT_ID", "OAUTH2_CLIENT_SECRET",
+                        "OAUTH2_AUTHORIZATION_URI", "OAUTH2_TOKEN_URI", "OAUTH2_USERINFO_URI",
+                        "OAUTH2_CLAIM_SUBJECT", "docs/spec/migration-from-single-module.md")
+                .doesNotContain("docs/migration-from-single-module.md");
+        assertThat(migration)
+                .contains("sessions", "re-login", "V1__create_sessions_table.sql",
+                        "V2__create_knowledge_documents_table.sql", "V3__create_chat_hints_table.sql",
+                        "V4__create_llm_provider_presets.sql", "V5__create_tenant_llm_config.sql",
+                        "V6__add_knowledge_scope.sql", "V7__add_knowledge_approval_claim_lease.sql",
+                        "GLOBAL", "approval_owner", "approval_claimed_at", "approval_version",
+                        "l7_skill_flyway_schema_history", "shared", "Mixed old and new application writers",
+                        "enterprise service-catalog endpoint");
+        assertThat(oauth2)
+                .contains("HTTPS", "OAUTH2_AUTHORIZATION_URI", "OAUTH2_TOKEN_URI",
+                        "OAUTH2_USERINFO_URI", "OAUTH2_REVOCATION_URI", "OAUTH2_CLIENT_ID",
+                        "OAUTH2_CLIENT_SECRET", "OAUTH2_CLAIM_SUBJECT", "OAUTH2_CLAIM_DISPLAY_NAME",
+                        "OAUTH2_CLAIM_TENANT_ID", "OAUTH2_CLAIM_PRIMARY_ORG_ID",
+                        "OAUTH2_CLAIM_ROLES", "OAUTH2_PLATFORM_ADMIN_ROLE",
+                        "OAUTH2_TENANT_ADMIN_ROLE", "future provider", "separate Maven module",
+                        "local-mock-password", "local-mock-root-password", "not production");
+        assertThat(adapters).contains("agile-agent-spi", "AutoConfiguration.imports");
+        assertThat(startScript)
+                .contains("mvn -pl agent-server -am -DskipTests package",
+                        "agile-agent-server-0.0.1-SNAPSHOT.jar");
+        assertThat(jenkinsfile).contains("mvn -pl agent-server,mock-oauth2 -am clean package");
+
+        String productionServer = composeServiceSection(compose, "agile-agent-server");
+        String mockProvider = composeServiceSection(compose, "agile-agent-mock-oauth2");
+        assertThat(productionServer).doesNotContain("mock-oauth2", "OAUTH2_AUTHORIZATION_URI");
+        assertThat(mockProvider).contains("profiles: [local-mock]");
+        assertThat(compose).doesNotContain("LLM_CONFIG_SECRET:-");
+    }
+
+    @Test
     void redisBoundaryRulesRejectPrivateEndpointsAndInlineCredentials() {
         assertThat(matchesAny(FORBIDDEN_REDIS_CONFIGURATION,
                 "new RedisStandaloneConfiguration(\"redis.internal.example\", 6379)")).isTrue();

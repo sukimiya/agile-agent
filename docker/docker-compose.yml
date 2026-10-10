@@ -1,4 +1,5 @@
 services:
+  # Default deployment service. The mock provider is available only in local-mock below.
   agile-agent-server:
     image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}
     container_name: agile-agent-server
@@ -14,6 +15,7 @@ services:
     volumes:
       - agile-agent-data:/data
 
+  # Development identity provider; never enable this profile in production.
   agile-agent-mock-oauth2:
     profiles: [local-mock]
     image: eclipse-temurin:21-jre-alpine
