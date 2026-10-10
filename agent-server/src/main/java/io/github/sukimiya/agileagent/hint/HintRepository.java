@@ -39,6 +39,16 @@ public class HintRepository {
                 .all();
     }
 
+    public Mono<HintRow> findById(String id) {
+        return db.sql("""
+                SELECT id, content, created_by_subject, created_at
+                FROM chat_hints WHERE id = :id
+                """)
+                .bind("id", id)
+                .map(HintRepository::mapRow)
+                .one();
+    }
+
     public Mono<Long> update(String id, String content) {
         return db.sql("UPDATE chat_hints SET content = :content WHERE id = :id")
                 .bind("content", content)

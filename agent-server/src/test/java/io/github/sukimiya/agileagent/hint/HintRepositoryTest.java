@@ -48,6 +48,9 @@ class HintRepositoryTest {
 
         assertThat(repository.findAll().map(HintRepository.HintRow::id).collectList().block())
                 .containsExactly("hint-a", "hint-b", "hint-c");
+        assertThat(repository.findById("hint-b").block())
+                .isEqualTo(new HintRepository.HintRow("hint-b", "Second", "subject", createdAt));
+        assertThat(repository.findById("missing").block()).isNull();
         assertThat(repository.update("hint-b", "Changed").block()).isEqualTo(1L);
         assertThat(repository.update("missing", "No row").block()).isZero();
         assertThat(repository.findAll().filter(row -> row.id().equals("hint-b")).single().block().content())

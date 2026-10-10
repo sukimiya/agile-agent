@@ -12,6 +12,8 @@ import io.github.sukimiya.agileagent.llmconfig.LlmConfigValidationException;
 import io.github.sukimiya.agileagent.llmconfig.LlmBalanceException;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.service.OAuth2Client.OAuth2UnavailableException;
+import io.github.sukimiya.agileagent.hint.HintNotFoundException;
+import io.github.sukimiya.agileagent.hint.HintValidationException;
 
 @RestControllerAdvice
 public class AuthExceptionHandler {
@@ -68,5 +70,17 @@ public class AuthExceptionHandler {
     ResponseEntity<ApiError> handleLlmConfigValidation(LlmConfigValidationException exception) {
         return ResponseEntity.status(exception.status())
                 .body(new ApiError(exception.code(), exception.getMessage()));
+    }
+
+    @ExceptionHandler(HintValidationException.class)
+    ResponseEntity<ApiError> handleHintValidation(HintValidationException exception) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("INVALID_CHAT_HINT", "Hint content is required"));
+    }
+
+    @ExceptionHandler(HintNotFoundException.class)
+    ResponseEntity<ApiError> handleHintNotFound(HintNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("CHAT_HINT_NOT_FOUND", "Chat hint not found"));
     }
 }
