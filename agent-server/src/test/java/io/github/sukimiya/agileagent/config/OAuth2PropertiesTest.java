@@ -34,5 +34,30 @@ class OAuth2PropertiesTest {
         assertThat(props.scope()).isEqualTo("openid profile");
         assertThat(props.userTypeClaim()).isEqualTo("userType");
         assertThat(props.frontendRedirectUri()).isEqualTo("http://localhost:5173/login/callback");
+        assertThat(props.claims()).isEqualTo(new OAuth2ClaimProperties());
+        assertThat(props.roles()).isEqualTo(new OAuth2Properties.Roles());
+    }
+
+    @Test
+    void bindsCustomClaimPointersAndAdminRoleNames() {
+        var source = new MapConfigurationPropertySource(java.util.Map.ofEntries(
+                java.util.Map.entry("oauth2.claims.subject", "/account/id"),
+                java.util.Map.entry("oauth2.claims.display-name", "/profile/fullName"),
+                java.util.Map.entry("oauth2.claims.tenant-id", "/org/tenant/id"),
+                java.util.Map.entry("oauth2.claims.tenant-name", "/org/tenant/name"),
+                java.util.Map.entry("oauth2.claims.primary-org-id", "/org/primary/id"),
+                java.util.Map.entry("oauth2.claims.primary-org-name", "/org/primary/name"),
+                java.util.Map.entry("oauth2.claims.roles", "/access/roles"),
+                java.util.Map.entry("oauth2.claims.manageable-org-ids", "/access/manageable"),
+                java.util.Map.entry("oauth2.claims.readable-org-ids", "/access/readable"),
+                java.util.Map.entry("oauth2.roles.platform-admin", "root_operator"),
+                java.util.Map.entry("oauth2.roles.tenant-admin", "tenant_owner")));
+
+        var props = new Binder(source).bind("oauth2", OAuth2Properties.class).get();
+
+        assertThat(props.claims()).isEqualTo(new OAuth2ClaimProperties(
+                "/account/id", "/profile/fullName", "/org/tenant/id", "/org/tenant/name",
+                "/org/primary/id", "/org/primary/name", "/access/roles", "/access/manageable", "/access/readable"));
+        assertThat(props.roles()).isEqualTo(new OAuth2Properties.Roles("root_operator", "tenant_owner"));
     }
 }

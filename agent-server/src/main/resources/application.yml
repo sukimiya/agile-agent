@@ -34,6 +34,19 @@ oauth2:
   scope: ${OAUTH2_SCOPE:openid profile offline_access}
   user-type-claim: ${OAUTH2_USER_TYPE_CLAIM:}
   frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:5173/login/callback}
+  claims:
+    subject: ${OAUTH2_CLAIM_SUBJECT:/sub}
+    display-name: ${OAUTH2_CLAIM_DISPLAY_NAME:/name}
+    tenant-id: ${OAUTH2_CLAIM_TENANT_ID:/tenant_id}
+    tenant-name: ${OAUTH2_CLAIM_TENANT_NAME:/tenant_name}
+    primary-org-id: ${OAUTH2_CLAIM_PRIMARY_ORG_ID:/primary_org/id}
+    primary-org-name: ${OAUTH2_CLAIM_PRIMARY_ORG_NAME:/primary_org/name}
+    roles: ${OAUTH2_CLAIM_ROLES:/roles}
+    manageable-org-ids: ${OAUTH2_CLAIM_MANAGEABLE_ORG_IDS:/manageable_org_ids}
+    readable-org-ids: ${OAUTH2_CLAIM_READABLE_ORG_IDS:/readable_org_ids}
+  roles:
+    platform-admin: ${OAUTH2_PLATFORM_ADMIN_ROLE:platform_admin}
+    tenant-admin: ${OAUTH2_TENANT_ADMIN_ROLE:tenant_admin}
 
 app:
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
