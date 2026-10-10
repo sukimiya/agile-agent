@@ -213,6 +213,14 @@ class DomainAgentTest {
     }
 
     @Test
+    void domainTaskDoesNotExposeAccessTokenInStringOrJson() throws Exception {
+        var task = new DomainTask("task-1", "conv-9", "KNOWLEDGE", "question", "sentinel-token");
+
+        assertThat(task.toString()).doesNotContain("sentinel-token");
+        assertThat(json.writeValueAsString(task)).doesNotContain("sentinel-token").doesNotContain("accessToken");
+    }
+
+    @Test
     void invalidDynamicDefinitionFailsBeforeAnyLlmCall() {
         LlmClient llm = mock(LlmClient.class);
         var provider = new RecordingProvider() {
