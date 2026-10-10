@@ -30,14 +30,18 @@ class LlmMigrationTest {
                 .isEqualTo("legacy doc");
         assertThat(jdbc.queryForList(
                 "SELECT \"version\" FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' ORDER BY \"installed_rank\"",
-                String.class)).containsExactly("1", "2", "3", "4", "5");
+                String.class)).containsExactly("1", "2", "3", "4", "5", "6");
+        assertThat(jdbc.queryForObject("SELECT scope_type FROM knowledge_documents WHERE id = 'doc-v2'", String.class))
+                .isEqualTo("GLOBAL");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_documents WHERE id = 'doc-v2' AND tenant_id IS NULL AND org_id IS NULL", Integer.class))
+                .isEqualTo(1);
         jdbc.update("INSERT INTO tenant_llm_config (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at) VALUES ('cfg-a', 'tenant-a', 'missing-preset', 'secret', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
         assertThatThrownBy(() -> jdbc.update("INSERT INTO tenant_llm_config (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at) VALUES ('cfg-b', 'tenant-a', 'missing-preset', 'secret', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
                 .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
     }
 
     @Test
-    void emptyDatabaseMigratesThroughV5() {
+    void emptyDatabaseMigratesThroughV6() {
         var dbName = "llm-migration-empty-" + System.nanoTime();
         var dataSource = dataSource(dbName);
 
@@ -45,7 +49,7 @@ class LlmMigrationTest {
 
         var jdbc = new JdbcTemplate(dataSource);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL'", Integer.class))
-                .isEqualTo(5);
+                .isEqualTo(6);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('CHAT_HINTS', 'LLM_PROVIDER_PRESET', 'TENANT_LLM_CONFIG')", Integer.class))
                 .isEqualTo(3);
     }

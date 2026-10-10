@@ -19,11 +19,13 @@ public class KnowledgeDocumentRepository {
     }
 
     public Mono<Void> insert(KnowledgeDocumentRow row) {
-        return db.sql("""
+        var query = db.sql("""
                 INSERT INTO knowledge_documents
-                    (id, title, original_filename, temp_path, status, summary, uploader_user_id, uploaded_at)
+                    (id, title, original_filename, temp_path, status, summary, uploader_user_id, uploaded_at,
+                     scope_type, tenant_id, tenant_name, org_id, org_name)
                 VALUES
-                    (:id, :title, :originalFilename, :tempPath, :status, :summary, :uploaderUserId, :uploadedAt)
+                    (:id, :title, :originalFilename, :tempPath, :status, :summary, :uploaderUserId, :uploadedAt,
+                     :scopeType, :tenantId, :tenantName, :orgId, :orgName)
                 """)
                 .bind("id", row.id())
                 .bind("title", row.title())
@@ -33,13 +35,24 @@ public class KnowledgeDocumentRepository {
                 .bind("summary", row.summary() == null ? "" : row.summary())
                 .bind("uploaderUserId", row.uploaderUserId())
                 .bind("uploadedAt", row.uploadedAt())
-                .fetch().rowsUpdated().then();
+                .bind("scopeType", row.scopeType().name());
+        query = bindNullable(query, "tenantId", row.tenantId());
+        query = bindNullable(query, "tenantName", row.tenantName());
+        query = bindNullable(query, "orgId", row.orgId());
+        query = bindNullable(query, "orgName", row.orgName());
+        return query.fetch().rowsUpdated().then();
+    }
+
+    private static DatabaseClient.GenericExecuteSpec bindNullable(
+            DatabaseClient.GenericExecuteSpec query, String name, String value) {
+        return value == null ? query.bindNull(name, String.class) : query.bind(name, value);
     }
 
     public Mono<KnowledgeDocumentRow> findById(String id) {
         return db.sql("""
                 SELECT id, title, original_filename, temp_path, status, summary,
-                       uploader_user_id, uploaded_at, reviewed_by_user_id, reviewed_at
+                       uploader_user_id, uploaded_at, reviewed_by_user_id, reviewed_at,
+                       scope_type, tenant_id, tenant_name, org_id, org_name
                 FROM knowledge_documents WHERE id = :id
                 """)
                 .bind("id", id)
@@ -50,7 +63,8 @@ public class KnowledgeDocumentRepository {
     public Flux<KnowledgeDocumentRow> findByStatus(KnowledgeDocumentRow.Status status) {
         return db.sql("""
                 SELECT id, title, original_filename, temp_path, status, summary,
-                       uploader_user_id, uploaded_at, reviewed_by_user_id, reviewed_at
+                       uploader_user_id, uploaded_at, reviewed_by_user_id, reviewed_at,
+                       scope_type, tenant_id, tenant_name, org_id, org_name
                 FROM knowledge_documents WHERE status = :status ORDER BY uploaded_at DESC
                 """)
                 .bind("status", status.name())
@@ -94,14 +108,29 @@ public class KnowledgeDocumentRepository {
                 row.get("uploader_user_id", String.class),
                 row.get("uploaded_at", LocalDateTime.class),
                 row.get("reviewed_by_user_id", String.class),
-                row.get("reviewed_at", LocalDateTime.class));
+                row.get("reviewed_at", LocalDateTime.class),
+                KnowledgeDocumentRow.ScopeType.valueOf(row.get("scope_type", String.class)),
+                row.get("tenant_id", String.class),
+                row.get("tenant_name", String.class),
+                row.get("org_id", String.class),
+                row.get("org_name", String.class));
     }
 
     public record KnowledgeDocumentRow(
             String id, String title, String originalFilename, String tempPath,
             Status status, String summary, String uploaderUserId, LocalDateTime uploadedAt,
-            String reviewedByUserId, LocalDateTime reviewedAt) {
+            String reviewedByUserId, LocalDateTime reviewedAt, ScopeType scopeType,
+            String tenantId, String tenantName, String orgId, String orgName) {
+
+        public KnowledgeDocumentRow(String id, String title, String originalFilename, String tempPath,
+                Status status, String summary, String uploaderUserId, LocalDateTime uploadedAt,
+                String reviewedByUserId, LocalDateTime reviewedAt) {
+            this(id, title, originalFilename, tempPath, status, summary, uploaderUserId, uploadedAt,
+                    reviewedByUserId, reviewedAt, ScopeType.GLOBAL, null, null, null, null);
+        }
 
         public enum Status { PENDING, APPROVED, REJECTED }
+
+        public enum ScopeType { GLOBAL, TENANT, ORG }
     }
 }

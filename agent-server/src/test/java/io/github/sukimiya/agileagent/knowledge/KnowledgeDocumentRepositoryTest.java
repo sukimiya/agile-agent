@@ -16,6 +16,7 @@ import io.r2dbc.spi.Option;
 
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
+import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.ScopeType;
 
 class KnowledgeDocumentRepositoryTest {
 
@@ -42,7 +43,8 @@ class KnowledgeDocumentRepositoryTest {
 
     private static KnowledgeDocumentRow newRow(String id, Status status) {
         return new KnowledgeDocumentRow(id, "标题", "original.md", "/tmp/" + id + ".md",
-                status, "摘要", "user-1", LocalDateTime.now(), null, null);
+                status, "摘要", "user-1", LocalDateTime.now(), null, null,
+                ScopeType.GLOBAL, null, null, null, null);
     }
 
     @Test
@@ -65,12 +67,45 @@ class KnowledgeDocumentRepositoryTest {
         assertThat(row.get().uploaderUserId()).isEqualTo("user-1");
         assertThat(row.get().reviewedByUserId()).isNull();
         assertThat(row.get().reviewedAt()).isNull();
+        assertThat(row.get().scopeType()).isEqualTo(ScopeType.GLOBAL);
+        assertThat(row.get().tenantId()).isNull();
+        assertThat(row.get().tenantName()).isNull();
+        assertThat(row.get().orgId()).isNull();
+        assertThat(row.get().orgName()).isNull();
+    }
+
+    @Test
+    void insertThenFindByIdRoundTripsEachScopeAndNullableSnapshots() {
+        repository.insert(scopedRow("global", ScopeType.GLOBAL, null, null, null, null)).block();
+        repository.insert(scopedRow("tenant", ScopeType.TENANT, "tenant-1", "Tenant One", null, null)).block();
+        repository.insert(scopedRow("org", ScopeType.ORG, "tenant-2", null, "org-1", "Org One")).block();
+
+        assertThat(repository.findById("global").block()).satisfies(row -> {
+            assertThat(row.scopeType()).isEqualTo(ScopeType.GLOBAL);
+            assertThat(row.tenantId()).isNull();
+            assertThat(row.orgId()).isNull();
+        });
+        assertThat(repository.findById("tenant").block()).satisfies(row -> {
+            assertThat(row.scopeType()).isEqualTo(ScopeType.TENANT);
+            assertThat(row.tenantId()).isEqualTo("tenant-1");
+            assertThat(row.tenantName()).isEqualTo("Tenant One");
+            assertThat(row.orgId()).isNull();
+            assertThat(row.orgName()).isNull();
+        });
+        assertThat(repository.findById("org").block()).satisfies(row -> {
+            assertThat(row.scopeType()).isEqualTo(ScopeType.ORG);
+            assertThat(row.tenantId()).isEqualTo("tenant-2");
+            assertThat(row.tenantName()).isNull();
+            assertThat(row.orgId()).isEqualTo("org-1");
+            assertThat(row.orgName()).isEqualTo("Org One");
+        });
     }
 
     @Test
     void insertCoercesNullSummaryToEmptyString() {
         var row = new KnowledgeDocumentRow("k1", "标题", "original.md", "/tmp/k1.md",
-                Status.PENDING, null, "user-1", LocalDateTime.now(), null, null);
+                Status.PENDING, null, "user-1", LocalDateTime.now(), null, null,
+                ScopeType.GLOBAL, null, null, null, null);
 
         repository.insert(row).block();
 
@@ -151,5 +186,27 @@ class KnowledgeDocumentRepositoryTest {
         var updated = repository.rejectIfPending("k1", "admin-1", LocalDateTime.now()).block();
 
         assertThat(updated).isZero();
+    }
+
+    @Test
+    void statusTransitionsPreserveScopeMetadata() {
+        repository.insert(scopedRow("org-transition", ScopeType.ORG,
+                "tenant-1", "Tenant One", "org-1", null)).block();
+
+        repository.approveIfPending("org-transition", "摘要", "admin-1", LocalDateTime.now()).block();
+
+        var row = repository.findById("org-transition").block();
+        assertThat(row.status()).isEqualTo(Status.APPROVED);
+        assertThat(row.scopeType()).isEqualTo(ScopeType.ORG);
+        assertThat(row.tenantId()).isEqualTo("tenant-1");
+        assertThat(row.tenantName()).isEqualTo("Tenant One");
+        assertThat(row.orgId()).isEqualTo("org-1");
+    }
+
+    private static KnowledgeDocumentRow scopedRow(String id, ScopeType scopeType,
+            String tenantId, String tenantName, String orgId, String orgName) {
+        return new KnowledgeDocumentRow(id, "标题", "original.md", "/tmp/" + id + ".md",
+                Status.PENDING, "摘要", "user-1", LocalDateTime.now(), null, null,
+                scopeType, tenantId, tenantName, orgId, orgName);
     }
 }
