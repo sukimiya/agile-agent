@@ -85,6 +85,21 @@ public class KnowledgeDocumentRepository {
                 .fetch().rowsUpdated();
     }
 
+    public Mono<Long> revertApprovalIfMatching(
+            String id, String originalSummary, String reviewedByUserId, LocalDateTime reviewedAt) {
+        return db.sql("""
+                UPDATE knowledge_documents
+                SET status = 'PENDING', summary = :summary, reviewed_by_user_id = NULL, reviewed_at = NULL
+                WHERE id = :id AND status = 'APPROVED'
+                  AND reviewed_by_user_id = :reviewedBy AND reviewed_at = :reviewedAt
+                """)
+                .bind("summary", originalSummary == null ? "" : originalSummary)
+                .bind("reviewedBy", reviewedByUserId)
+                .bind("reviewedAt", reviewedAt)
+                .bind("id", id)
+                .fetch().rowsUpdated();
+    }
+
     public Mono<Long> rejectIfPending(String id, String reviewedByUserId, LocalDateTime reviewedAt) {
         return db.sql("""
                 UPDATE knowledge_documents

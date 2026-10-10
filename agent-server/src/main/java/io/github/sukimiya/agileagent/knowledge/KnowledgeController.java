@@ -28,6 +28,7 @@ import io.github.sukimiya.agileagent.web.CurrentUser;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping("/api/knowledge")
@@ -47,24 +48,27 @@ class KnowledgeController {
             @RequestPart("file") FilePart file,
             @RequestPart(value = "title", required = false) String title,
             @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.upload(user.userId(), user.identity().tenantId(), title, file)
+        return service.upload(user.identity(), title, file)
                 .map(row -> ResponseEntity.ok((Object) toSummary(row)))
                 .onErrorResume(KnowledgeFileStorage.RejectedException.class, e -> Mono.just(
                         ResponseEntity.badRequest().body((Object) Map.of(
-                                "code", e.getCode(), "reason", e.getMessage()))));
+                                "code", e.getCode(), "reason", e.getMessage()))))
+                .onErrorResume(KnowledgeAccessPolicy.UploadIdentityException.class, e -> Mono.just(
+                        ResponseEntity.badRequest().body((Object) Map.of(
+                                "code", "IDENTITY_SCOPE_REQUIRED", "reason", e.getMessage()))));
     }
 
     @GetMapping
     Flux<KnowledgeDocumentSummary> list(
             @RequestParam(value = "status", defaultValue = "PENDING") Status status,
             @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.list(status).map(KnowledgeController::toSummary);
+        return service.list(status, user.identity()).map(KnowledgeController::toSummary);
     }
 
     @GetMapping("/{id}/download")
     Mono<ResponseEntity<?>> download(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.get(id)
-                .map(row -> {
+        return service.get(id, user.identity())
+                .flatMap(row -> Mono.fromCallable(() -> {
                     var path = row.status() == Status.APPROVED
                             ? Path.of(props.getLibDir(), row.id() + ".md")
                             : Path.of(row.tempPath());
@@ -74,7 +78,7 @@ class KnowledgeController {
                     return ResponseEntity.ok()
                             .contentType(MediaType.TEXT_PLAIN)
                             .body((Object) new FileSystemResource(path));
-                })
+                }).subscribeOn(Schedulers.boundedElastic()))
                 .defaultIfEmpty((ResponseEntity<?>) ResponseEntity.notFound().build());
     }
 
@@ -83,18 +87,19 @@ class KnowledgeController {
             @RequestBody(required = false) ApproveRequest body,
             @CurrentUser AuthSessionStore.AuthUser user) {
         String override = body == null ? null : body.summary();
-        return service.approve(id, user.userId(), override).map(KnowledgeController::toStatus);
+        return service.approve(id, user.identity(), override).map(KnowledgeController::toStatus);
     }
 
     @PostMapping("/{id}/reject")
     Mono<ResponseEntity<Void>> reject(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.reject(id, user.userId()).map(KnowledgeController::toStatus);
+        return service.reject(id, user.identity()).map(KnowledgeController::toStatus);
     }
 
     private static ResponseEntity<Void> toStatus(KnowledgeDocumentService.ActionResult result) {
         return switch (result) {
             case OK -> ResponseEntity.ok().build();
             case NOT_FOUND -> ResponseEntity.notFound().build();
+            case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
             case CONFLICT -> ResponseEntity.status(HttpStatus.CONFLICT).build();
         };
     }

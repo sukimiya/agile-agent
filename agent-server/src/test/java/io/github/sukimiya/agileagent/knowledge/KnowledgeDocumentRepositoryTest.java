@@ -168,6 +168,34 @@ class KnowledgeDocumentRepositoryTest {
     }
 
     @Test
+    void revertApprovalIfMatchingRestoresPendingStateAndOriginalSummary() {
+        var reviewedAt = LocalDateTime.of(2026, 10, 10, 12, 30, 15, 123_456_000);
+        repository.insert(newRow("k1", Status.PENDING)).block();
+        repository.approveIfPending("k1", "override", "admin-1", reviewedAt).block();
+
+        var reverted = repository.revertApprovalIfMatching("k1", "摘要", "admin-1", reviewedAt).block();
+
+        assertThat(reverted).isEqualTo(1L);
+        var row = repository.findById("k1").block();
+        assertThat(row.status()).isEqualTo(Status.PENDING);
+        assertThat(row.summary()).isEqualTo("摘要");
+        assertThat(row.reviewedByUserId()).isNull();
+        assertThat(row.reviewedAt()).isNull();
+    }
+
+    @Test
+    void revertApprovalIfMatchingDoesNotUndoAnotherReview() {
+        var reviewedAt = LocalDateTime.of(2026, 10, 10, 12, 30, 15, 123_456_000);
+        repository.insert(newRow("k1", Status.PENDING)).block();
+        repository.approveIfPending("k1", "override", "admin-1", reviewedAt).block();
+
+        var reverted = repository.revertApprovalIfMatching("k1", "摘要", "admin-2", reviewedAt).block();
+
+        assertThat(reverted).isZero();
+        assertThat(repository.findById("k1").block().status()).isEqualTo(Status.APPROVED);
+    }
+
+    @Test
     void rejectIfPendingUpdatesRowAndReturnsOneWhenPending() {
         repository.insert(newRow("k1", Status.PENDING)).block();
 

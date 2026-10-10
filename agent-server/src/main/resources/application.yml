@@ -67,6 +67,7 @@ app:
     temp-dir: ${app.data-dir}/knowledge-pending
     lib-dir: ${app.data-dir}/lib
     max-size-mb: 5
+    summary-timeout: 30s
 
 ---
 spring:

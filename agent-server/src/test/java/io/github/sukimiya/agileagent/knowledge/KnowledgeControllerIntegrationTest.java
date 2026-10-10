@@ -59,6 +59,7 @@ class KnowledgeControllerIntegrationTest {
     @MockBean LlmClient llm;
     @MockBean TenantLlmClientResolver resolver;
     String token;
+    String reviewerToken;
 
     @BeforeEach
     void setUp() {
@@ -66,8 +67,12 @@ class KnowledgeControllerIntegrationTest {
         when(resolver.resolve(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just(llm));
         token = sessions.create("sl-tok", "refresh-tok", Instant.now().plusSeconds(3600),
                 new io.github.sukimiya.agileagent.spi.identity.IdentityContext("knowledge-test-user", "Knowledge Test",
+                        "tenant-1", "Tenant", "org-1", "Support", java.util.Set.of(),
+                        java.util.Set.of(), java.util.Set.of("org-1"), false, false), Instant.now()).block();
+        reviewerToken = sessions.create("reviewer-sl-tok", "reviewer-refresh-tok", Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("knowledge-reviewer", "Knowledge Reviewer",
                         "tenant-1", "Tenant", null, null, java.util.Set.of("tenant_admin"),
-                        java.util.Set.of(), java.util.Set.of(), false, true), Instant.now()).block();
+                        java.util.Set.of("org-1"), java.util.Set.of(), false, true), Instant.now()).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }
@@ -75,6 +80,7 @@ class KnowledgeControllerIntegrationTest {
     @AfterEach
     void tearDown() {
         sessions.delete(token).block();
+        sessions.delete(reviewerToken).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }
@@ -126,7 +132,7 @@ class KnowledgeControllerIntegrationTest {
                 .jsonPath("$[?(@.id=='" + id + "')]").exists();
 
         client.post().uri("/api/knowledge/" + id + "/approve")
-                .header("Authorization", "Bearer " + token)
+                .header("Authorization", "Bearer " + reviewerToken)
                 .exchange()
                 .expectStatus().isOk();
 
@@ -188,7 +194,7 @@ class KnowledgeControllerIntegrationTest {
         String id = extractId(uploadBody);
 
         client.post().uri("/api/knowledge/" + id + "/reject")
-                .header("Authorization", "Bearer " + token)
+                .header("Authorization", "Bearer " + reviewerToken)
                 .exchange()
                 .expectStatus().isOk();
 
@@ -217,10 +223,10 @@ class KnowledgeControllerIntegrationTest {
         String id = extractId(uploadBody);
 
         client.post().uri("/api/knowledge/" + id + "/approve")
-                .header("Authorization", "Bearer " + token).exchange().expectStatus().isOk();
+                .header("Authorization", "Bearer " + reviewerToken).exchange().expectStatus().isOk();
 
         client.post().uri("/api/knowledge/" + id + "/approve")
-                .header("Authorization", "Bearer " + token).exchange()
+                .header("Authorization", "Bearer " + reviewerToken).exchange()
                 .expectStatus().isEqualTo(HttpStatus.CONFLICT);
     }
 
