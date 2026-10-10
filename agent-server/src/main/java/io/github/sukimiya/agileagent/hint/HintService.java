@@ -1,11 +1,11 @@
 package io.github.sukimiya.agileagent.hint;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 import io.github.sukimiya.agileagent.auth.AuthorizationService;
 import io.github.sukimiya.agileagent.hint.HintRepository.HintRow;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -29,7 +29,7 @@ public class HintService {
     public Mono<HintSummary> create(IdentityContext identity, HintInput input) {
         authorization.requirePlatformAdmin(identity);
         String content = validatedContent(input);
-        var row = new HintRow(UUID.randomUUID().toString(), content, identity.subject(), LocalDateTime.now());
+        var row = new HintRow(NonBlockingIds.uuid(), content, identity.subject(), LocalDateTime.now());
         return repository.insert(row).thenReturn(toSummary(row));
     }
 

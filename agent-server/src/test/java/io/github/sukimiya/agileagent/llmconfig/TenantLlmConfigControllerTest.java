@@ -34,7 +34,7 @@ class TenantLlmConfigControllerTest {
 
     @Test
     void getRequiresAuthenticationAndReturnsOnlySafeConfigShape() {
-        var identity = identity("tenant-user", "tenant-a", false, true);
+        var identity = identity("tenant-user", "tenant-a", false, false);
         when(sessions.resolve("tenant-token")).thenReturn(Mono.just(user("tenant-user", "Tenant User", "access", "refresh",
                 Instant.now().plusSeconds(3600), identity, Instant.now())));
         when(service.get(any())).thenReturn(Mono.just(new TenantLlmConfigService.ConfigResponse(

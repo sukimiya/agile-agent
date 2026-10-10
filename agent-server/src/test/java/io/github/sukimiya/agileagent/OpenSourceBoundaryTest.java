@@ -27,6 +27,8 @@ class OpenSourceBoundaryTest {
             Pattern.compile("(?i)com\\." + "jowo"),
             Pattern.compile("(?i)\\b" + "jowo" + "\\b"),
             Pattern.compile("(?i)l7[-_]" + "skill"),
+            Pattern.compile("(?i)smart" + "link"),
+            Pattern.compile("(?i)deep" + "seek"),
             Pattern.compile("(?i)/api/" + "services\\b"),
             Pattern.compile("(?i)(?<![A-Za-z0-9])(?:MES|CRM|WMS|QMS|SRM|MDM|EAM|EMS)(?![A-Za-z0-9])"));
     private static final List<Pattern> FORBIDDEN_REDIS_CONFIGURATION = List.of(
@@ -147,6 +149,10 @@ class OpenSourceBoundaryTest {
                 .isEmpty();
         assertThat(forbiddenPathMarkers("agent-server/src/main/resources/crmish-guide.md"))
                 .isEmpty();
+        assertThat(forbiddenPathMarkers("agent-server/src/main/java/example/SmartLinkAdapter.java"))
+                .isNotEmpty();
+        assertThat(forbiddenPathMarkers("agent-server/src/main/java/example/DeepSeekClient.java"))
+                .isNotEmpty();
     }
 
     private static List<String> forbiddenPathMarkers(String relativePath) {

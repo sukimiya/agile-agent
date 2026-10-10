@@ -1,7 +1,6 @@
 package io.github.sukimiya.agileagent.knowledge;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +10,7 @@ import org.springframework.stereotype.Service;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -37,7 +37,7 @@ public class KnowledgeDocumentService {
     public enum ActionResult { OK, NOT_FOUND, CONFLICT }
 
     public Mono<KnowledgeDocumentRow> upload(String uploaderUserId, String tenantId, String title, FilePart file) {
-        String id = UUID.randomUUID().toString();
+        String id = NonBlockingIds.uuid();
         return llmResolver.resolve(tenantId)
                 .flatMap(llm -> storage.saveTemp(id, file)
                 .flatMap(saved -> llm.summarize(saved.content())

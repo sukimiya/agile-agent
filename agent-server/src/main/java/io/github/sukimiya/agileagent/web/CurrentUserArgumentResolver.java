@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
@@ -20,6 +19,7 @@ import org.springframework.web.server.ServerWebExchange;
 
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 
 import reactor.core.publisher.Mono;
 
@@ -85,7 +85,7 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
             return Mono.just(user);
         }
         String lockKey = REFRESH_LOCK_PREFIX + token;
-        String lockOwner = UUID.randomUUID().toString();
+        String lockOwner = NonBlockingIds.uuid();
         return redis.opsForValue().setIfAbsent(lockKey, lockOwner, REFRESH_LOCK_TTL)
                 .defaultIfEmpty(Boolean.FALSE)
                 .timeout(LOCK_ACQUIRE_TIMEOUT)

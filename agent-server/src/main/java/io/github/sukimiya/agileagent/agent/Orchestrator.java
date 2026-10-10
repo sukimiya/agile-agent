@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
@@ -19,6 +18,7 @@ import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -85,7 +85,7 @@ public class Orchestrator {
                                 ? answerDirectly(llm, usage, ownerId, history, userMessage)
                                 : answerViaCapabilities(llm, usage, ownerId, history, userMessage, capabilityCodes,
                                         accessToken, executionIdentity)));
-            String traceId = UUID.randomUUID().toString().substring(0, 8);
+            String traceId = NonBlockingIds.shortUuid();
             return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
                         body.timeout(TOTAL_BUDGET),
@@ -157,7 +157,7 @@ public class Orchestrator {
                                                List<LlmClient.Message> history, String userMessage,
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
         var tasks = capabilityCodes.stream()
-                .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken, identity))
+                .map(code -> new DomainTask(NonBlockingIds.uuid(), ownerId, code, userMessage, accessToken, identity))
                 .toList();
         Flux<AgentEvent> events = dispatcher.dispatch(tasks, llm).doOnNext(usage::add).cache();
 

@@ -4,12 +4,12 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 import io.github.sukimiya.agileagent.auth.AuthorizationService;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetRepository.LlmProviderPresetRow;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -52,7 +52,7 @@ public class LlmProviderPresetService {
         authorization.requirePlatformAdmin(identity);
         var normalized = validate(input);
         var now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
-        var row = new LlmProviderPresetRow(UUID.randomUUID().toString(), normalized.name(), normalized.baseUrl(),
+        var row = new LlmProviderPresetRow(NonBlockingIds.uuid(), normalized.name(), normalized.baseUrl(),
                 normalized.model(), normalized.balancePath(), identity.subject(), now, now);
         return repository.insert(row).thenReturn(row);
     }

@@ -5,13 +5,13 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import io.github.sukimiya.agileagent.auth.AuthorizationService;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetRepository.LlmProviderPresetRow;
 import io.github.sukimiya.agileagent.llmconfig.TenantLlmConfigRepository.TenantLlmConfigRow;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
@@ -51,7 +51,7 @@ public class TenantLlmConfigService {
     }
 
     public Mono<ConfigResponse> get(IdentityContext identity) {
-        String tenantId = requireReadableTenant(identity);
+        String tenantId = authorization.requireTenant(identity);
         return configs.findByTenantId(tenantId)
                 .switchIfEmpty(Mono.error(LlmConfigValidationException.notFound()))
                 .flatMap(config -> presets.findById(config.presetId())
@@ -93,7 +93,7 @@ public class TenantLlmConfigService {
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
         TenantLlmConfigRow row = existing
                 .map(old -> new TenantLlmConfigRow(old.id(), tenantId, preset.id(), encrypted, old.createdAt(), now))
-                .orElseGet(() -> new TenantLlmConfigRow(UUID.randomUUID().toString(), tenantId, preset.id(),
+                .orElseGet(() -> new TenantLlmConfigRow(NonBlockingIds.uuid(), tenantId, preset.id(),
                         encrypted, now, now));
         return configs.upsert(row)
                 .then(Mono.fromRunnable(() -> resolver.evict(tenantId)))
@@ -127,13 +127,6 @@ public class TenantLlmConfigService {
                 .timeout(Duration.ofSeconds(10))
                 .onErrorMap(error -> error instanceof LlmConfigValidationException
                         ? error : LlmConfigValidationException.providerUnavailable());
-    }
-
-    private String requireReadableTenant(IdentityContext identity) {
-        if (identity == null || (!identity.tenantAdmin() && !identity.platformAdmin())) {
-            throw new io.github.sukimiya.agileagent.web.ForbiddenException();
-        }
-        return authorization.requireTenant(identity);
     }
 
     private static ConfigResponse response(LlmProviderPresetRow preset) {

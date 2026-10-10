@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,6 +28,7 @@ import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.web.CurrentUser;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -61,9 +61,9 @@ class ChatController {
                 messages.get(messages.size() - 1).getOrDefault("content", "");
 
         // Use conversationId from frontend as the owner key for session continuity across requests
-        var ownerId = body.getOrDefault("conversationId", UUID.randomUUID().toString()).toString();
+        var ownerId = body.getOrDefault("conversationId", NonBlockingIds.uuid()).toString();
 
-        var chunkId = "chatcmpl-" + UUID.randomUUID().toString().substring(0, 8);
+        var chunkId = "chatcmpl-" + NonBlockingIds.shortUuid();
 
         return sessionService.touchOrCreate(ownerId, user.userId(), userMsg)
                 .flatMap(access -> {
@@ -152,7 +152,7 @@ class ChatController {
                                        @CurrentUser AuthSessionStore.AuthUser user) {
         var ownerId = request.conversationId() != null
                 ? request.conversationId()
-                : UUID.randomUUID().toString();
+                : NonBlockingIds.uuid();
         return sessionService.touchOrCreate(ownerId, user.userId(), request.message())
                 .flatMap(access -> {
                     if (access == SessionService.AccessResult.FORBIDDEN) {

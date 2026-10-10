@@ -70,7 +70,7 @@ class AuthSessionStoreTest {
         issuedToken = "legacy-shape-token";
         redisTemplate.opsForValue()
                 .set("authsession:" + issuedToken,
-                        "{\"userId\":\"user-1\",\"name\":\"周琳琳\",\"smartLinkToken\":\"sl-1\"}")
+                        "{\"userId\":\"user-1\",\"name\":\"周琳琳\",\"legacyOpaqueField\":\"ignored\"}")
                 .block();
 
         assertThat(store.resolve(issuedToken).blockOptional()).isEmpty();

@@ -71,29 +71,55 @@ class TenantLlmConfigServiceTest {
     }
 
     @Test
-    void regularUserAndTenantlessIdentityCannotReadOrWrite() {
+    void regularTenantUserCanReadMaskedConfigWithoutDecrypting() {
         var regular = identity("reader", "tenant-a", false, false);
+        when(configs.findByTenantId("tenant-a")).thenReturn(Mono.just(config("tenant-a", "encrypted-value", "preset-1")));
+        when(presets.findById("preset-1")).thenReturn(Mono.just(preset("preset-1")));
+
+        assertThat(service.get(regular).block())
+                .isEqualTo(new TenantLlmConfigService.ConfigResponse("preset-1", "Provider", "model-a", "********"));
+
+        verify(configs).findByTenantId("tenant-a");
+        verify(crypto, never()).decrypt(any());
+        verifyNoInteractions(resolver);
+    }
+
+    @Test
+    void tenantlessIdentitiesCannotReadOrWriteAndRegularUsersCannotWrite() {
+        var regular = identity("reader", "tenant-a", false, false);
+        var tenantlessRegular = identity("tenantless-reader", null, false, false);
         var tenantlessAdmin = identity("admin", null, false, true);
-        assertThatThrownBy(() -> service.get(regular).block()).isInstanceOf(ForbiddenException.class);
+        var tenantlessPlatformAdmin = identity("tenantless-platform", null, true, false);
+        assertThatThrownBy(() -> service.get(tenantlessRegular).block()).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.get(tenantlessAdmin).block()).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.get(tenantlessPlatformAdmin).block()).isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> service.save(regular, new TenantLlmConfigService.ConfigInput("preset-1", "secret-key")).block())
                 .isInstanceOf(ForbiddenException.class);
-        assertThatThrownBy(() -> service.get(tenantlessAdmin).block()).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.save(tenantlessRegular,
+                new TenantLlmConfigService.ConfigInput("preset-1", "secret-key")).block())
+                .isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.save(tenantlessAdmin,
+                new TenantLlmConfigService.ConfigInput("preset-1", "secret-key")).block())
+                .isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> service.delete(tenantlessAdmin).block()).isInstanceOf(ForbiddenException.class);
+        assertThatThrownBy(() -> service.delete(tenantlessPlatformAdmin).block()).isInstanceOf(ForbiddenException.class);
         verifyNoInteractions(configs, presets, crypto, resolver);
     }
 
     @Test
     void platformAdminCanReadOwnTenantButCannotWriteUnlessAlsoTenantAdmin() {
         var platformOnly = identity("platform", "tenant-a", true, false);
-        when(configs.findByTenantId("tenant-a")).thenReturn(Mono.empty());
-        assertThatThrownBy(() -> service.get(platformOnly).block())
-                .isInstanceOf(LlmConfigValidationException.class);
+        when(configs.findByTenantId("tenant-a")).thenReturn(Mono.just(config("tenant-a", "encrypted-value", "preset-1")));
+        when(presets.findById("preset-1")).thenReturn(Mono.just(preset("preset-1")));
+        assertThat(service.get(platformOnly).block())
+                .isEqualTo(new TenantLlmConfigService.ConfigResponse("preset-1", "Provider", "model-a", "********"));
         assertThatThrownBy(() -> service.save(platformOnly,
                 new TenantLlmConfigService.ConfigInput("preset-1", "secret-key")).block())
                 .isInstanceOf(ForbiddenException.class);
         assertThatThrownBy(() -> service.delete(platformOnly).block()).isInstanceOf(ForbiddenException.class);
         verify(configs).findByTenantId("tenant-a");
-        verifyNoInteractions(presets, crypto, resolver);
+        verify(presets).findById("preset-1");
+        verifyNoInteractions(crypto, resolver);
     }
 
     @Test
