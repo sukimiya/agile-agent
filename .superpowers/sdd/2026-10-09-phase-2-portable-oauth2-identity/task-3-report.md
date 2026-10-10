@@ -156,3 +156,37 @@ The tombstone and guarded update both operate on the existing session key. This 
 - Mocked logout coverage now checks local invalidation precedes provider revoke; the real Redis race proves logout completes while refresh is still held and wins after refresh resumes. Provider revocation remains best effort when a session record is available; when pre-refresh invalidation already removed that record, the app token is still safely tombstoned and unusable.
 - Commit: `fix: make logout win over in-flight OAuth2 refresh` (local only; no push).
 - No additional concern found.
+
+## Fix Round 4
+
+### Atomic refresh/logout fencing and tombstone allocation
+
+The session key is now the single Redis state machine for an app token:
+
+| State | Stored value | Resolver behavior |
+|---|---|---|
+| Live | Existing JSON session payload | Resolves normally if current/fresh |
+| Refresh in progress | `__AUTH_SESSION_REFRESHING_V1__:<opaque UUID>` | Absent; never contains credentials |
+| Logged out | `__AUTH_SESSION_LOGGED_OUT_V1__` | Absent until the 30-day session TTL expires |
+| Unknown | No Redis key | Absent; logout leaves it absent |
+
+`beginRefresh` and `logout` are Lua scripts over the same session key. `beginRefresh` changes only a present live payload into its caller's generation marker; it refuses a missing key, tombstone, or existing generation. This operation happens after the owner re-read and before the provider refresh call. `logout` checks and replaces the current value atomically: it creates a tombstone only when the same key currently holds a live payload or refresh-generation marker, and otherwise does not create or extend a key. Thus a random unknown bearer still returns 204 without allocating Redis state, and the check/write cannot race with an in-flight refresh transition.
+
+Persistence is also fenced by Lua. A provider-refresh write succeeds only when the key still exactly matches that refresh owner's generation; an identity-only update succeeds only while a live payload remains and rejects both generation markers and logout sentinels. The critical ordering is therefore linearizable: logout before `beginRefresh` makes the pre-refresh CAS fail without calling the provider; `beginRefresh` before logout lets logout replace the marker, after which generation persistence fails; a persistence that wins first is overwritten by logout. No unconditional delete remains in the provider refresh path, so it cannot erase a logout boundary. The generation marker is secret-free and has the existing 120-second refresh-lock lease TTL; it expires naturally if the worker is cancelled or crashes. The logout sentinel has a 30-day TTL and is not extended by repeat logout calls. Unknown tokens produce no key. The session and generation share one key, keeping each Lua transition atomic and Redis Cluster single-slot safe without process-local state or a key-schema migration.
+
+### RED/GREEN evidence
+
+- RED for the exact owner-re-read / logout / pre-invalidation interleave: `mvn -pl agent-server -Dtest='AuthControllerTest#logoutBetweenOwnerRereadAndPreRefreshInvalidationCannotResurrectSession' test` failed against the pre-fix code because the post-logout refresh result was still returned and `resolve()` contained a usable `AuthUser`. The test pauses the owner immediately before `beginRefresh`, returns real logout 204, verifies the sentinel, then resumes the Redis operation and asserts no provider call, no returned user, a retained sentinel, and later 401.
+- RED for unknown bearer allocation: `mvn -pl agent-server -Dtest='AuthControllerTest#logoutForUnknownBearerReturns204WithoutCreatingRedisKey' test` failed against the prior unconditional tombstone script because `authsession:<random-token>` existed after 204.
+- GREEN race/Redis checks: `mvn -pl agent-server -Dtest='AuthControllerTest#logoutBetweenOwnerRereadAndPreRefreshInvalidationCannotResurrectSession+logoutForUnknownBearerReturns204WithoutCreatingRedisKey+logoutWinsOverAnInFlightRefreshAndPreventsSessionRecreation' test` passed 3 tests, 0 failures/errors. The third real-Redis test exercises logout while a refresh is already in progress (generation marker active) and confirms logout remains the winner.
+- Required Task 3 focused suite: `mvn -pl agent-server -Dtest='AuthSessionStoreTest,OAuth2ClientTest,CurrentUserArgumentResolverTest,AuthControllerTest' test` passed 73 tests, 0 failures/errors.
+- Full server suite: `mvn -pl agent-server test` passed 233 tests, 0 failures/errors/skips. Existing JVM/Mockito/Netty warnings and unrelated BlockHound Reactor worker logs were non-failing. `git diff --check` passed.
+
+### Self-review
+
+- The post-owner-reread interleave cannot delete or overwrite logout's tombstone: the pre-refresh operation is now a conditional live-payload-to-generation Lua transition rather than `DEL`, and final persistence requires that exact UUID generation. The real Redis race verifies this exact schedule and checks the final key plus unauthorized resolve.
+- Tombstones are allocated only for a current live session or an in-progress generation, and the check/write is a single-key atomic operation. Repeated logout does not renew an existing tombstone TTL; missing/unknown bearer logout is an atomic no-op that still returns 204. The 30-day bound is the same as the app-session lifetime. A newly created login continues to use a new random app token.
+- Existing provider refresh-token rotation/non-rotation and pre-provider durable invalidation remain intact. The identity fetch and persisted winner are still required before a resolver returns; stale-snapshot losers still converge through the bounded wait. UUID owner lock compare-delete, 120-second lease, 75-second owner cap, and 105-second elapsed loser timeout are unchanged. Normal logout still performs local invalidation before best-effort provider revocation when the current session payload is available.
+- No credential-bearing state was introduced: the refresh marker contains only a UUID generation, and the logout tombstone contains only a constant. Lua scripts do not log or return stored payloads. If Redis cannot acknowledge `beginRefresh`, the provider call never starts; if logout's script fails, the controller does not return 204.
+- Concerns: an in-flight refresh represented only by its generation marker has no refresh-token value available to logout for provider revocation, so logout skips remote revoke in that race; local invalidation remains authoritative and ordinary live-session logout still revokes best-effort. The generation marker naturally expires within 120 seconds if the worker terminates before persistence.
+- Commit: `fix: fence refresh generations against logout` (local only; no push).

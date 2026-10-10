@@ -98,10 +98,11 @@ class CurrentUserArgumentResolverTest {
                 java.util.Set.of("admin"), Instant.now());
         var refreshedIdentity = identity("user-1", "周琳琳", Set.of("reader"));
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(refreshedIdentity));
-        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        when(sessions.updateAfterRefresh(anyString(), anyString(), any())).thenReturn(Mono.empty());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
@@ -113,10 +114,11 @@ class CurrentUserArgumentResolverTest {
                 })
                 .verifyComplete();
         var callOrder = org.mockito.Mockito.inOrder(sessions, oauth2);
-        callOrder.verify(sessions).delete("tok-1");
+        callOrder.verify(sessions).beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(),
+                org.mockito.ArgumentMatchers.eq(CurrentUserArgumentResolver.REFRESH_LOCK_TTL));
         callOrder.verify(oauth2).refresh("rt-1");
         callOrder.verify(oauth2).fetchIdentity("at-2");
-        callOrder.verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), any());
+        callOrder.verify(sessions).updateAfterRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any());
     }
 
     @Test
@@ -126,20 +128,22 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", null, 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(expiring.identity()));
-        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        when(sessions.updateAfterRefresh(anyString(), anyString(), any())).thenReturn(Mono.empty());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
                 .assertNext(result -> org.assertj.core.api.Assertions
                         .assertThat(((AuthSessionStore.AuthUser) result).refreshToken()).isEqualTo("rt-1"))
                 .verifyComplete();
-        verify(sessions).delete("tok-1");
+        verify(sessions).beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(),
+                org.mockito.ArgumentMatchers.eq(CurrentUserArgumentResolver.REFRESH_LOCK_TTL));
 
         var persisted = org.mockito.ArgumentCaptor.forClass(AuthSessionStore.AuthUser.class);
-        verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), persisted.capture());
+        verify(sessions).updateAfterRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), persisted.capture());
         org.assertj.core.api.Assertions.assertThat(persisted.getValue().refreshToken()).isEqualTo("rt-1");
         org.assertj.core.api.Assertions.assertThat(persisted.getValue().accessToken()).isEqualTo("at-2");
     }
@@ -151,10 +155,11 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-1", 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(expiring.identity()));
-        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        when(sessions.updateAfterRefresh(anyString(), anyString(), any())).thenReturn(Mono.empty());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
@@ -166,7 +171,7 @@ class CurrentUserArgumentResolverTest {
                 .verifyComplete();
 
         var persisted = org.mockito.ArgumentCaptor.forClass(AuthSessionStore.AuthUser.class);
-        verify(sessions).update(org.mockito.ArgumentMatchers.eq("tok-1"), persisted.capture());
+        verify(sessions).updateAfterRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), persisted.capture());
         org.assertj.core.api.Assertions.assertThat(persisted.getValue().refreshToken()).isEqualTo("rt-1");
     }
 
@@ -178,21 +183,22 @@ class CurrentUserArgumentResolverTest {
                 Set.of("admin"), Instant.now());
         var refreshCalls = new AtomicInteger();
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class))).thenReturn(
                 Mono.error(new IllegalStateException("redis unavailable")), Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.defer(() -> {
             refreshCalls.incrementAndGet();
             return Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600));
         }));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(identity("user-1", "周琳琳", Set.of("reader"))));
-        when(sessions.update(any(), any())).thenReturn(Mono.empty());
+        when(sessions.updateAfterRefresh(anyString(), anyString(), any())).thenReturn(Mono.empty());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
                 .expectError(IllegalStateException.class)
                 .verify();
 
-        verify(sessions).delete("tok-1");
+        verify(sessions).beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(),
+                org.mockito.ArgumentMatchers.eq(CurrentUserArgumentResolver.REFRESH_LOCK_TTL));
         verifyNoInteractions(oauth2);
         org.assertj.core.api.Assertions.assertThat(refreshCalls).hasValue(0);
 
@@ -260,7 +266,8 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.error(new OAuth2Client.OAuth2AuthException("token revoked")));
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
@@ -276,7 +283,8 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 java.util.Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1"))
                 .thenReturn(Mono.error(new OAuth2Client.OAuth2UnavailableException("connection refused")));
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
@@ -295,14 +303,17 @@ class CurrentUserArgumentResolverTest {
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(expiring.identity()));
-        when(sessions.update(any(), any())).thenReturn(Mono.error(new IllegalStateException("redis down")));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.updateAfterRefresh(anyString(), anyString(), any()))
+                .thenReturn(Mono.error(new IllegalStateException("redis down")));
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
         StepVerifier.create(resolver.resolveArgument(null, null, bearer("tok-1")))
                 .expectError(IllegalStateException.class)
                 .verify();
-        verify(sessions).delete("tok-1");
+        verify(sessions).beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(),
+                org.mockito.ArgumentMatchers.eq(CurrentUserArgumentResolver.REFRESH_LOCK_TTL));
     }
 
     @Test
@@ -351,10 +362,11 @@ class CurrentUserArgumentResolverTest {
         var sessionPresent = new java.util.concurrent.atomic.AtomicBoolean(true);
         when(sessions.resolve("tok-1")).thenAnswer(ignored -> sessionPresent.get()
                 ? Mono.just(stale) : Mono.empty());
-        when(sessions.delete("tok-1")).thenAnswer(ignored -> {
-            sessionPresent.set(false);
-            return Mono.empty();
-        });
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenAnswer(ignored -> {
+                    sessionPresent.set(false);
+                    return Mono.empty();
+                });
         when(oauth2.refresh("rt-1")).thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", null, 3600)));
         when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.error(
                 new OAuth2Client.OAuth2UnavailableException("userinfo unavailable")));
@@ -368,7 +380,8 @@ class CurrentUserArgumentResolverTest {
                 .verify();
 
         verify(oauth2, times(1)).refresh("rt-1");
-        verify(sessions, times(1)).delete("tok-1");
+        verify(sessions, times(1)).beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(),
+                org.mockito.ArgumentMatchers.eq(CurrentUserArgumentResolver.REFRESH_LOCK_TTL));
     }
 
     @Test
@@ -383,7 +396,7 @@ class CurrentUserArgumentResolverTest {
         try {
             var sessions = new AuthSessionStore(redis) {
                 @Override
-                public Mono<Void> update(String token, AuthUser refreshed) {
+                public Mono<Void> updateAfterRefresh(String token, String generation, AuthUser refreshed) {
                     return Mono.error(new IllegalStateException("session write failed"));
                 }
             };
@@ -514,7 +527,8 @@ class CurrentUserArgumentResolverTest {
         var expiring = user("user-1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(10),
                 Set.of("admin"), Instant.now());
         when(sessions.resolve("tok-1")).thenReturn(Mono.just(expiring));
-        when(sessions.delete("tok-1")).thenReturn(Mono.empty());
+        when(sessions.beginRefresh(org.mockito.ArgumentMatchers.eq("tok-1"), anyString(), any(Duration.class)))
+                .thenReturn(Mono.empty());
         when(oauth2.refresh("rt-1")).thenReturn(Mono.never());
         var resolver = new CurrentUserArgumentResolver(sessions, oauth2, lockAlwaysAcquired());
 
@@ -598,7 +612,13 @@ class CurrentUserArgumentResolverTest {
             resolver.resolveArgument(null, null, bearer(appToken)).subscribe(
                     value -> results.add((AuthSessionStore.AuthUser) value), failures::add, firstDone::countDown);
             org.assertj.core.api.Assertions.assertThat(refreshStarted.await(5, TimeUnit.SECONDS)).isTrue();
-            org.assertj.core.api.Assertions.assertThat(redis.hasKey("authsession:" + appToken).block()).isFalse();
+            org.assertj.core.api.Assertions.assertThat(sessions.resolve(appToken).blockOptional()).isEmpty();
+            var refreshMarker = redis.opsForValue().get("authsession:" + appToken).block();
+            org.assertj.core.api.Assertions.assertThat(refreshMarker)
+                    .startsWith("__AUTH_SESSION_REFRESHING_V1__:")
+                    .doesNotContain("at-1", "rt-1");
+            org.assertj.core.api.Assertions.assertThat(redis.getExpire("authsession:" + appToken).block())
+                    .isBetween(Duration.ofSeconds(1), Duration.ofSeconds(120));
 
             resolver.resolveArgument(null, null, bearer(appToken)).subscribe(
                     value -> results.add((AuthSessionStore.AuthUser) value), failures::add, secondDone::countDown);

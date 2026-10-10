@@ -70,8 +70,8 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
         if (token == null) return Mono.error(new UnauthorizedException());
         return sessions.resolve(token)
                 .flatMap(user -> refreshIfRequired(token, user))
-                // An owner deletes the old session before consuming its refresh token. A request
-                // arriving during that interval waits on the same lock and then reads the winner.
+                // A near-expiry owner replaces the old session with a refresh generation before
+                // consuming its refresh token. Losers wait for the persisted winner.
                 .switchIfEmpty(Mono.defer(() -> awaitWinner(token, REFRESH_LOCK_PREFIX + token)))
                 .cast(Object.class);
     }
@@ -103,7 +103,7 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                 .switchIfEmpty(Mono.error(new UnauthorizedException()))
                 .flatMap(current -> isReadyToReturn(current, Instant.now())
                         ? Mono.just(current)
-                        : refreshAndPersist(token, current));
+                        : refreshAndPersist(token, current, lockOwner));
 
         return work.timeout(LOCKED_OPERATION_TIMEOUT)
                 .flatMap(current -> releaseRefreshLock(lockKey, lockOwner).thenReturn(current))
@@ -115,14 +115,16 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                 .onErrorMap(AuthSessionStore.SessionLoggedOutException.class, error -> new UnauthorizedException());
     }
 
-    private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user) {
+    private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user,
+                                                              String lockOwner) {
         Instant now = Instant.now();
         boolean refreshAccessToken = isAccessTokenNearExpiry(user, now);
         Mono<TokenFamily> tokenFamily = refreshAccessToken
-                // A provider may irreversibly rotate the refresh token. Do not call it until Redis
-                // confirms the old app session is gone; cancellation or any later failure then
-                // fails closed instead of making a consumed token family retryable.
-                ? sessions.delete(token).timeout(SESSION_INVALIDATION_TIMEOUT)
+                // A provider may irreversibly rotate the refresh token. Replace the session with
+                // this owner's generation before invoking it; logout can atomically replace that
+                // marker, and neither invalidation nor persistence may overwrite the logout fence.
+                ? sessions.beginRefresh(token, lockOwner, REFRESH_LOCK_TTL)
+                        .timeout(SESSION_INVALIDATION_TIMEOUT)
                         .then(Mono.defer(() -> oauth2.refresh(user.refreshToken())))
                         .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
                                 "OAuth2 token provider response was empty")))
@@ -150,7 +152,9 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                     return new AuthSessionStore.AuthUser(identity.subject(), identity.displayName(),
                             tokens.accessToken(), tokens.refreshToken(), tokens.expiresAt(), identity, Instant.now());
                 })
-                .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed))
+                .flatMap(refreshed -> (refreshAccessToken
+                        ? sessions.updateAfterRefresh(token, lockOwner, refreshed)
+                        : sessions.update(token, refreshed)).thenReturn(refreshed))
                 .flatMap(refreshed -> isReadyToReturn(refreshed, Instant.now())
                         ? Mono.just(refreshed)
                         : Mono.error(new OAuth2Client.OAuth2UnavailableException(

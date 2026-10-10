@@ -3,14 +3,19 @@ package io.github.sukimiya.agileagent.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,6 +46,7 @@ import io.github.sukimiya.agileagent.web.WebConfig;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoSink;
+import reactor.core.publisher.Sinks;
 import reactor.test.StepVerifier;
 
 @WebFluxTest(AuthController.class)
@@ -316,6 +322,84 @@ class AuthControllerTest {
     }
 
     @Test
+    void logoutBetweenOwnerRereadAndPreRefreshInvalidationCannotResurrectSession() throws InterruptedException {
+        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
+        config.setPassword("FeetxXuFkZIaM2Pq");
+        config.setDatabase(1);
+        var connectionFactory = new LettuceConnectionFactory(config);
+        connectionFactory.afterPropertiesSet();
+        var realRedis = new ReactiveStringRedisTemplate(connectionFactory);
+        var invalidationReached = new CountDownLatch(1);
+        var refreshDone = new CountDownLatch(1);
+        var allowInvalidation = Sinks.one();
+        var refreshError = new AtomicReference<Throwable>();
+        var refreshResult = new AtomicReference<AuthSessionStore.AuthUser>();
+        String appToken = null;
+        Disposable refreshRequest = null;
+        try {
+            var sessionDelegate = new AuthSessionStore(realRedis);
+            var realSessions = spy(sessionDelegate);
+            var oldIdentity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                    Set.of("tenant_admin"), Set.of("org-1"), Set.of("org-1"), false, false);
+            var freshIdentity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                    Set.of("reader"), Set.of("org-1"), Set.of("org-1"), false, false);
+            appToken = sessionDelegate.create("at-1", "rt-1", Instant.now().minusSeconds(10), oldIdentity,
+                    Instant.now().minus(Duration.ofMinutes(6))).block(Duration.ofSeconds(5));
+            String token = appToken;
+            doAnswer(invocation -> {
+                invalidationReached.countDown();
+                String generation = invocation.getArgument(1);
+                Duration generationTtl = invocation.getArgument(2);
+                return allowInvalidation.asMono()
+                        .then(Mono.defer(() -> sessionDelegate.beginRefresh(token, generation, generationTtl)));
+            }).when(realSessions).beginRefresh(eq(token), anyString(), any(Duration.class));
+            when(oauth2.revoke("rt-1")).thenReturn(Mono.empty());
+            when(oauth2.refresh("rt-1"))
+                    .thenReturn(Mono.just(new OAuth2Client.TokenResult("at-2", "rt-2", 3600)));
+            when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(freshIdentity));
+
+            var resolver = new CurrentUserArgumentResolver(realSessions, oauth2, realRedis);
+            var exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get("/api/auth/me").header("Authorization", "Bearer " + token).build());
+            refreshRequest = resolver.resolveArgument(null, null, exchange).subscribe(
+                    value -> refreshResult.set((AuthSessionStore.AuthUser) value), error -> {
+                        refreshError.set(error);
+                        refreshDone.countDown();
+                    }, refreshDone::countDown);
+
+            assertThat(invalidationReached.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(realSessions.resolve(token).blockOptional()).isPresent();
+            var directController = new AuthController(oauth2, states, realSessions, props);
+            var logoutResponse = directController.logout("Bearer " + token).block(Duration.ofSeconds(5));
+            assertThat(logoutResponse).isNotNull();
+            assertThat(logoutResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+            assertThat(realRedis.opsForValue().get("authsession:" + token).block())
+                    .isEqualTo("__AUTH_SESSION_LOGGED_OUT_V1__");
+
+            allowInvalidation.tryEmitEmpty();
+            assertThat(refreshDone.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(realSessions.resolve(token).blockOptional()).isEmpty();
+            assertThat(realRedis.opsForValue().get("authsession:" + token).block())
+                    .isEqualTo("__AUTH_SESSION_LOGGED_OUT_V1__");
+            assertThat(refreshResult.get()).isNull();
+            assertThat(refreshError.get()).isInstanceOf(UnauthorizedException.class);
+            verify(oauth2, never()).refresh("rt-1");
+            StepVerifier.create(resolver.resolveArgument(null, null, exchange))
+                    .expectError(UnauthorizedException.class)
+                    .verify();
+        } finally {
+            allowInvalidation.tryEmitEmpty();
+            if (refreshRequest != null) refreshRequest.dispose();
+            if (appToken != null) {
+                realRedis.delete("oauth2refreshlock:" + appToken).block();
+                realRedis.delete("authsession:" + appToken).block();
+            }
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
     void logoutTombstonesAnAlreadyMissingSessionAndReturns204() {
         when(sessions.resolve("app-tok")).thenReturn(Mono.empty());
         when(sessions.logout("app-tok")).thenReturn(Mono.empty());
@@ -326,5 +410,30 @@ class AuthControllerTest {
 
         verify(sessions).logout("app-tok");
         verify(oauth2, never()).revoke(any());
+    }
+
+    @Test
+    void logoutForUnknownBearerReturns204WithoutCreatingRedisKey() {
+        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
+        config.setPassword("FeetxXuFkZIaM2Pq");
+        config.setDatabase(1);
+        var connectionFactory = new LettuceConnectionFactory(config);
+        connectionFactory.afterPropertiesSet();
+        var realRedis = new ReactiveStringRedisTemplate(connectionFactory);
+        String unknownToken = "unknown-" + UUID.randomUUID();
+        try {
+            var realSessions = new AuthSessionStore(realRedis);
+            var directController = new AuthController(oauth2, states, realSessions, props);
+
+            var response = directController.logout("Bearer " + unknownToken).block(Duration.ofSeconds(5));
+
+            assertThat(response).isNotNull();
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+            assertThat(realRedis.hasKey("authsession:" + unknownToken).block()).isFalse();
+            assertThat(realRedis.hasKey("oauth2refreshlock:" + unknownToken).block()).isFalse();
+        } finally {
+            realRedis.delete("authsession:" + unknownToken).block();
+            connectionFactory.destroy();
+        }
     }
 }
