@@ -76,11 +76,11 @@ class ReactiveChainBlockHoundTest {
                                 .subscribeOn(Schedulers.parallel()));
 
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
-        var domainAgent = new DomainAgent(llm, capabilities);
+        var domainAgent = new DomainAgent(capabilities);
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(llm, dispatcher, capabilities, memory);
+        var orchestrator = new Orchestrator(dispatcher, capabilities, memory);
 
-        StepVerifier.create(orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用")
+        StepVerifier.create(orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用", null, llm)
                         .subscribeOn(Schedulers.parallel()))
                 .expectNextCount(4) // thinking + tool_call + 聚合回答 + done
                 .verifyComplete();

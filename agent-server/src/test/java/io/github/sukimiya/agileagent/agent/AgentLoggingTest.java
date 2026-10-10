@@ -86,11 +86,11 @@ class AgentLoggingTest {
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("聚合回答"))); // 4) aggregate
 
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
-        var domainAgent = new DomainAgent(llm, capabilities);
+        var domainAgent = new DomainAgent(capabilities);
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(llm, dispatcher, capabilities, memory);
+        var orchestrator = new Orchestrator(dispatcher, capabilities, memory);
 
-        orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用")
+        orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用", null, llm)
                 .subscribeOn(Schedulers.parallel())
                 .collectList()
                 .block();

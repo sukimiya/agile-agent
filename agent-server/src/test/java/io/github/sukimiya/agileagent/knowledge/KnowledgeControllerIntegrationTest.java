@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.knowledge;
 
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -28,6 +29,8 @@ import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.TestAuthUsers;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
@@ -54,13 +57,17 @@ class KnowledgeControllerIntegrationTest {
     @Autowired KnowledgeProperties props;
     @Autowired AuthSessionStore sessions;
     @MockBean LlmClient llm;
+    @MockBean TenantLlmClientResolver resolver;
     String token;
 
     @BeforeEach
     void setUp() {
         when(llm.summarize(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just("自动生成的摘要"));
+        when(resolver.resolve(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just(llm));
         token = sessions.create("sl-tok", "refresh-tok", Instant.now().plusSeconds(3600),
-                TestAuthUsers.identity("knowledge-test-user", "Knowledge Test", java.util.Set.of("test")), Instant.now()).block();
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("knowledge-test-user", "Knowledge Test",
+                        "tenant-1", "Tenant", null, null, java.util.Set.of("tenant_admin"),
+                        java.util.Set.of(), java.util.Set.of(), false, true), Instant.now()).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }
@@ -141,6 +148,30 @@ class KnowledgeControllerIntegrationTest {
         var metaFile = Path.of(props.getLibDir(), id + ".meta.json");
         org.assertj.core.api.Assertions.assertThat(Files.exists(libFile)).isTrue();
         org.assertj.core.api.Assertions.assertThat(Files.exists(metaFile)).isTrue();
+    }
+
+    @Test
+    void uploadResolvesTenantLlmBeforeWritingTemporaryFile() {
+        when(resolver.resolve(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
+        var builder = new MultipartBodyBuilder();
+        builder.part("file", textPart("unconfigured.md", "content")).contentType(MediaType.TEXT_PLAIN);
+
+        client.post().uri("/api/knowledge/upload")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isEqualTo(428)
+                .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}");
+
+        try (var files = Files.list(Path.of(props.getTempDir()))) {
+            assertThat(files).isEmpty();
+        } catch (java.nio.file.NoSuchFileException expected) {
+            // No temporary directory was created, so the upload did not start.
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test

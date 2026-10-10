@@ -9,10 +9,24 @@ import io.github.sukimiya.agileagent.auth.IdentityMappingException;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetNotFoundException;
 import io.github.sukimiya.agileagent.llmconfig.LlmProviderPresetValidationException;
 import io.github.sukimiya.agileagent.llmconfig.LlmConfigValidationException;
+import io.github.sukimiya.agileagent.llmconfig.LlmBalanceException;
+import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.service.OAuth2Client.OAuth2UnavailableException;
 
 @RestControllerAdvice
 public class AuthExceptionHandler {
+
+    @ExceptionHandler(TenantLlmConfigRequiredException.class)
+    ResponseEntity<ApiError> handleTenantLlmConfigRequired(TenantLlmConfigRequiredException exception) {
+        return ResponseEntity.status(428)
+                .body(new ApiError("LLM_CONFIG_REQUIRED", "Current tenant has no LLM configuration"));
+    }
+
+    @ExceptionHandler(LlmBalanceException.class)
+    ResponseEntity<ApiError> handleLlmBalance(LlmBalanceException exception) {
+        return ResponseEntity.status(exception.status())
+                .body(new ApiError(exception.code(), exception.getMessage()));
+    }
 
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException exception) {

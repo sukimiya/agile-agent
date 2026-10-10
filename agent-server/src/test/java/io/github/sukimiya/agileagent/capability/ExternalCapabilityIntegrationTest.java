@@ -36,7 +36,7 @@ class ExternalCapabilityIntegrationTest {
             assertThat(context.getBean(ExternalFixtureCapabilityProvider.class)).isNotNull();
 
             var answer = context.getBean(Orchestrator.class)
-                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity())
+                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity(), llm)
                     .collectList().block();
 
             assertThat(answer).containsExactly(
@@ -56,7 +56,7 @@ class ExternalCapabilityIntegrationTest {
 
         try (var context = orchestrationContext(llm, InvalidDefinitionTestConfiguration.class)) {
             context.getBean(Orchestrator.class)
-                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity())
+                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity(), llm)
                     .collectList().block();
 
             assertThat(llm.calls.get()).isEqualTo(2);
@@ -70,7 +70,6 @@ class ExternalCapabilityIntegrationTest {
         context.scan("io.github.sukimiya.agileagent.config");
         context.register(providerConfiguration, DomainAgent.class,
                 InProcessTaskDispatcher.class, Orchestrator.class);
-        context.registerBean("llmClient", LlmClient.class, () -> llm);
         context.refresh();
         return context;
     }

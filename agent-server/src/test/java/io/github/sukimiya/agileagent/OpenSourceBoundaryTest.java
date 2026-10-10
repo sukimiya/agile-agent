@@ -192,6 +192,7 @@ class OpenSourceBoundaryTest {
 
         return java.util.Arrays.stream(output.split(Pattern.quote(String.valueOf((char) 0))))
                 .filter(path -> !path.isBlank())
+                .filter(path -> Files.exists(root.resolve(path)))
                 .filter(OpenSourceBoundaryTest::isProductFile)
                 .collect(Collectors.toList());
     }

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -61,53 +62,58 @@ public class Orchestrator {
             如果某项能力执行失败或超时，如实告知用户对应部分暂时无法获取，不要编造。
             """;
 
-    private final LlmClient llm;
     private final TaskDispatcher dispatcher;
     private final CapabilityRegistry capabilities;
     private final ChatMemory memory;
 
-    public Orchestrator(LlmClient llm, TaskDispatcher dispatcher, CapabilityRegistry capabilities, ChatMemory memory) {
-        this.llm = llm;
+    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, ChatMemory memory) {
         this.dispatcher = dispatcher;
         this.capabilities = capabilities;
         this.memory = memory;
     }
 
-    public Flux<String> chat(String ownerId, String accessToken, String userMessage) {
-        return chat(ownerId, accessToken, userMessage,
-                new IdentityContext(ownerId, null, null, null, null, null,
-                        Set.of(), Set.of(), Set.of(), false, false));
-    }
-
-    public Flux<String> chat(String ownerId, String accessToken, String userMessage, IdentityContext identity) {
-        Flux<String> body = memory.get(ownerId)
-                .flatMapMany(history -> route(history, userMessage)
+    public Flux<String> chat(String ownerId, String accessToken, String userMessage, IdentityContext identity,
+                             LlmClient llm) {
+        return Flux.defer(() -> {
+            IdentityContext executionIdentity = identity == null
+                    ? new IdentityContext(ownerId, null, null, null, null, null, Set.of(), Set.of(), Set.of(), false, false)
+                    : identity;
+            var usage = new UsageAccumulator();
+            Flux<String> body = memory.get(ownerId)
+                .flatMapMany(history -> route(llm, usage, history, userMessage)
                         .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
-                                ? answerDirectly(ownerId, history, userMessage)
-                                : answerViaCapabilities(ownerId, history, userMessage, capabilityCodes, accessToken, identity)));
-        String traceId = UUID.randomUUID().toString().substring(0, 8);
-        return Flux.concat(
+                                ? answerDirectly(llm, usage, ownerId, history, userMessage)
+                                : answerViaCapabilities(llm, usage, ownerId, history, userMessage, capabilityCodes,
+                                        accessToken, executionIdentity)));
+            String traceId = UUID.randomUUID().toString().substring(0, 8);
+            return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
                         body.timeout(TOTAL_BUDGET),
+                        Flux.defer(() -> usage.observed()
+                                ? Flux.just(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()))
+                                : Flux.empty()),
                         Flux.just(controlLine("done", null)))
                 .onErrorResume(e -> {
-                    log.error("Orchestrator error", e);
-                    return Flux.just(controlLine("error", "处理出错: " + e.getMessage()), controlLine("done", null));
+                    log.error("Orchestrator error type={}", e.getClass().getSimpleName());
+                    return Flux.just(controlLine("error", "处理出错"), controlLine("done", null));
                 })
                 .contextWrite(ctx -> ctx.put("traceId", traceId).put("sessionId", ownerId));
+        });
     }
 
-    private Mono<List<String>> route(List<LlmClient.Message> history, String userMessage) {
+    private Mono<List<String>> route(LlmClient llm, UsageAccumulator usage, List<LlmClient.Message> history, String userMessage) {
         var messages = new ArrayList<LlmClient.Message>();
         messages.add(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
         messages.addAll(history);
         messages.add(LlmClient.Message.user(userMessage));
         long start = System.currentTimeMillis();
-        return llm.chatStream(messages, List.of())
-                .ofType(LlmClient.LlmEvent.Completed.class)
-                .map(LlmClient.LlmEvent.Completed::fullText)
-                .next()
-                .defaultIfEmpty("")
+        return llm.chatStream(messages, List.of()).doOnNext(usage::add)
+                .collectList()
+                .map(events -> events.stream()
+                        .filter(LlmClient.LlmEvent.Completed.class::isInstance)
+                        .map(LlmClient.LlmEvent.Completed.class::cast)
+                        .map(LlmClient.LlmEvent.Completed::fullText)
+                        .findFirst().orElse(""))
                 .map(this::parseRoutingCapabilities)
                 .doOnNext(codes -> log.info("routing question=\"{}\" capabilities={} elapsedMs={}",
                         truncate(userMessage, 60), codes, System.currentTimeMillis() - start));
@@ -137,21 +143,23 @@ public class Orchestrator {
         }
     }
 
-    private Flux<String> answerDirectly(String ownerId, List<LlmClient.Message> history, String userMessage) {
+    private Flux<String> answerDirectly(LlmClient llm, UsageAccumulator usage, String ownerId,
+                                        List<LlmClient.Message> history, String userMessage) {
         log.info("routing no-capability, answering directly");
         var messages = new ArrayList<LlmClient.Message>();
         messages.add(LlmClient.Message.system(DIRECT_ANSWER_PROMPT));
         messages.addAll(history);
         messages.add(LlmClient.Message.user(userMessage));
-        return streamFinalAnswer(ownerId, userMessage, messages);
+        return streamFinalAnswer(llm, usage, ownerId, userMessage, messages);
     }
 
-    private Flux<String> answerViaCapabilities(String ownerId, List<LlmClient.Message> history, String userMessage,
+    private Flux<String> answerViaCapabilities(LlmClient llm, UsageAccumulator usage, String ownerId,
+                                               List<LlmClient.Message> history, String userMessage,
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
         var tasks = capabilityCodes.stream()
                 .map(code -> new DomainTask(UUID.randomUUID().toString(), ownerId, code, userMessage, accessToken, identity))
                 .toList();
-        Flux<AgentEvent> events = dispatcher.dispatch(tasks).cache();
+        Flux<AgentEvent> events = dispatcher.dispatch(tasks, llm).doOnNext(usage::add).cache();
 
         Flux<String> progress = events.filter(e -> e instanceof AgentEvent.ToolCalled)
                 .map(e -> controlLine("tool_call", ((AgentEvent.ToolCalled) e).tool()));
@@ -161,10 +169,11 @@ public class Orchestrator {
                 .collectList();
 
         return progress.concatWith(Flux.defer(() ->
-                results.flatMapMany(r -> aggregate(ownerId, history, userMessage, r))));
+                results.flatMapMany(r -> aggregate(llm, usage, ownerId, history, userMessage, r))));
     }
 
-    private Flux<String> aggregate(String ownerId, List<LlmClient.Message> history, String userMessage,
+    private Flux<String> aggregate(LlmClient llm, UsageAccumulator usage, String ownerId,
+                                   List<LlmClient.Message> history, String userMessage,
                                     List<AgentEvent> capabilityResults) {
         long start = System.currentTimeMillis();
         String summary = capabilityResults.stream().map(this::describe).collect(Collectors.joining("\n\n"));
@@ -177,7 +186,7 @@ public class Orchestrator {
         messages.add(LlmClient.Message.user(userMessage));
         messages.add(LlmClient.Message.user("各能力执行结果：\n" + summary));
 
-        return streamFinalAnswer(ownerId, userMessage, messages)
+        return streamFinalAnswer(llm, usage, ownerId, userMessage, messages)
                 .doOnComplete(() -> log.info("aggregate capabilities={} totalElapsedMs={}", capabilityCodes, System.currentTimeMillis() - start));
     }
 
@@ -187,6 +196,7 @@ public class Orchestrator {
             case AgentEvent.Failed f -> f.role() + " 查询失败/超时：" + f.reason();
             case AgentEvent.ToolCalled t -> "";
             case AgentEvent.Delta d -> "";
+            case AgentEvent.Usage u -> "";
         };
     }
 
@@ -196,12 +206,14 @@ public class Orchestrator {
             case AgentEvent.Failed f -> f.role() + ":FAILED";
             case AgentEvent.ToolCalled t -> t.role();
             case AgentEvent.Delta d -> d.role();
+            case AgentEvent.Usage u -> u.role();
         };
     }
 
-    private Flux<String> streamFinalAnswer(String ownerId, String userMessage, List<LlmClient.Message> messages) {
+    private Flux<String> streamFinalAnswer(LlmClient llm, UsageAccumulator usage, String ownerId, String userMessage,
+                                           List<LlmClient.Message> messages) {
         var finalText = new AtomicReference<>("");
-        return llm.chatStream(messages, List.of())
+        return llm.chatStream(messages, List.of()).doOnNext(usage::add)
                 .concatMap(event -> switch (event) {
                     case LlmClient.LlmEvent.ContentDelta d -> Flux.just(controlLine("delta", d.text()));
                     case LlmClient.LlmEvent.Completed c -> {
@@ -209,6 +221,7 @@ public class Orchestrator {
                         yield Flux.just(c.fullText() + "\n");
                     }
                     case LlmClient.LlmEvent.ToolCallsReady tc -> Flux.<String>empty();
+                    case LlmClient.LlmEvent.Usage ignored -> Flux.<String>empty();
                 })
                 .concatWith(Flux.defer(() -> saveTurn(ownerId, userMessage, finalText.get()).thenMany(Flux.empty())));
     }
@@ -230,5 +243,48 @@ public class Orchestrator {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private static String usageLine(long prompt, long completion, long total) {
+        var node = JSON.createObjectNode();
+        node.put("type", "usage");
+        node.put("prompt_tokens", prompt);
+        node.put("completion_tokens", completion);
+        node.put("total_tokens", total);
+        try {
+            return JSON.writeValueAsString(node) + "\n";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static final class UsageAccumulator {
+        private final LongAdder prompt = new LongAdder();
+        private final LongAdder completion = new LongAdder();
+        private final LongAdder total = new LongAdder();
+        private final java.util.concurrent.atomic.AtomicBoolean observed = new java.util.concurrent.atomic.AtomicBoolean();
+
+        void add(LlmClient.LlmEvent event) {
+            if (event instanceof LlmClient.LlmEvent.Usage value) {
+                prompt.add(value.promptTokens());
+                completion.add(value.completionTokens());
+                total.add(value.totalTokens());
+                observed.set(true);
+            }
+        }
+
+        void add(AgentEvent event) {
+            if (event instanceof AgentEvent.Usage value) {
+                prompt.add(value.promptTokens());
+                completion.add(value.completionTokens());
+                total.add(value.totalTokens());
+                observed.set(true);
+            }
+        }
+
+        boolean observed() { return observed.get(); }
+        long promptTokens() { return prompt.sum(); }
+        long completionTokens() { return completion.sum(); }
+        long totalTokens() { return total.sum(); }
     }
 }

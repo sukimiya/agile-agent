@@ -23,6 +23,8 @@ import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 import io.github.sukimiya.agileagent.service.SessionService;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
 import io.github.sukimiya.agileagent.web.CurrentUserArgumentResolver;
@@ -39,6 +41,7 @@ class ChatControllerTest {
     @MockBean Orchestrator orchestrator;
     @MockBean SessionService sessionService;
     @MockBean ChatMemory chatMemory;
+    @MockBean TenantLlmClientResolver llmResolver;
     @MockBean AuthSessionStore sessions;
     @MockBean OAuth2Client oauth2;
     @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
@@ -56,8 +59,10 @@ class ChatControllerTest {
     @Test
     void chatCompletionsStreamsWithoutRequiringAnyBinding() {
         asUser1();
+        var llm = mock(LlmClient.class);
+        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(llm));
         when(sessionService.touchOrCreate("conv-1", "user-1", "hi")).thenReturn(Mono.just(SessionService.AccessResult.OWNED));
-        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity())))
+        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity()), same(llm)))
                 .thenReturn(Flux.just("hello back"));
 
         client.post().uri("/api/chat/completions")
@@ -67,7 +72,7 @@ class ChatControllerTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity());
+        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity(), llm);
     }
 
     @Test
@@ -81,6 +86,33 @@ class ChatControllerTest {
                 .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"conv-1\"}")
                 .exchange()
                 .expectStatus().isNotFound();
+
+        verifyNoInteractions(orchestrator);
+        verifyNoInteractions(llmResolver);
+    }
+
+    @Test
+    void bothChatEndpointsReturnExact428BeforeStartingSseWhenTenantHasNoLlm() {
+        asUser1();
+        when(sessionService.touchOrCreate("conv-1", "user-1", "hi"))
+                .thenReturn(Mono.just(SessionService.AccessResult.OWNED));
+        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
+
+        client.post().uri("/api/chat/completions")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test-token")
+                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"conv-1\"}")
+                .exchange()
+                .expectStatus().isEqualTo(428)
+                .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}");
+
+        client.post().uri("/api/chat")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test-token")
+                .bodyValue("{\"conversationId\":\"conv-1\",\"message\":\"hi\"}")
+                .exchange()
+                .expectStatus().isEqualTo(428)
+                .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}");
 
         verifyNoInteractions(orchestrator);
     }
@@ -98,8 +130,10 @@ class ChatControllerTest {
     @Test
     void legacyChatStreamsWithoutRequiringAnyBinding() {
         asUser1();
+        var llm = mock(LlmClient.class);
+        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(llm));
         when(sessionService.touchOrCreate("conv-1", "user-1", "hi")).thenReturn(Mono.just(SessionService.AccessResult.OWNED));
-        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity())))
+        when(orchestrator.chat(eq("conv-1"), eq("sl-tok"), eq("hi"), eq(user1Identity()), same(llm)))
                 .thenReturn(Flux.just("hello back"));
 
         client.post().uri("/api/chat")
@@ -109,17 +143,25 @@ class ChatControllerTest {
                 .exchange()
                 .expectStatus().isOk();
 
-        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity());
+        verify(orchestrator).chat("conv-1", "sl-tok", "hi", user1Identity(), llm);
     }
 
     @Test
-    void toContentChunkKeepsOnlyDeltaAndErrorContent() {
+    void toContentChunkKeepsOnlyDeltaAndErrorContent() throws Exception {
         assertThat(ChatController.toContentChunk("plain text")).isEmpty();
         assertThat(ChatController.toContentChunk("{\"type\":\"thinking\",\"content\":\"x\"}")).isEmpty();
         assertThat(ChatController.toContentChunk("{\"type\":\"tool_call\",\"content\":\"x\"}")).isEmpty();
         assertThat(ChatController.toContentChunk("{\"type\":\"done\"}")).isEmpty();
         assertThat(ChatController.toContentChunk("{\"type\":\"delta\",\"content\":\"你好\"}")).contains("你好");
         assertThat(ChatController.toContentChunk("{\"type\":\"error\",\"content\":\"boom\"}")).contains("boom");
+        String usageLine = "{\"type\":\"usage\",\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}";
+        assertThat(ChatController.toContentChunk(usageLine)).isEmpty();
+        var usageChunk = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                ChatController.toOpenAiChunk(usageLine, "chatcmpl-test").orElseThrow());
+        assertThat(usageChunk.path("choices")).isEmpty();
+        assertThat(usageChunk.path("usage").path("prompt_tokens").asInt()).isEqualTo(7);
+        assertThat(usageChunk.path("usage").path("completion_tokens").asInt()).isEqualTo(3);
+        assertThat(usageChunk.path("usage").path("total_tokens").asInt()).isEqualTo(10);
     }
 
     @Test

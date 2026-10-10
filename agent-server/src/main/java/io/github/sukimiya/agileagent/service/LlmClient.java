@@ -40,10 +40,17 @@ public interface LlmClient {
         }
     }
 
-    sealed interface LlmEvent permits LlmEvent.ContentDelta, LlmEvent.ToolCallsReady, LlmEvent.Completed {
+    sealed interface LlmEvent permits LlmEvent.ContentDelta, LlmEvent.ToolCallsReady, LlmEvent.Completed, LlmEvent.Usage {
         record ContentDelta(String text) implements LlmEvent {}
         record ToolCallsReady(List<ToolCall> calls) implements LlmEvent {}
         record Completed(String fullText) implements LlmEvent {}
+        record Usage(long promptTokens, long completionTokens, long totalTokens) implements LlmEvent {
+            public Usage {
+                if (promptTokens < 0 || completionTokens < 0 || totalTokens < 0) {
+                    throw new IllegalArgumentException("Usage token counts must be nonnegative");
+                }
+            }
+        }
     }
 
     reactor.core.publisher.Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools);

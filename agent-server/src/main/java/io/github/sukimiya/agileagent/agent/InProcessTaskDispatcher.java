@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.github.sukimiya.agileagent.service.LlmClient;
 import reactor.core.publisher.Flux;
 
 /**
@@ -35,13 +36,13 @@ public class InProcessTaskDispatcher implements TaskDispatcher {
     }
 
     @Override
-    public Flux<AgentEvent> dispatch(List<DomainTask> tasks) {
-        return Flux.merge(tasks.stream().map(this::runOne).toList());
+    public Flux<AgentEvent> dispatch(List<DomainTask> tasks, LlmClient llm) {
+        return Flux.merge(tasks.stream().map(task -> runOne(task, llm)).toList());
     }
 
-    private Flux<AgentEvent> runOne(DomainTask task) {
+    private Flux<AgentEvent> runOne(DomainTask task, LlmClient llm) {
         log.info("dispatch role={} taskId={}", task.roleCode(), task.taskId());
-        return domainAgent.run(task)
+        return domainAgent.run(task, llm)
                 .timeout(taskTimeout)
                 .onErrorResume(e -> {
                     log.warn("domain task failed role={} taskId={} error={}", task.roleCode(), task.taskId(), e.toString());

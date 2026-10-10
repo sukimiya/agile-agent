@@ -14,38 +14,27 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
-import org.springframework.test.context.TestPropertySource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.AgentApplication;
-import io.github.sukimiya.agileagent.config.DefaultLlmProperties;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import reactor.test.StepVerifier;
 
 @SpringBootTest(classes = AgentApplication.class)
-@TestPropertySource(properties = {
-        "llm.default.base-url=http://localhost/v1",
-        "llm.default.api-key=test-key",
-        "llm.default.model=configured-model"
-})
 class OpenAiCompatibleLlmClientTest {
-    @Autowired private DefaultLlmProperties properties;
     @Autowired private ApplicationContext context;
     private final ObjectMapper json = new ObjectMapper();
     private MockWebServer server;
     private OpenAiCompatibleLlmClient client;
 
     @Test
-    void temporaryConfigurationBindsAndExposesExactlyOneDefaultClient() {
-        assertThat(properties.baseUrl()).isEqualTo("http://localhost/v1");
-        assertThat(properties.apiKey()).isEqualTo("test-key");
-        assertThat(properties.model()).isEqualTo("configured-model");
-        assertThat(context.getBeansOfType(LlmClient.class)).hasSize(1);
-        assertThat(context.getBean(LlmClient.class)).isInstanceOf(OpenAiCompatibleLlmClient.class);
+    void applicationContextDoesNotExposeGlobalLlmClientOrDefaultProperties() {
+        assertThat(context.getBeansOfType(LlmClient.class)).isEmpty();
+        assertThat(context.getEnvironment().containsProperty("llm.default.base-url")).isFalse();
     }
 
     @BeforeEach

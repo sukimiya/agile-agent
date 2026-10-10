@@ -36,9 +36,9 @@ class DomainAgentTest {
                 new LlmClient.LlmEvent.ContentDelta("你好，"),
                 new LlmClient.LlmEvent.ContentDelta("答案在资料中"),
                 new LlmClient.LlmEvent.Completed("你好，答案在资料中")));
-        var agent = new DomainAgent(llm, registry(provider));
+        var agent = new DomainAgent(registry(provider));
 
-        List<AgentEvent> events = agent.run(task("NOTES")).collectList().block();
+        List<AgentEvent> events = agent.run(task("NOTES"), llm).collectList().block();
 
         assertThat(events).containsExactly(
                 new AgentEvent.Delta("NOTES", "你好，"),
@@ -55,13 +55,17 @@ class DomainAgentTest {
         when(catalog.content("doc-1")).thenReturn(Mono.just("# Stage API\nstage.set(key, value)"));
         var toolCall = new LlmClient.ToolCall("call_1", "readKnowledgeDoc", "{\"id\":\"doc-1\"}");
         when(llm.chatStream(any(), any()))
-                .thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
-                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("stage.set 用于设置变量")));
-        var agent = new DomainAgent(llm, registry(new KnowledgeCapabilityProvider(catalog)));
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Usage(2, 1, 3),
+                        new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Usage(5, 4, 9),
+                        new LlmClient.LlmEvent.Completed("stage.set 用于设置变量")));
+        var agent = new DomainAgent(registry(new KnowledgeCapabilityProvider(catalog)));
 
-        List<AgentEvent> events = agent.run(task("KNOWLEDGE")).collectList().block();
+        List<AgentEvent> events = agent.run(task("KNOWLEDGE"), llm).collectList().block();
 
         assertThat(events).contains(new AgentEvent.Finished("KNOWLEDGE", "stage.set 用于设置变量"));
+        assertThat(events).filteredOn(AgentEvent.Usage.class::isInstance).containsExactly(
+                new AgentEvent.Usage("KNOWLEDGE", 2, 1, 3), new AgentEvent.Usage("KNOWLEDGE", 5, 4, 9));
         verify(catalog).content("doc-1");
     }
 
@@ -71,9 +75,9 @@ class DomainAgentTest {
         var provider = new RecordingProvider();
         var call = new LlmClient.ToolCall("call-1", "read", "{}");
         when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(call))));
-        var agent = new DomainAgent(llm, registry(provider));
+        var agent = new DomainAgent(registry(provider));
 
-        List<AgentEvent> events = agent.run(task("NOTES")).collectList().block();
+        List<AgentEvent> events = agent.run(task("NOTES"), llm).collectList().block();
 
         assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOf(AgentEvent.Failed.class));
         verify(llm, times(DomainAgent.MAX_ROUNDS)).chatStream(any(), any());
@@ -82,9 +86,9 @@ class DomainAgentTest {
     @Test
     void unknownCapabilityEmitsFailureWithoutCallingLlm() {
         LlmClient llm = mock(LlmClient.class);
-        var agent = new DomainAgent(llm, registry(new RecordingProvider()));
+        var agent = new DomainAgent(registry(new RecordingProvider()));
 
-        List<AgentEvent> events = agent.run(task("UNKNOWN")).collectList().block();
+        List<AgentEvent> events = agent.run(task("UNKNOWN"), llm).collectList().block();
 
         assertThat(events).containsExactly(new AgentEvent.Failed("UNKNOWN", "unknown role: UNKNOWN"));
         verifyNoInteractions(llm);
@@ -98,9 +102,9 @@ class DomainAgentTest {
         when(llm.chatStream(any(), any()))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("rejected")));
-        var agent = new DomainAgent(llm, registry(provider));
+        var agent = new DomainAgent(registry(provider));
 
-        agent.run(task("NOTES")).collectList().block();
+        agent.run(task("NOTES"), llm).collectList().block();
 
         assertThat(provider.executeCalls).isZero();
         assertThat(provider.definitionContext.conversationId()).isEqualTo("conv-9");
@@ -118,9 +122,9 @@ class DomainAgentTest {
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("done")));
         var identity = new IdentityContext("user-7", "Lin", null, null, null, null,
                 java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), false, false);
-        var agent = new DomainAgent(llm, registry(provider));
+        var agent = new DomainAgent(registry(provider));
 
-        agent.run(new DomainTask("task-1", "conv-9", "NOTES", "question", "secret-token", identity))
+        agent.run(new DomainTask("task-1", "conv-9", "NOTES", "question", "secret-token", identity), llm)
                 .collectList().block();
 
         assertThat(provider.definitionContext.identity()).isSameAs(identity);
@@ -149,9 +153,9 @@ class DomainAgentTest {
                         new ToolDefinition("duplicate", "two", JSON.createObjectNode().put("type", "object")))));
             }
         };
-        var agent = new DomainAgent(llm, registry(provider));
+        var agent = new DomainAgent(registry(provider));
 
-        assertThatThrownBy(() -> agent.run(task("NOTES")).collectList().block())
+        assertThatThrownBy(() -> agent.run(task("NOTES"), llm).collectList().block())
                 .isInstanceOf(IllegalStateException.class).hasMessage("capability definition failed");
         verifyNoInteractions(llm);
     }

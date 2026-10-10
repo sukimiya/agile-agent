@@ -47,7 +47,7 @@ class KnowledgeController {
             @RequestPart("file") FilePart file,
             @RequestPart(value = "title", required = false) String title,
             @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.upload(user.userId(), title, file)
+        return service.upload(user.userId(), user.identity().tenantId(), title, file)
                 .map(row -> ResponseEntity.ok((Object) toSummary(row)))
                 .onErrorResume(KnowledgeFileStorage.RejectedException.class, e -> Mono.just(
                         ResponseEntity.badRequest().body((Object) Map.of(

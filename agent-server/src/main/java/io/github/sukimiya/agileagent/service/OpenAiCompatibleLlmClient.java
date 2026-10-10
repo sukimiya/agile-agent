@@ -6,27 +6,18 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.service.LlmClient;
-import io.github.sukimiya.agileagent.config.DefaultLlmProperties;
 
 import reactor.core.publisher.Flux;
 
-@Component
 public class OpenAiCompatibleLlmClient implements LlmClient {
 
     private final String model;
     private final WebClient web;
-
-    @Autowired
-    public OpenAiCompatibleLlmClient(DefaultLlmProperties props, WebClient.Builder webBuilder) {
-        this(props.baseUrl(), props.apiKey(), props.model(), webBuilder);
-    }
 
     public OpenAiCompatibleLlmClient(String baseUrl, String apiKey, String model, WebClient.Builder webBuilder) {
         this.model = model;
@@ -44,6 +35,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             body.put("tools", tools.stream().map(OpenAiCompatibleLlmClient::toWireTool).toList());
             body.put("tool_choice", "auto");
         }
+        body.put("stream_options", Map.of("include_usage", true));
         return body;
     }
 
@@ -115,6 +107,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
         List<LlmEvent> onChunk(JsonNode chunk) {
             var out = new java.util.ArrayList<LlmEvent>();
+            JsonNode usage = chunk.path("usage");
+            if (usage.isObject()) {
+                JsonNode prompt = usage.path("prompt_tokens");
+                JsonNode completion = usage.path("completion_tokens");
+                JsonNode total = usage.path("total_tokens");
+                if (validTokenCount(prompt) && validTokenCount(completion) && validTokenCount(total)) {
+                    out.add(new LlmEvent.Usage(prompt.longValue(), completion.longValue(), total.longValue()));
+                }
+            }
             JsonNode choice = chunk.path("choices").path(0);
             JsonNode delta = choice.path("delta");
 
@@ -137,6 +138,10 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 out.add(new LlmEvent.Completed(content.toString()));
             }
             return out;
+        }
+
+        private static boolean validTokenCount(JsonNode value) {
+            return value.isIntegralNumber() && value.canConvertToLong() && value.longValue() >= 0;
         }
     }
 }

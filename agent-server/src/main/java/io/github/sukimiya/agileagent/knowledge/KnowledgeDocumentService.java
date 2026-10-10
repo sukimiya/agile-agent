@@ -10,7 +10,7 @@ import org.springframework.stereotype.Service;
 
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
-import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -23,22 +23,23 @@ public class KnowledgeDocumentService {
 
     private final KnowledgeDocumentRepository repository;
     private final KnowledgeFileStorage storage;
-    private final LlmClient llm;
+    private final TenantLlmClientResolver llmResolver;
     private final KnowledgeCatalog catalog;
 
     public KnowledgeDocumentService(KnowledgeDocumentRepository repository, KnowledgeFileStorage storage,
-                                     LlmClient llm, KnowledgeCatalog catalog) {
+                                     TenantLlmClientResolver llmResolver, KnowledgeCatalog catalog) {
         this.repository = repository;
         this.storage = storage;
-        this.llm = llm;
+        this.llmResolver = llmResolver;
         this.catalog = catalog;
     }
 
     public enum ActionResult { OK, NOT_FOUND, CONFLICT }
 
-    public Mono<KnowledgeDocumentRow> upload(String uploaderUserId, String title, FilePart file) {
+    public Mono<KnowledgeDocumentRow> upload(String uploaderUserId, String tenantId, String title, FilePart file) {
         String id = UUID.randomUUID().toString();
-        return storage.saveTemp(id, file)
+        return llmResolver.resolve(tenantId)
+                .flatMap(llm -> storage.saveTemp(id, file)
                 .flatMap(saved -> llm.summarize(saved.content())
                         .onErrorResume(e -> {
                             log.warn("knowledge summary generation failed for {}: {}", id, e.getMessage());
@@ -49,7 +50,7 @@ public class KnowledgeDocumentService {
                                 title == null || title.isBlank() ? file.filename() : title,
                                 file.filename(), saved.tempPath(), Status.PENDING, summary,
                                 uploaderUserId, LocalDateTime.now(), null, null)))
-                .flatMap(row -> repository.insert(row).thenReturn(row));
+                .flatMap(row -> repository.insert(row).thenReturn(row)));
     }
 
     public Flux<KnowledgeDocumentRow> list(Status status) {

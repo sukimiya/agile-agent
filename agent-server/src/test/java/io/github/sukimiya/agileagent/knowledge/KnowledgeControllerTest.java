@@ -45,7 +45,10 @@ class KnowledgeControllerTest {
 
     private void asUser1() {
         when(sessions.resolve("test-token")).thenReturn(Mono.just(user("user-1", "Test User", "sl-tok",
-                "refresh-tok", Instant.now().plusSeconds(3600), java.util.Set.of("test"), Instant.now())));
+                "refresh-tok", Instant.now().plusSeconds(3600),
+                new io.github.sukimiya.agileagent.spi.identity.IdentityContext("user-1", "Test User", "tenant-1",
+                        "Tenant", null, null, java.util.Set.of("tenant_admin"), java.util.Set.of(), java.util.Set.of(),
+                        false, true), Instant.now())));
     }
 
     private static ByteArrayResource textPart(String filename, String content) {
@@ -72,7 +75,7 @@ class KnowledgeControllerTest {
         var now = LocalDateTime.now();
         var row = new KnowledgeDocumentRow("k1", "标题", "doc.md", "/tmp/k1.md",
                 Status.PENDING, "摘要", "user-1", now, null, null);
-        when(service.upload(eq("user-1"), any(), any())).thenReturn(Mono.just(row));
+        when(service.upload(eq("user-1"), anyString(), any(), any())).thenReturn(Mono.just(row));
         var builder = new MultipartBodyBuilder();
         builder.part("file", textPart("doc.md", "内容")).contentType(MediaType.TEXT_MARKDOWN);
 
@@ -91,7 +94,7 @@ class KnowledgeControllerTest {
     @Test
     void uploadReturns400WhenFileRejected() {
         asUser1();
-        when(service.upload(eq("user-1"), any(), any())).thenReturn(
+        when(service.upload(eq("user-1"), anyString(), any(), any())).thenReturn(
                 Mono.error(new KnowledgeFileStorage.RejectedException("FILE_REJECTED", "content-type application/pdf not allowed")));
         var builder = new MultipartBodyBuilder();
         builder.part("file", textPart("doc.pdf", "内容")).contentType(MediaType.APPLICATION_PDF);

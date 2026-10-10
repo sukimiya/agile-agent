@@ -13,10 +13,17 @@ import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.Knowl
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeFileStorage.UploadedFile;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 
 import reactor.core.publisher.Mono;
 
 class KnowledgeDocumentServiceTest {
+
+    private static TenantLlmClientResolver resolver(LlmClient llm) {
+        var resolver = mock(TenantLlmClientResolver.class);
+        when(resolver.resolve(anyString())).thenReturn(Mono.just(llm));
+        return resolver;
+    }
 
     @Test
     void uploadSavesFileGeneratesSummaryAndInsertsPendingRow() {
@@ -28,9 +35,9 @@ class KnowledgeDocumentServiceTest {
         when(storage.saveTemp(any(), eq(file))).thenReturn(Mono.just(new UploadedFile("/tmp/x.md", "文档内容")));
         when(llm.summarize("文档内容")).thenReturn(Mono.just("这是摘要"));
         when(repository.insert(any())).thenReturn(Mono.empty());
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
-        var row = service.upload("user-1", "自定义标题", file).block();
+        var row = service.upload("user-1", "tenant-1", "自定义标题", file).block();
 
         assertThat(row.title()).isEqualTo("自定义标题");
         assertThat(row.originalFilename()).isEqualTo("doc.md");
@@ -50,9 +57,9 @@ class KnowledgeDocumentServiceTest {
         when(storage.saveTemp(any(), eq(file))).thenReturn(Mono.just(new UploadedFile("/tmp/x.md", "内容")));
         when(llm.summarize(any())).thenReturn(Mono.just("摘要"));
         when(repository.insert(any())).thenReturn(Mono.empty());
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
-        var row = service.upload("user-1", "  ", file).block();
+        var row = service.upload("user-1", "tenant-1", "  ", file).block();
 
         assertThat(row.title()).isEqualTo("doc.md");
     }
@@ -67,9 +74,9 @@ class KnowledgeDocumentServiceTest {
         when(storage.saveTemp(any(), eq(file))).thenReturn(Mono.just(new UploadedFile("/tmp/x.md", "内容")));
         when(llm.summarize(any())).thenReturn(Mono.error(new RuntimeException("LLM 超时")));
         when(repository.insert(any())).thenReturn(Mono.empty());
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
-        var row = service.upload("user-1", "标题", file).block();
+        var row = service.upload("user-1", "tenant-1", "标题", file).block();
 
         assertThat(row.summary()).isEmpty();
     }
@@ -80,7 +87,7 @@ class KnowledgeDocumentServiceTest {
         var storage = mock(KnowledgeFileStorage.class);
         var llm = mock(LlmClient.class);
         when(repository.findById("missing")).thenReturn(Mono.empty());
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.approve("missing", "user-1", null).block();
 
@@ -98,7 +105,7 @@ class KnowledgeDocumentServiceTest {
         when(storage.promoteToLib(eq("k1"), eq("/tmp/k1.md"), eq("标题"), eq("原摘要"), eq("admin-1"), any()))
                 .thenReturn(Mono.empty());
         when(repository.approveIfPending(eq("k1"), eq("原摘要"), eq("admin-1"), any())).thenReturn(Mono.just(1L));
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.approve("k1", "admin-1", null).block();
 
@@ -118,7 +125,7 @@ class KnowledgeDocumentServiceTest {
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
         when(storage.promoteToLib(any(), any(), any(), any(), any(), any())).thenReturn(Mono.empty());
         when(repository.approveIfPending(any(), any(), any(), any())).thenReturn(Mono.just(1L));
-        var service = new KnowledgeDocumentService(repository, storage, llm, catalog);
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), catalog);
 
         service.approve("k1", "admin-1", null).block();
 
@@ -134,7 +141,7 @@ class KnowledgeDocumentServiceTest {
         var existing = new KnowledgeDocumentRow("k1", "标题", "doc.md", "/tmp/k1.md",
                 Status.APPROVED, "摘要", "user-1", LocalDateTime.now(), "admin-0", LocalDateTime.now());
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
-        var service = new KnowledgeDocumentService(repository, storage, llm, catalog);
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), catalog);
 
         service.approve("k1", "admin-1", null).block();
 
@@ -151,7 +158,7 @@ class KnowledgeDocumentServiceTest {
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
         when(storage.promoteToLib(any(), any(), any(), eq("修改后的摘要"), any(), any())).thenReturn(Mono.empty());
         when(repository.approveIfPending(eq("k1"), eq("修改后的摘要"), eq("admin-1"), any())).thenReturn(Mono.just(1L));
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         service.approve("k1", "admin-1", "修改后的摘要").block();
 
@@ -167,7 +174,7 @@ class KnowledgeDocumentServiceTest {
         var existing = new KnowledgeDocumentRow("k1", "标题", "doc.md", "/tmp/k1.md",
                 Status.APPROVED, "摘要", "user-1", LocalDateTime.now(), "admin-0", LocalDateTime.now());
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.approve("k1", "admin-1", null).block();
 
@@ -182,7 +189,7 @@ class KnowledgeDocumentServiceTest {
         var storage = mock(KnowledgeFileStorage.class);
         var llm = mock(LlmClient.class);
         when(repository.findById("missing")).thenReturn(Mono.empty());
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.reject("missing", "user-1").block();
 
@@ -198,7 +205,7 @@ class KnowledgeDocumentServiceTest {
                 Status.PENDING, "摘要", "user-1", LocalDateTime.now(), null, null);
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
         when(repository.rejectIfPending(eq("k1"), eq("admin-1"), any())).thenReturn(Mono.just(1L));
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.reject("k1", "admin-1").block();
 
@@ -214,7 +221,7 @@ class KnowledgeDocumentServiceTest {
                 Status.REJECTED, "摘要", "user-1", LocalDateTime.now(), "admin-0", LocalDateTime.now());
         when(repository.findById("k1")).thenReturn(Mono.just(existing));
         when(repository.rejectIfPending(any(), any(), any())).thenReturn(Mono.just(0L));
-        var service = new KnowledgeDocumentService(repository, storage, llm, mock(KnowledgeCatalog.class));
+        var service = new KnowledgeDocumentService(repository, storage, resolver(llm), mock(KnowledgeCatalog.class));
 
         var result = service.reject("k1", "admin-1").block();
 

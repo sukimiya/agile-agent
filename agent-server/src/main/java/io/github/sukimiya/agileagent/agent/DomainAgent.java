@@ -31,15 +31,13 @@ public class DomainAgent {
 
     static final int MAX_ROUNDS = 8;
 
-    private final LlmClient llm;
     private final CapabilityRegistry capabilities;
 
-    public DomainAgent(LlmClient llm, CapabilityRegistry capabilities) {
-        this.llm = llm;
+    public DomainAgent(CapabilityRegistry capabilities) {
         this.capabilities = capabilities;
     }
 
-    public Flux<AgentEvent> run(DomainTask task) {
+    public Flux<AgentEvent> run(DomainTask task, LlmClient llm) {
         var provider = capabilities.byCode(task.roleCode());
         if (provider.isEmpty()) {
             return Flux.just(new AgentEvent.Failed(task.roleCode(), "unknown role: " + task.roleCode()));
@@ -52,12 +50,12 @@ public class DomainAgent {
                     var messages = new ArrayList<LlmClient.Message>();
                     messages.add(LlmClient.Message.system(definition.systemPrompt()));
                     messages.add(LlmClient.Message.user(task.userMessage()));
-                    return round(selected, definition, messages, task, context, 0)
+                    return round(llm, selected, definition, messages, task, context, 0)
                             .contextWrite(ctx -> ctx.put("role", selected.code()));
                 });
     }
 
-    private Flux<AgentEvent> round(AgentCapabilityProvider provider, CapabilityDefinition definition,
+    private Flux<AgentEvent> round(LlmClient llm, AgentCapabilityProvider provider, CapabilityDefinition definition,
                                    List<LlmClient.Message> messages, DomainTask task,
                                    AgentExecutionContext context, int roundIndex) {
         if (roundIndex >= MAX_ROUNDS) {
@@ -71,6 +69,8 @@ public class DomainAgent {
                 .toList();
         return llm.chatStream(messages, llmTools).concatMap(event -> switch (event) {
             case LlmClient.LlmEvent.ContentDelta d -> Flux.just(new AgentEvent.Delta(provider.code(), d.text()));
+            case LlmClient.LlmEvent.Usage u -> Flux.just(new AgentEvent.Usage(provider.code(), u.promptTokens(),
+                    u.completionTokens(), u.totalTokens()));
             case LlmClient.LlmEvent.Completed c -> {
                 log.info("round={} finished chars={}", roundIndex, c.fullText().length());
                 yield Flux.just(new AgentEvent.Finished(provider.code(), c.fullText()));
@@ -85,7 +85,7 @@ public class DomainAgent {
                                     messages.add(LlmClient.Message.toolResult(call.id(), result));
                                     return Flux.<AgentEvent>empty();
                                 })))
-                        .concatWith(Flux.defer(() -> round(provider, definition, messages, task, context, roundIndex + 1)));
+                        .concatWith(Flux.defer(() -> round(llm, provider, definition, messages, task, context, roundIndex + 1)));
             }
         });
     }

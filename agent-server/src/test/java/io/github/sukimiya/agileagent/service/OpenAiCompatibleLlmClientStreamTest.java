@@ -12,6 +12,36 @@ import reactor.test.StepVerifier;
 
 class OpenAiCompatibleLlmClientStreamTest {
 
+    @Test
+    void usageOnlyChunkWithEmptyChoicesIsReportedWithoutCompletion() {
+        var aggregator = new OpenAiCompatibleLlmClient.StreamAggregator();
+        com.fasterxml.jackson.databind.JsonNode usageChunk;
+        try {
+            usageChunk = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                    "{\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        var events = aggregator.onChunk(usageChunk);
+        assertThat(events).containsExactly(new LlmClient.LlmEvent.Usage(7, 3, 10));
+    }
+
+    @Test
+    void streamingRequestIncludesUsageOptionAndEmitsUsageOnlyChunk() throws Exception {
+        enqueueSse(
+                "{\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}",
+                "[DONE]");
+
+        StepVerifier.create(client.chatStream(java.util.List.of(LlmClient.Message.user("q")), java.util.List.of()))
+                .assertNext(event -> assertThat(event.getClass().getSimpleName()).isEqualTo("Usage"))
+                .verifyComplete();
+
+        var request = server.takeRequest();
+        var body = new com.fasterxml.jackson.databind.ObjectMapper().readTree(request.getBody().readUtf8());
+        assertThat(body.path("stream_options").path("include_usage").asBoolean()).isTrue();
+        assertThat(request.getHeader("Authorization")).isEqualTo("Bearer test-key");
+    }
+
     private MockWebServer server;
     private OpenAiCompatibleLlmClient client;
 

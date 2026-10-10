@@ -24,7 +24,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.agent.Orchestrator;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.ChatMemory;
+import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.SessionService;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.web.CurrentUser;
 
 import reactor.core.publisher.Flux;
@@ -38,17 +41,20 @@ class ChatController {
     private final Orchestrator orchestrator;
     private final SessionService sessionService;
     private final ChatMemory memory;
+    private final TenantLlmClientResolver llmResolver;
     private static final ObjectMapper json = new ObjectMapper();
 
-    ChatController(Orchestrator orchestrator, SessionService sessionService, ChatMemory memory) {
+    ChatController(Orchestrator orchestrator, SessionService sessionService, ChatMemory memory,
+                   TenantLlmClientResolver llmResolver) {
         this.orchestrator = orchestrator;
         this.sessionService = sessionService;
         this.memory = memory;
+        this.llmResolver = llmResolver;
     }
 
     // OpenAI-compatible chat completions endpoint
-    @PostMapping(value = "/chat/completions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    Mono<ResponseEntity<Flux<String>>> chatCompletions(@RequestBody Map<String, Object> body,
+    @PostMapping(value = "/chat/completions")
+    Mono<ResponseEntity<?>> chatCompletions(@RequestBody Map<String, Object> body,
                                                   @CurrentUser AuthSessionStore.AuthUser user) {
         var messages = getMessages(body);
         var userMsg = messages.isEmpty() ? "" :
@@ -60,28 +66,28 @@ class ChatController {
         var chunkId = "chatcmpl-" + UUID.randomUUID().toString().substring(0, 8);
 
         return sessionService.touchOrCreate(ownerId, user.userId(), userMsg)
-                .map(access -> {
+                .flatMap(access -> {
                     if (access == SessionService.AccessResult.FORBIDDEN) {
-                        return ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build();
+                        return Mono.<ResponseEntity<?>>just(ResponseEntity.notFound().build());
                     }
-                    Flux<String> stream = orchestrator.chat(ownerId, user.accessToken(), userMsg, user.identity())
-                            .flatMap(line -> toContentChunk(line).map(Flux::just).orElseGet(Flux::empty))
-                            .map(line -> {
-                                var chunk = json.createObjectNode();
-                                chunk.put("id", chunkId);
-                                chunk.put("object", "chat.completion.chunk");
-                                var choice = chunk.putArray("choices").addObject();
-                                choice.put("index", 0);
-                                choice.putObject("delta").put("content", line);
-                                try {
-                                    return json.writeValueAsString(chunk);
-                                } catch (Exception e) {
-                                    return "";
-                                }
-                            })
-                            .concatWithValues("[DONE]");
-                    return ResponseEntity.ok().body(stream);
+                    return llmResolver.resolve(user.identity().tenantId())
+                            .<ResponseEntity<?>>map(llm -> ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                                    .body(openAiStream(ownerId, user, userMsg, chunkId, llm)))
+                            .onErrorResume(TenantLlmConfigRequiredException.class,
+                                    e -> Mono.just(configRequired()));
                 });
+    }
+
+    private Flux<String> openAiStream(String ownerId, AuthSessionStore.AuthUser user, String userMsg,
+                                      String chunkId, LlmClient llm) {
+        return orchestrator.chat(ownerId, user.accessToken(), userMsg, user.identity(), llm)
+                .flatMap(line -> toOpenAiChunk(line, chunkId).map(Flux::just).orElseGet(Flux::empty))
+                .concatWithValues("[DONE]");
+    }
+
+    private static ResponseEntity<Map<String, String>> configRequired() {
+        return ResponseEntity.status(428).body(Map.of("code", "LLM_CONFIG_REQUIRED",
+                "message", "Current tenant has no LLM configuration"));
     }
 
     static Optional<String> toContentChunk(String line) {
@@ -98,6 +104,36 @@ class ChatController {
         return Optional.empty();
     }
 
+    static Optional<String> toOpenAiChunk(String line, String chunkId) {
+        try {
+            JsonNode n = json.readTree(line);
+            if ("usage".equals(n.path("type").asText())) {
+                var chunk = json.createObjectNode();
+                chunk.put("id", chunkId);
+                chunk.put("object", "chat.completion.chunk");
+                chunk.putArray("choices");
+                var usage = chunk.putObject("usage");
+                usage.put("prompt_tokens", n.path("prompt_tokens").longValue());
+                usage.put("completion_tokens", n.path("completion_tokens").longValue());
+                usage.put("total_tokens", n.path("total_tokens").longValue());
+                return Optional.of(json.writeValueAsString(chunk));
+            }
+        } catch (Exception ignored) { }
+        return toContentChunk(line).map(content -> {
+            var chunk = json.createObjectNode();
+            chunk.put("id", chunkId);
+            chunk.put("object", "chat.completion.chunk");
+            var choice = chunk.putArray("choices").addObject();
+            choice.put("index", 0);
+            choice.putObject("delta").put("content", content);
+            try {
+                return json.writeValueAsString(chunk);
+            } catch (Exception e) {
+                return "";
+            }
+        });
+    }
+
     @SuppressWarnings("unchecked")
     private List<Map<String, String>> getMessages(Map<String, Object> body) {
         return (List<Map<String, String>>) body.getOrDefault("messages", List.of());
@@ -111,17 +147,24 @@ class ChatController {
     }
 
     // Legacy endpoint for custom frontend
-    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    Mono<ResponseEntity<Flux<String>>> chat(@RequestBody ChatRequest request,
+    @PostMapping(value = "/chat")
+    Mono<ResponseEntity<?>> chat(@RequestBody ChatRequest request,
                                        @CurrentUser AuthSessionStore.AuthUser user) {
         var ownerId = request.conversationId() != null
                 ? request.conversationId()
                 : UUID.randomUUID().toString();
         return sessionService.touchOrCreate(ownerId, user.userId(), request.message())
-                .map(access -> access == SessionService.AccessResult.FORBIDDEN
-                        ? ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build()
-                        : ResponseEntity.ok().body(orchestrator.chat(ownerId, user.accessToken(),
-                                request.message(), user.identity())));
+                .flatMap(access -> {
+                    if (access == SessionService.AccessResult.FORBIDDEN) {
+                        return Mono.<ResponseEntity<?>>just(ResponseEntity.notFound().build());
+                    }
+                    return llmResolver.resolve(user.identity().tenantId())
+                            .<ResponseEntity<?>>map(llm -> ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                                    .body(orchestrator.chat(ownerId,
+                                    user.accessToken(), request.message(), user.identity(), llm)))
+                            .onErrorResume(TenantLlmConfigRequiredException.class,
+                                    e -> Mono.just(configRequired()));
+                });
     }
 
     @GetMapping("/conversations")
