@@ -4,11 +4,14 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -25,6 +28,16 @@ public class AuthSessionStore {
 
     private static final String KEY_PREFIX = "authsession:";
     private static final Duration TTL = Duration.ofDays(30);
+    private static final String LOGOUT_TOMBSTONE = "__AUTH_SESSION_LOGGED_OUT_V1__";
+    private static final RedisScript<Long> UPDATE_IF_NOT_LOGGED_OUT_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[2] then return 0 end\n"
+                    + "redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[3])\n"
+                    + "return 1",
+            Long.class);
+    private static final RedisScript<Long> LOGOUT_SCRIPT = new DefaultRedisScript<>(
+            "redis.call('set', KEYS[1], ARGV[1], 'PX', ARGV[2])\n"
+                    + "return 1",
+            Long.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ReactiveStringRedisTemplate redis;
@@ -45,7 +58,33 @@ public class AuthSessionStore {
     }
 
     public Mono<Void> update(String token, AuthUser refreshed) {
-        return write(token, refreshed);
+        String payload;
+        try {
+            payload = json.writeValueAsString(refreshed);
+        } catch (Exception e) {
+            return Mono.error(new IllegalStateException("Failed to serialize auth session", e));
+        }
+        return redis.execute(UPDATE_IF_NOT_LOGGED_OUT_SCRIPT,
+                        List.of(sessionKey(token)), payload, LOGOUT_TOMBSTONE, Long.toString(TTL.toMillis()))
+                .next()
+                .switchIfEmpty(Mono.error(new IllegalStateException("Failed to update auth session")))
+                .flatMap(updated -> Long.valueOf(1L).equals(updated)
+                        ? Mono.<Void>empty()
+                        : Mono.error(new SessionLoggedOutException()));
+    }
+
+    /**
+     * Atomically replaces the app-session payload with an unusable tombstone for the session TTL.
+     * Keeping it on the existing key makes the logout/update scripts single-key and Redis Cluster safe.
+     */
+    public Mono<Void> logout(String token) {
+        return redis.execute(LOGOUT_SCRIPT,
+                        List.of(sessionKey(token)), LOGOUT_TOMBSTONE, Long.toString(TTL.toMillis()))
+                .next()
+                .switchIfEmpty(Mono.error(new IllegalStateException("Failed to invalidate auth session")))
+                .flatMap(invalidated -> Long.valueOf(1L).equals(invalidated)
+                        ? Mono.<Void>empty()
+                        : Mono.error(new IllegalStateException("Failed to invalidate auth session")));
     }
 
     private Mono<Void> write(String token, AuthUser user) {
@@ -55,7 +94,7 @@ public class AuthSessionStore {
         } catch (Exception e) {
             return Mono.error(new IllegalStateException("Failed to serialize auth session", e));
         }
-        return redis.opsForValue().set(KEY_PREFIX + token, payload, TTL).then();
+        return redis.opsForValue().set(sessionKey(token), payload, TTL).then();
     }
 
     /**
@@ -66,6 +105,7 @@ public class AuthSessionStore {
      */
     public Mono<AuthUser> resolve(String token) {
         return redis.opsForValue().get(KEY_PREFIX + token).flatMap(raw -> {
+            if (LOGOUT_TOMBSTONE.equals(raw)) return Mono.empty();
             AuthUser user;
             try {
                 user = json.readValue(raw, AuthUser.class);
@@ -84,7 +124,17 @@ public class AuthSessionStore {
     }
 
     public Mono<Void> delete(String token) {
-        return redis.delete(KEY_PREFIX + token).then();
+        return redis.delete(sessionKey(token)).then();
+    }
+
+    private static String sessionKey(String token) {
+        return KEY_PREFIX + token;
+    }
+
+    public static final class SessionLoggedOutException extends RuntimeException {
+        public SessionLoggedOutException() {
+            super("Auth session was logged out");
+        }
     }
 
     private static String randomToken() {

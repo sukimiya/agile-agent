@@ -111,7 +111,8 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                     return releaseRefreshLock(lockKey, lockOwner).then(Mono.error(error));
                 })
                 .doOnError(error -> log.warn("OAuth2 session refresh or identity update failed"))
-                .onErrorMap(OAuth2Client.OAuth2AuthException.class, error -> new UnauthorizedException());
+                .onErrorMap(OAuth2Client.OAuth2AuthException.class, error -> new UnauthorizedException())
+                .onErrorMap(AuthSessionStore.SessionLoggedOutException.class, error -> new UnauthorizedException());
     }
 
     private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user) {

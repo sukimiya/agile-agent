@@ -151,15 +151,16 @@ class AuthController {
     @PostMapping("/logout")
     Mono<ResponseEntity<Void>> logout(@RequestHeader("Authorization") String authorization) {
         String token = authorization.startsWith("Bearer ") ? authorization.substring(7) : authorization;
-        // Best-effort revocation at the provider: the refresh token outlives the app session by weeks,
-        // but a provider that can't revoke must not stop the local session from being destroyed.
+        // Tombstone locally before best-effort provider revocation. This prevents an in-flight
+        // resolver refresh from recreating the app session after logout returns.
         return sessions.resolve(token)
-                .flatMap(user -> oauth2.revoke(user.refreshToken()))
-                .onErrorResume(e -> {
-                    log.warn("Logout: token revocation at identity provider failed, continuing");
-                    return Mono.empty();
-                })
-                .then(sessions.delete(token))
+                .flatMap(user -> sessions.logout(token).thenReturn(user))
+                .switchIfEmpty(Mono.defer(() -> sessions.logout(token).then(Mono.<AuthSessionStore.AuthUser>empty())))
+                .flatMap(user -> oauth2.revoke(user.refreshToken())
+                        .onErrorResume(e -> {
+                            log.warn("Logout: token revocation at identity provider failed, continuing");
+                            return Mono.empty();
+                        }))
                 .thenReturn(ResponseEntity.noContent().<Void>build());
     }
 }

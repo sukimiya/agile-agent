@@ -1,19 +1,31 @@
 package io.github.sukimiya.agileagent.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.assertj.core.api.Assertions.assertThat;
-import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
@@ -23,9 +35,13 @@ import io.github.sukimiya.agileagent.service.OAuth2StateStore;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
 import io.github.sukimiya.agileagent.web.CurrentUserArgumentResolver;
+import io.github.sukimiya.agileagent.web.UnauthorizedException;
 import io.github.sukimiya.agileagent.web.WebConfig;
 
+import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.MonoSink;
+import reactor.test.StepVerifier;
 
 @WebFluxTest(AuthController.class)
 @Import({WebConfig.class, AuthExceptionHandler.class, CurrentUserArgumentResolver.class})
@@ -199,45 +215,116 @@ class AuthControllerTest {
     }
 
     @Test
-    void logoutRevokesRefreshTokenThenDeletesSessionAndReturns204() {
+    void logoutInvalidatesSessionBeforeRevokingRefreshTokenAndReturns204() {
         when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
                 Instant.now().plusSeconds(3600), java.util.Set.of("admin"), Instant.now())));
         when(oauth2.revoke("rt-1")).thenReturn(Mono.empty());
-        when(sessions.delete("app-tok")).thenReturn(Mono.empty());
+        when(sessions.logout("app-tok")).thenReturn(Mono.empty());
 
         client.post().uri("/api/auth/logout").header("Authorization", "Bearer app-tok")
                 .exchange()
                 .expectStatus().isNoContent();
 
-        verify(oauth2).revoke("rt-1");
-        verify(sessions).delete("app-tok");
+        var order = inOrder(sessions, oauth2);
+        order.verify(sessions).resolve("app-tok");
+        order.verify(sessions).logout("app-tok");
+        order.verify(oauth2).revoke("rt-1");
     }
 
     @Test
-    void logoutStillDeletesSessionAndReturns204WhenRevocationFails() {
+    void logoutStillInvalidatesSessionAndReturns204WhenRevocationFails() {
         when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
                 Instant.now().plusSeconds(3600), java.util.Set.of("admin"), Instant.now())));
         when(oauth2.revoke("rt-1"))
                 .thenReturn(Mono.error(new OAuth2Client.OAuth2UnavailableException("revocation endpoint down")));
-        when(sessions.delete("app-tok")).thenReturn(Mono.empty());
+        when(sessions.logout("app-tok")).thenReturn(Mono.empty());
 
         client.post().uri("/api/auth/logout").header("Authorization", "Bearer app-tok")
                 .exchange()
                 .expectStatus().isNoContent();
 
-        verify(sessions).delete("app-tok");
+        verify(sessions).logout("app-tok");
     }
 
     @Test
-    void logoutDeletesSessionAndReturns204WhenSessionAlreadyGone() {
+    void logoutWinsOverAnInFlightRefreshAndPreventsSessionRecreation() throws InterruptedException {
+        var config = new RedisStandaloneConfiguration("192.168.3.232", 6379);
+        config.setPassword("FeetxXuFkZIaM2Pq");
+        config.setDatabase(1);
+        var connectionFactory = new LettuceConnectionFactory(config);
+        connectionFactory.afterPropertiesSet();
+        var realRedis = new ReactiveStringRedisTemplate(connectionFactory);
+        var refreshStarted = new CountDownLatch(1);
+        var refreshDone = new CountDownLatch(1);
+        var refreshSink = new AtomicReference<MonoSink<OAuth2Client.TokenResult>>();
+        var refreshError = new AtomicReference<Throwable>();
+        String appToken = null;
+        Disposable refreshRequest = null;
+        try {
+            var realSessions = new AuthSessionStore(realRedis);
+            var oldIdentity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                    Set.of("tenant_admin"), Set.of("org-1"), Set.of("org-1"), false, false);
+            var freshIdentity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                    Set.of("reader"), Set.of("org-1"), Set.of("org-1"), false, false);
+            appToken = realSessions.create("at-1", "rt-1", Instant.now().minusSeconds(10), oldIdentity,
+                    Instant.now().minus(Duration.ofMinutes(6))).block(Duration.ofSeconds(5));
+            when(oauth2.refresh("rt-1")).thenReturn(Mono.create(sink -> {
+                refreshSink.set(sink);
+                refreshStarted.countDown();
+            }));
+            when(oauth2.fetchIdentity("at-2")).thenReturn(Mono.just(freshIdentity));
+
+            var resolver = new CurrentUserArgumentResolver(realSessions, oauth2, realRedis);
+            var exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get("/api/auth/me").header("Authorization", "Bearer " + appToken).build());
+            refreshRequest = resolver.resolveArgument(null, null, exchange)
+                    .subscribe(ignored -> {}, error -> {
+                        refreshError.set(error);
+                        refreshDone.countDown();
+                    }, refreshDone::countDown);
+            assertThat(refreshStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            var directController = new AuthController(oauth2, states, realSessions, props);
+            var logoutResponse = directController.logout("Bearer " + appToken).block(Duration.ofSeconds(5));
+            assertThat(logoutResponse).isNotNull();
+            assertThat(logoutResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+            refreshSink.get().success(new OAuth2Client.TokenResult("at-2", "rt-2", 3600));
+            assertThat(refreshDone.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(realSessions.resolve(appToken).blockOptional()).isEmpty();
+            assertThat(refreshError.get()).isInstanceOf(UnauthorizedException.class);
+            assertThat(realRedis.opsForValue().get("authsession:" + appToken).block())
+                    .isEqualTo("__AUTH_SESSION_LOGGED_OUT_V1__");
+            assertThat(realRedis.hasKey("authsession:logout:" + appToken).block()).isFalse();
+            assertThat(realRedis.getExpire("authsession:" + appToken).block())
+                    .isBetween(Duration.ofSeconds(1), Duration.ofDays(30));
+            StepVerifier.create(resolver.resolveArgument(null, null, exchange))
+                    .expectError(UnauthorizedException.class)
+                    .verify();
+        } finally {
+            if (refreshRequest != null) refreshRequest.dispose();
+            var sink = refreshSink.get();
+            if (sink != null) sink.error(new IllegalStateException("test cleanup"));
+            if (appToken != null) {
+                realRedis.delete("oauth2refreshlock:" + appToken).block();
+                realRedis.delete("authsession:" + appToken).block();
+                realRedis.delete("authsession:logout:" + appToken).block();
+            }
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    void logoutTombstonesAnAlreadyMissingSessionAndReturns204() {
         when(sessions.resolve("app-tok")).thenReturn(Mono.empty());
-        when(sessions.delete("app-tok")).thenReturn(Mono.empty());
+        when(sessions.logout("app-tok")).thenReturn(Mono.empty());
 
         client.post().uri("/api/auth/logout").header("Authorization", "Bearer app-tok")
                 .exchange()
                 .expectStatus().isNoContent();
 
-        verify(sessions).delete("app-tok");
+        verify(sessions).logout("app-tok");
         verify(oauth2, never()).revoke(any());
     }
 }
