@@ -22,3 +22,15 @@ STATUS: complete
 
 - Tests cover exact redirect attack variants on GET and POST, POST parameter tampering, missing/wrong PKCE and state, one-use code exchange, client/grant error mapping, rotated refresh replay revoking its family, expired/revoked userinfo, unknown-token revoke, default claim shape, and token/code/secret non-disclosure in HTML/errors.
 - The default client secret is intentionally blank for local development. Configure `MOCK_OAUTH2_CLIENT_SECRET` and the matching agent-server local-profile value when local tests need client authentication.
+
+## Fix Round 1
+
+- Added `Cache-Control: no-store` and `Pragma: no-cache` to authorization-code and refresh token responses.
+- Configured client secrets are SHA-256 hashed once at startup; submitted secrets are hashed to the same fixed-size digest and compared with `MessageDigest.isEqual`. The existing blank-secret mode still permits clients without a configured secret.
+- Missing userinfo credentials now receive `WWW-Authenticate: Bearer`; supplied malformed, unknown, expired, or revoked credentials receive the fixed `Bearer error="invalid_token"` challenge. No request value is reflected.
+- RED: `mvn -pl mock-oauth2 -Dtest=OAuth2ControllerTest test` — 10 tests, 5 failures from the missing token cache headers and missing userinfo challenge headers.
+- RED: `mvn -pl mock-oauth2 -Dtest=OAuth2ControllerTest#userinfoRequiresValidBearerAndReturnsDefaultClaims test` — 1 test, 1 failure because the missing-credentials body still included `invalid_token`; the final behavior omits that error while retaining the bare Bearer challenge.
+- GREEN: `mvn -pl mock-oauth2 -Dtest=OAuth2ControllerTest test` — 10 tests, 0 failures, 0 errors.
+- GREEN: `mvn -pl mock-oauth2 test` — 25 tests, 0 failures, 0 errors.
+- Self-review: both grant paths assert both no-cache headers; tests exercise valid, invalid, and missing configured secrets, plus missing/invalid/expired/revoked Bearer cases. Missing credentials have `WWW-Authenticate: Bearer` and no OAuth error; supplied invalid tokens use the fixed `Bearer error="invalid_token"` challenge. The secret equality operation compares fixed-size digests, avoiding secret-length dependent byte-array comparisons.
+- Commit: `fix: harden mock OAuth2 responses`

@@ -10,8 +10,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -22,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -158,6 +161,9 @@ class OAuth2ControllerTest {
                     assertFalse(body.contains("secret-refresh-value"));
                     assertFalse(body.contains("wrong-secret"));
                 });
+        tokenForm("grant_type", "refresh_token", "refresh_token", "secret-refresh-value",
+                "client_id", CLIENT_ID)
+                .expectStatus().isUnauthorized().expectBody().jsonPath("$.error").isEqualTo("invalid_client");
     }
 
     @Test
@@ -198,9 +204,12 @@ class OAuth2ControllerTest {
 
     @Test
     void userinfoRequiresValidBearerAndReturnsDefaultClaims() {
-        client.get().uri("/oauth2/userinfo").exchange().expectStatus().isUnauthorized();
+        client.get().uri("/oauth2/userinfo").exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .expectBody(String.class).value(body -> assertFalse(body.contains("\"error\"")));
         client.get().uri("/oauth2/userinfo").headers(h -> h.setBearerAuth("invalid-access-token"))
-                .exchange().expectStatus().isUnauthorized();
+                .exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
         TokenStore.TokenPair pair = tokens.issue("tenant-a-user");
         client.get().uri("/oauth2/userinfo").headers(h -> h.setBearerAuth(pair.accessToken()))
                 .exchange().expectStatus().isOk().expectBody()
@@ -217,11 +226,13 @@ class OAuth2ControllerTest {
         TokenStore.TokenPair expired = tokens.issue("tenant-a-user");
         ((MutableClock) mockOAuth2Clock).advanceSeconds(3600);
         client.get().uri("/oauth2/userinfo").headers(h -> h.setBearerAuth(expired.accessToken()))
-                .exchange().expectStatus().isUnauthorized();
+                .exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
         TokenStore.TokenPair revoked = tokens.issue("tenant-a-user");
         tokens.revoke(revoked.refreshToken());
         client.get().uri("/oauth2/userinfo").headers(h -> h.setBearerAuth(revoked.accessToken()))
-                .exchange().expectStatus().isUnauthorized();
+                .exchange().expectStatus().isUnauthorized()
+                .expectHeader().valueEquals(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
     }
 
     @Test
@@ -261,11 +272,14 @@ class OAuth2ControllerTest {
     }
 
     private String exchangeCode(String code, String verifier, String clientId, String secret) {
-        byte[] body = tokenForm("grant_type", "authorization_code", "code", code, "redirect_uri", REDIRECT,
-                "client_id", clientId, "client_secret", secret, "code_verifier", verifier)
-                .expectStatus().isOk().expectBody().jsonPath("$.token_type").isEqualTo("Bearer")
+        var response = tokenForm("grant_type", "authorization_code", "code", code,
+                "redirect_uri", REDIRECT, "client_id", clientId, "client_secret", secret,
+                "code_verifier", verifier).expectStatus().isOk().expectBody()
+                .jsonPath("$.token_type").isEqualTo("Bearer")
                 .jsonPath("$.expires_in").isEqualTo(3600).jsonPath("$.refresh_token").exists()
-                .jsonPath("$.access_token").exists().returnResult().getResponseBodyContent();
+                .jsonPath("$.access_token").exists().returnResult();
+        assertNoStoreHeaders(response);
+        byte[] body = response.getResponseBodyContent();
         try {
             return objectMapper.readTree(body).path("access_token").asText();
         } catch (Exception exception) {
@@ -274,11 +288,13 @@ class OAuth2ControllerTest {
     }
 
     private TokenStore.TokenPair refresh(String refreshToken) {
-        byte[] body = tokenForm("grant_type", "refresh_token", "refresh_token", refreshToken,
-                "client_id", CLIENT_ID, "client_secret", CLIENT_SECRET)
-                .expectStatus().isOk().expectBody().jsonPath("$.token_type").isEqualTo("Bearer")
+        var response = tokenForm("grant_type", "refresh_token", "refresh_token", refreshToken,
+                "client_id", CLIENT_ID, "client_secret", CLIENT_SECRET).expectStatus().isOk()
+                .expectBody().jsonPath("$.token_type").isEqualTo("Bearer")
                 .jsonPath("$.expires_in").isEqualTo(3600).jsonPath("$.refresh_token").exists()
-                .jsonPath("$.access_token").exists().returnResult().getResponseBodyContent();
+                .jsonPath("$.access_token").exists().returnResult();
+        assertNoStoreHeaders(response);
+        byte[] body = response.getResponseBodyContent();
         try {
             var payload = objectMapper.readTree(body);
             return new TokenStore.TokenPair(payload.path("access_token").asText(),
@@ -286,6 +302,11 @@ class OAuth2ControllerTest {
         } catch (Exception exception) {
             throw new AssertionError("Token response was not valid JSON", exception);
         }
+    }
+
+    private static void assertNoStoreHeaders(EntityExchangeResult<byte[]> response) {
+        assertEquals("no-store", response.getResponseHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
+        assertEquals("no-cache", response.getResponseHeaders().getFirst(HttpHeaders.PRAGMA));
     }
 
     private static LinkedMultiValueMap<String, String> authorizeForm(String redirect, String state,

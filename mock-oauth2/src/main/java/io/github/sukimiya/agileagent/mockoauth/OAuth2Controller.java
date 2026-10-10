@@ -5,6 +5,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -24,7 +28,7 @@ public final class OAuth2Controller {
     private static final MediaType JSON = MediaType.APPLICATION_JSON;
 
     private final String clientId;
-    private final String clientSecret;
+    private final byte[] clientSecretDigest;
     private final MockIdentityCatalog identities;
     private final AuthorizationRequestValidator authorizeValidator;
     private final AuthorizationCodeStore codes;
@@ -36,7 +40,7 @@ public final class OAuth2Controller {
                             AuthorizationRequestValidator authorizeValidator,
                             AuthorizationCodeStore codes, TokenStore tokens) {
         this.clientId = clientId;
-        this.clientSecret = clientSecret;
+        this.clientSecretDigest = isBlank(clientSecret) ? null : sha256(clientSecret.getBytes(StandardCharsets.UTF_8));
         this.identities = identities;
         this.authorizeValidator = authorizeValidator;
         this.codes = codes;
@@ -111,11 +115,11 @@ public final class OAuth2Controller {
     public ResponseEntity<?> userInfo(@RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String header) {
         String accessToken = bearerToken(header);
         if (accessToken == null) {
-            return oauthError(HttpStatus.UNAUTHORIZED, "invalid_token", "Access token is invalid.");
+            return invalidTokenResponse(header != null);
         }
         return tokens.findIdentityByAccessToken(accessToken)
                 .<ResponseEntity<?>>map(claims -> ResponseEntity.ok().contentType(JSON).body(claims))
-                .orElseGet(() -> oauthError(HttpStatus.UNAUTHORIZED, "invalid_token", "Access token is invalid."));
+                .orElseGet(() -> invalidTokenResponse(true));
     }
 
     @PostMapping(path = "/oauth2/revoke", consumes = "application/x-www-form-urlencoded")
@@ -140,7 +144,8 @@ public final class OAuth2Controller {
         String requestedClientId = single(form, "client_id");
         String requestedSecret = single(form, "client_secret");
         return clientId.equals(requestedClientId)
-                && (clientSecret == null || clientSecret.isBlank() || clientSecret.equals(requestedSecret));
+                && (clientSecretDigest == null || requestedSecret != null
+                && MessageDigest.isEqual(clientSecretDigest, sha256(requestedSecret.getBytes(StandardCharsets.UTF_8))));
     }
 
     private ResponseEntity<?> tokenResponse(TokenStore.TokenPair pair) {
@@ -149,7 +154,17 @@ public final class OAuth2Controller {
         body.put("token_type", "Bearer");
         body.put("expires_in", 3600);
         body.put("refresh_token", pair.refreshToken());
-        return ResponseEntity.ok().contentType(JSON).body(body);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, "no-cache").contentType(JSON).body(body);
+    }
+
+    private static ResponseEntity<Map<String, String>> invalidTokenResponse(boolean credentialsSupplied) {
+        String challenge = credentialsSupplied ? "Bearer error=\"invalid_token\"" : "Bearer";
+        Map<String, String> body = credentialsSupplied
+                ? Map.of("error", "invalid_token", "error_description", "Access token is invalid.")
+                : Map.of("error_description", "Bearer authentication is required.");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).header(HttpHeaders.WWW_AUTHENTICATE, challenge)
+                .contentType(JSON).body(body);
     }
 
     private static ResponseEntity<Map<String, String>> oauthError(HttpStatus status, String error,
@@ -173,5 +188,17 @@ public final class OAuth2Controller {
     private static String single(MultiValueMap<String, String> form, String name) {
         var entries = form.get(name);
         return entries == null || entries.size() != 1 ? null : entries.getFirst();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static byte[] sha256(byte[] value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is unavailable");
+        }
     }
 }
