@@ -123,6 +123,47 @@ class HintControllerTest {
     }
 
     @Test
+    void nullAndAbsentBodiesUseStableValidationErrorsAndKeepAuthenticationChecks() {
+        var admin = identity("trusted-admin", true, false);
+        when(sessions.resolve("admin-token")).thenReturn(Mono.just(user("trusted-admin", "Admin", "access", "refresh",
+                Instant.now().plusSeconds(3600), admin, Instant.now())));
+        when(service.create(any(), any())).thenReturn(Mono.error(new HintValidationException()));
+        when(service.update(any(), any(), any())).thenReturn(Mono.error(new HintValidationException()));
+
+        client.post().uri("/api/chat/hints").header("Authorization", "Bearer admin-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("null").exchange()
+                .expectStatus().isBadRequest().expectBody()
+                .json("{\"code\":\"INVALID_CHAT_HINT\",\"message\":\"Hint content is required\"}");
+        client.put().uri("/api/chat/hints/hint-1").header("Authorization", "Bearer admin-token")
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("null").exchange()
+                .expectStatus().isBadRequest().expectBody()
+                .json("{\"code\":\"INVALID_CHAT_HINT\",\"message\":\"Hint content is required\"}");
+        client.post().uri("/api/chat/hints").header("Authorization", "Bearer admin-token")
+                .exchange().expectStatus().isBadRequest().expectBody()
+                .json("{\"code\":\"INVALID_CHAT_HINT\",\"message\":\"Hint content is required\"}");
+        client.put().uri("/api/chat/hints/hint-1").header("Authorization", "Bearer admin-token")
+                .exchange().expectStatus().isBadRequest().expectBody()
+                .json("{\"code\":\"INVALID_CHAT_HINT\",\"message\":\"Hint content is required\"}");
+        verify(service, times(2)).create(eq(admin), argThat(input -> input.content() == null));
+        verify(service, times(2)).update(eq(admin), eq("hint-1"), argThat(input -> input.content() == null));
+
+        client.post().uri("/api/chat/hints").exchange().expectStatus().isUnauthorized();
+        client.put().uri("/api/chat/hints/hint-1").exchange().expectStatus().isUnauthorized();
+
+        var tenantAdmin = identity("tenant-admin", false, true);
+        when(sessions.resolve("tenant-token")).thenReturn(Mono.just(user("tenant-admin", "Tenant Admin", "access", "refresh",
+                Instant.now().plusSeconds(3600), tenantAdmin, Instant.now())));
+        when(service.create(eq(tenantAdmin), any())).thenReturn(Mono.error(new io.github.sukimiya.agileagent.web.ForbiddenException()));
+        when(service.update(eq(tenantAdmin), any(), any())).thenReturn(Mono.error(new io.github.sukimiya.agileagent.web.ForbiddenException()));
+        client.post().uri("/api/chat/hints").header("Authorization", "Bearer tenant-token")
+                .exchange().expectStatus().isForbidden().expectBody()
+                .json("{\"code\":\"FORBIDDEN\",\"message\":\"Access denied\"}");
+        client.put().uri("/api/chat/hints/hint-1").header("Authorization", "Bearer tenant-token")
+                .exchange().expectStatus().isForbidden().expectBody()
+                .json("{\"code\":\"FORBIDDEN\",\"message\":\"Access denied\"}");
+    }
+
+    @Test
     void tenantAdminAndRegularUserCannotWrite() {
         var tenantAdmin = identity("tenant-admin", false, true);
         when(sessions.resolve("tenant-token")).thenReturn(Mono.just(user("tenant-admin", "Tenant Admin", "access", "refresh",

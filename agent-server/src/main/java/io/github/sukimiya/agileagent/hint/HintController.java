@@ -32,16 +32,16 @@ public class HintController {
     }
 
     @PostMapping
-    Mono<ResponseEntity<HintService.HintSummary>> create(@RequestBody HintRequest request,
+    Mono<ResponseEntity<HintService.HintSummary>> create(@RequestBody(required = false) HintRequest request,
             @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.create(user.identity(), new HintService.HintInput(request.content()))
+        return service.create(user.identity(), toInput(request))
                 .map(summary -> ResponseEntity.created(URI.create("/api/chat/hints/" + summary.id())).body(summary));
     }
 
     @PutMapping("/{id}")
-    Mono<HintService.HintSummary> update(@PathVariable String id, @RequestBody HintRequest request,
+    Mono<HintService.HintSummary> update(@PathVariable String id, @RequestBody(required = false) HintRequest request,
             @CurrentUser AuthSessionStore.AuthUser user) {
-        return service.update(user.identity(), id, new HintService.HintInput(request.content()));
+        return service.update(user.identity(), id, toInput(request));
     }
 
     @DeleteMapping("/{id}")
@@ -50,4 +50,8 @@ public class HintController {
     }
 
     public record HintRequest(String content) { }
+
+    private static HintService.HintInput toInput(HintRequest request) {
+        return new HintService.HintInput(request == null ? null : request.content());
+    }
 }
