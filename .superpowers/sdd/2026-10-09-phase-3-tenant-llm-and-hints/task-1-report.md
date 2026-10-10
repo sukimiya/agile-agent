@@ -25,3 +25,10 @@ Result: failed during test compilation because the three repository classes refe
 ## Concerns
 
 - Migration and repository behavior were verified on H2 2.3 in MySQL mode; a live MySQL 8.4 server was not available in this test run.
+
+## Fix Round 1
+
+- RED: `mvn -o -pl agent-server -am -Dtest=TenantLlmConfigRepositoryTest test` — 4 tests, 1 failure. Reusing tenant A's row ID for tenant B did not throw because the old `ON DUPLICATE KEY UPDATE` updated tenant A's row.
+- GREEN: `mvn -o -pl agent-server -am -Dtest=TenantLlmConfigRepositoryTest test` — 4 tests, 0 failures, 0 errors. The collision now fails without changing tenant A or creating tenant B; concurrent same-tenant upserts leave one row with a coherent preset/key pair.
+- Full Task 1 focus: `mvn -o -pl agent-server -am -Dtest='LlmProviderPresetRepositoryTest,TenantLlmConfigRepositoryTest,HintRepositoryTest,LlmMigrationTest' test` — 9 tests, 0 failures, 0 errors.
+- Fix committed locally as `fix: scope tenant LLM config upserts by tenant`.

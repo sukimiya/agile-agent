@@ -3,9 +3,6 @@ package io.github.sukimiya.agileagent.llmconfig;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;

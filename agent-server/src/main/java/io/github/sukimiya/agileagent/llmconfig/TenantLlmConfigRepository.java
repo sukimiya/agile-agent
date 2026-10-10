@@ -18,12 +18,35 @@ public class TenantLlmConfigRepository {
     }
 
     public Mono<Void> upsert(TenantLlmConfigRow row) {
+        return updateByTenantId(row).flatMap(updated -> {
+            if (updated > 0) {
+                return Mono.empty();
+            }
+            return insert(row).onErrorResume(insertError ->
+                    updateByTenantId(row).flatMap(retried -> retried > 0
+                            ? Mono.empty()
+                            : Mono.error(insertError)));
+        });
+    }
+
+    private Mono<Long> updateByTenantId(TenantLlmConfigRow row) {
+        return db.sql("""
+                UPDATE tenant_llm_config
+                SET preset_id = :presetId, api_key_encrypted = :apiKeyEncrypted, updated_at = :updatedAt
+                WHERE tenant_id = :tenantId
+                """)
+                .bind("presetId", row.presetId())
+                .bind("apiKeyEncrypted", row.apiKeyEncrypted())
+                .bind("updatedAt", row.updatedAt())
+                .bind("tenantId", row.tenantId())
+                .fetch().rowsUpdated();
+    }
+
+    private Mono<Void> insert(TenantLlmConfigRow row) {
         return db.sql("""
                 INSERT INTO tenant_llm_config
                     (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at)
                 VALUES (:id, :tenantId, :presetId, :apiKeyEncrypted, :createdAt, :updatedAt)
-                ON DUPLICATE KEY UPDATE
-                    preset_id = :presetId, api_key_encrypted = :apiKeyEncrypted, updated_at = :updatedAt
                 """)
                 .bind("id", row.id())
                 .bind("tenantId", row.tenantId())

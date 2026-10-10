@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.llmconfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDateTime;
 
@@ -13,10 +14,12 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactoryOptions;
 import io.r2dbc.spi.Option;
+import reactor.core.publisher.Mono;
 
 class TenantLlmConfigRepositoryTest {
 
     private TenantLlmConfigRepository repository;
+    private DatabaseClient db;
 
     @BeforeEach
     void setUp() {
@@ -35,7 +38,8 @@ class TenantLlmConfigRepositoryTest {
                 .option(ConnectionFactoryOptions.PASSWORD, "")
                 .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
                 .build();
-        repository = new TenantLlmConfigRepository(DatabaseClient.create(ConnectionFactories.get(options)));
+        db = DatabaseClient.create(ConnectionFactories.get(options));
+        repository = new TenantLlmConfigRepository(db);
     }
 
     private static TenantLlmConfigRepository.TenantLlmConfigRow row(
@@ -67,5 +71,37 @@ class TenantLlmConfigRepositoryTest {
 
         assertThat(repository.deleteByTenantId("tenant-1").block()).isEqualTo(1L);
         assertThat(repository.findByTenantId("tenant-1").blockOptional()).isEmpty();
+    }
+
+    @Test
+    void idCollisionAcrossTenantsFailsWithoutChangingTheExistingTenant() {
+        repository.upsert(row("shared-id", "tenant-a", "preset-a", "enc-a")).block();
+
+        assertThatThrownBy(() -> repository.upsert(row("shared-id", "tenant-b", "preset-b", "enc-b")).block())
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+        var tenantA = repository.findByTenantId("tenant-a").block();
+        assertThat(tenantA.presetId()).isEqualTo("preset-a");
+        assertThat(tenantA.apiKeyEncrypted()).isEqualTo("enc-a");
+        assertThat(repository.findByTenantId("tenant-b").blockOptional()).isEmpty();
+    }
+
+    @Test
+    void concurrentUpsertsForSameTenantLeaveOneInternallyConsistentRow() {
+        var configA = row("config-a", "tenant-concurrent", "preset-a", "key-a");
+        var configB = row("config-b", "tenant-concurrent", "preset-b", "key-b");
+
+        Mono.when(repository.upsert(configA), repository.upsert(configB)).block();
+
+        var config = repository.findByTenantId("tenant-concurrent").block();
+        var rowCount = db.sql("SELECT COUNT(*) AS row_count FROM tenant_llm_config WHERE tenant_id = :tenantId")
+                .bind("tenantId", "tenant-concurrent")
+                .map((row, metadata) -> row.get("row_count", Long.class))
+                .one()
+                .block();
+        assertThat(rowCount).isEqualTo(1L);
+        assertThat(config.id()).isIn("config-a", "config-b");
+        assertThat(config.presetId()).isEqualTo(config.apiKeyEncrypted().equals("key-a") ? "preset-a" : "preset-b");
+        assertThat(config.apiKeyEncrypted()).isIn("key-a", "key-b");
     }
 }
