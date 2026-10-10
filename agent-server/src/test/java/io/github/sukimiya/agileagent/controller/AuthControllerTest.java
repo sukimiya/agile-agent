@@ -4,6 +4,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
+import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 
 import java.time.Instant;
 
@@ -18,6 +20,7 @@ import io.github.sukimiya.agileagent.config.OAuth2Properties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 import io.github.sukimiya.agileagent.service.OAuth2StateStore;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
 import io.github.sukimiya.agileagent.web.CurrentUserArgumentResolver;
 import io.github.sukimiya.agileagent.web.WebConfig;
@@ -58,11 +61,12 @@ class AuthControllerTest {
         when(states.consume("state-1")).thenReturn(Mono.just("verifier-1"));
         when(oauth2.exchangeCode("code-1", "verifier-1"))
                 .thenReturn(Mono.just(new OAuth2Client.TokenResult("at-1", "rt-1", 3600)));
-        when(oauth2.fetchUserInfo("at-1"))
-                .thenReturn(Mono.just(new OAuth2Client.UserInfo("u1", "周琳琳", "admin")));
-        when(sessions.create(org.mockito.ArgumentMatchers.eq("u1"), org.mockito.ArgumentMatchers.eq("周琳琳"),
-                org.mockito.ArgumentMatchers.eq("at-1"), org.mockito.ArgumentMatchers.eq("rt-1"),
-                org.mockito.ArgumentMatchers.any(Instant.class), org.mockito.ArgumentMatchers.eq("admin")))
+        var identity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                java.util.Set.of("admin"), java.util.Set.of("org-1"), java.util.Set.of("org-1"), false, false);
+        when(oauth2.fetchIdentity("at-1")).thenReturn(Mono.just(identity));
+        when(sessions.create(org.mockito.ArgumentMatchers.eq("at-1"), org.mockito.ArgumentMatchers.eq("rt-1"),
+                org.mockito.ArgumentMatchers.any(Instant.class), org.mockito.ArgumentMatchers.eq(identity),
+                org.mockito.ArgumentMatchers.any(Instant.class)))
                 .thenReturn(Mono.just("app-tok"));
 
         client.get().uri("/api/auth/oauth2/callback?code=code-1&state=state-1")
@@ -70,6 +74,12 @@ class AuthControllerTest {
                 .exchange()
                 .expectStatus().isFound()
                 .expectHeader().valueEquals("Location", "http://localhost:5173/login/callback#token=app-tok");
+
+        var fetchedAt = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(sessions).create(org.mockito.ArgumentMatchers.eq("at-1"), org.mockito.ArgumentMatchers.eq("rt-1"),
+                org.mockito.ArgumentMatchers.any(Instant.class), org.mockito.ArgumentMatchers.eq(identity),
+                fetchedAt.capture());
+        assertThat(fetchedAt.getValue()).isAfter(Instant.now().minusSeconds(30));
     }
 
     @Test
@@ -157,15 +167,27 @@ class AuthControllerTest {
 
     @Test
     void meReturnsCurrentUserForValidToken() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
-                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
+        var identity = new IdentityContext("u1", "周琳琳", "tenant-1", "Tenant One", "org-1", "Org One",
+                java.util.Set.of("admin"), java.util.Set.of("org-1"), java.util.Set.of("org-1"), false, true);
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
+                Instant.now().plusSeconds(3600), identity, Instant.now())));
 
         client.get().uri("/api/auth/me").header("Authorization", "Bearer app-tok")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.userId").isEqualTo("u1")
-                .jsonPath("$.name").isEqualTo("周琳琳");
+                .jsonPath("$.name").isEqualTo("周琳琳")
+                .jsonPath("$.subject").isEqualTo("u1")
+                .jsonPath("$.displayName").isEqualTo("周琳琳")
+                .jsonPath("$.tenantId").isEqualTo("tenant-1")
+                .jsonPath("$.tenantName").isEqualTo("Tenant One")
+                .jsonPath("$.primaryOrgId").isEqualTo("org-1")
+                .jsonPath("$.primaryOrgName").isEqualTo("Org One")
+                .jsonPath("$.roles[0]").isEqualTo("admin")
+                .jsonPath("$.tenantAdmin").isEqualTo(true)
+                .jsonPath("$.accessToken").doesNotExist()
+                .jsonPath("$.refreshToken").doesNotExist();
     }
 
     @Test
@@ -178,8 +200,8 @@ class AuthControllerTest {
 
     @Test
     void logoutRevokesRefreshTokenThenDeletesSessionAndReturns204() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
-                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
+                Instant.now().plusSeconds(3600), java.util.Set.of("admin"), Instant.now())));
         when(oauth2.revoke("rt-1")).thenReturn(Mono.empty());
         when(sessions.delete("app-tok")).thenReturn(Mono.empty());
 
@@ -193,8 +215,8 @@ class AuthControllerTest {
 
     @Test
     void logoutStillDeletesSessionAndReturns204WhenRevocationFails() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
-                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
+                Instant.now().plusSeconds(3600), java.util.Set.of("admin"), Instant.now())));
         when(oauth2.revoke("rt-1"))
                 .thenReturn(Mono.error(new OAuth2Client.OAuth2UnavailableException("revocation endpoint down")));
         when(sessions.delete("app-tok")).thenReturn(Mono.empty());

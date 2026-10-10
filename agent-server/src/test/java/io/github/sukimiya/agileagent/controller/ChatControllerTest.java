@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.controller;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -43,13 +44,13 @@ class ChatControllerTest {
     @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
 
     private void asUser1() {
-        when(sessions.resolve("test-token")).thenReturn(
-                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test")));
+        when(sessions.resolve("test-token")).thenReturn(Mono.just(user("user-1", "Test User", "sl-tok",
+                "refresh-tok", Instant.now().plusSeconds(3600), user1Identity(), Instant.now())));
     }
 
     private static IdentityContext user1Identity() {
-        return new IdentityContext("user-1", "Test User", null, null, null, null,
-                Set.of("test"), Set.of(), Set.of(), false, false);
+        return new IdentityContext("user-1", "Test User", "tenant-1", "Tenant One", "org-1", "Org One",
+                Set.of("tenant_admin", "test"), Set.of("org-1"), Set.of("org-2"), false, true);
     }
 
     @Test

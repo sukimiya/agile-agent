@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.knowledge;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -43,8 +44,8 @@ class KnowledgeControllerTest {
     @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
 
     private void asUser1() {
-        when(sessions.resolve("test-token")).thenReturn(
-                Mono.just(new AuthSessionStore.AuthUser("user-1", "Test User", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test")));
+        when(sessions.resolve("test-token")).thenReturn(Mono.just(user("user-1", "Test User", "sl-tok",
+                "refresh-tok", Instant.now().plusSeconds(3600), java.util.Set.of("test"), Instant.now())));
     }
 
     private static ByteArrayResource textPart(String filename, String content) {

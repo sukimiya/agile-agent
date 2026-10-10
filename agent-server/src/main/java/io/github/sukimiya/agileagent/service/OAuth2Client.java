@@ -8,12 +8,17 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.core.codec.DecodingException;
+import org.springframework.web.reactive.function.UnsupportedMediaTypeException;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.sukimiya.agileagent.auth.IdentityMappingException;
+import io.github.sukimiya.agileagent.auth.OAuth2IdentityMapper;
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
@@ -23,19 +28,21 @@ public class OAuth2Client {
 
     private final OAuth2Properties props;
     private final WebClient http;
+    private final OAuth2IdentityMapper identityMapper;
 
     @Autowired
-    public OAuth2Client(OAuth2Properties props, WebClient.Builder builder) {
+    public OAuth2Client(OAuth2Properties props, WebClient.Builder builder, OAuth2IdentityMapper identityMapper) {
         this(props, builder.clientConnector(new ReactorClientHttpConnector(
                         HttpClient.create()
                                 .responseTimeout(Duration.ofSeconds(15))
                                 .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 15_000)))
-                .build());
+                .build(), identityMapper);
     }
 
-    OAuth2Client(OAuth2Properties props, WebClient http) {
+    OAuth2Client(OAuth2Properties props, WebClient http, OAuth2IdentityMapper identityMapper) {
         this.props = props;
         this.http = http;
+        this.identityMapper = identityMapper;
     }
 
     public String buildAuthorizationUrl(String state, String codeChallenge) {
@@ -70,7 +77,7 @@ public class OAuth2Client {
         return postForm(props.tokenUri(), form);
     }
 
-    public Mono<UserInfo> fetchUserInfo(String accessToken) {
+    public Mono<IdentityContext> fetchIdentity(String accessToken) {
         return http.get().uri(props.userInfoUri())
                 .headers(h -> h.setBearerAuth(accessToken))
                 .retrieve()
@@ -82,16 +89,25 @@ public class OAuth2Client {
                 .bodyToMono(JsonNode.class)
                 .onErrorMap(WebClientRequestException.class,
                         e -> new OAuth2UnavailableException("OAuth2 userinfo provider request failed"))
+                .onErrorMap(DecodingException.class,
+                        e -> new OAuth2UnavailableException("OAuth2 userinfo response could not be read"))
+                .onErrorMap(UnsupportedMediaTypeException.class,
+                        e -> new OAuth2UnavailableException("OAuth2 userinfo response could not be read"))
+                .switchIfEmpty(Mono.error(new OAuth2UnavailableException("OAuth2 userinfo response was empty")))
                 .flatMap(body -> {
-                    // The subject is the ownership key for conversations and knowledge documents, so a
-                    // missing/blank claim must fail loudly instead of collapsing every such user into "".
-                    String subject = body.path("sub").asText(null);
-                    if (subject == null || subject.isBlank()) {
-                        return Mono.error(new OAuth2AuthException("userinfo response missing subject claim"));
+                    try {
+                        IdentityContext identity = identityMapper.map(body);
+                        if (identity == null) {
+                            return Mono.error(new OAuth2UnavailableException(
+                                    "OAuth2 userinfo response could not be mapped"));
+                        }
+                        return Mono.just(identity);
+                    } catch (IdentityMappingException exception) {
+                        return Mono.error(exception);
+                    } catch (RuntimeException exception) {
+                        return Mono.error(new OAuth2UnavailableException(
+                                "OAuth2 userinfo response could not be mapped"));
                     }
-                    return Mono.just(new UserInfo(subject, body.path("name").asText(),
-                            props.userTypeClaim() == null || props.userTypeClaim().isBlank()
-                                    ? null : body.path(props.userTypeClaim()).asText(null)));
                 });
     }
 
@@ -162,8 +178,6 @@ public class OAuth2Client {
                     + expiresInSeconds + "]";
         }
     }
-
-    public record UserInfo(String subject, String name, String userType) {}
 
     public static class OAuth2AuthException extends RuntimeException {
         public OAuth2AuthException(String message) { super(message); }

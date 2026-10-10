@@ -20,6 +20,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 
 import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
+import io.github.sukimiya.agileagent.TestAuthUsers;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -36,7 +37,8 @@ class UploadControllerTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        token = sessions.create("upload-test-user", "Upload Test", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test").block();
+        token = sessions.create("sl-tok", "refresh-tok", Instant.now().plusSeconds(3600),
+                TestAuthUsers.identity("upload-test-user", "Upload Test", java.util.Set.of("test")), Instant.now()).block();
         var dir = Path.of(props.getDir());
         if (Files.exists(dir)) {
             try (var walk = Files.walk(dir)) {

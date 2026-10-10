@@ -17,6 +17,7 @@ import io.github.sukimiya.agileagent.web.WebConfig;
 import reactor.core.publisher.Mono;
 
 import static org.mockito.Mockito.when;
+import static io.github.sukimiya.agileagent.TestAuthUsers.user;
 
 @WebFluxTest(AuthorizeController.class)
 @Import({WebConfig.class, AuthExceptionHandler.class, CurrentUserArgumentResolver.class})
@@ -29,8 +30,8 @@ class AuthorizeControllerTest {
 
     @Test
     void meReturnsUserTypeFromSession() {
-        when(sessions.resolve("app-tok")).thenReturn(Mono.just(
-                new AuthSessionStore.AuthUser("u1", "周琳琳", "at-1", "rt-1", Instant.now().plusSeconds(3600), "admin")));
+        when(sessions.resolve("app-tok")).thenReturn(Mono.just(user("u1", "周琳琳", "at-1", "rt-1",
+                Instant.now().plusSeconds(3600), java.util.Set.of("admin"), Instant.now())));
 
         client.get().uri("/api/authorize/me").header("Authorization", "Bearer app-tok")
                 .exchange()

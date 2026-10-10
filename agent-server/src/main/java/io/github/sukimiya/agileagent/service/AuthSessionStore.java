@@ -4,6 +4,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 
 import reactor.core.publisher.Mono;
 
@@ -34,10 +36,11 @@ public class AuthSessionStore {
         this.redis = redis;
     }
 
-    public Mono<String> create(String userId, String name, String accessToken, String refreshToken,
-                                Instant expiresAt, String userType) {
+    public Mono<String> create(String accessToken, String refreshToken, Instant expiresAt,
+                                IdentityContext identity, Instant identityFetchedAt) {
         String token = randomToken();
-        return write(token, new AuthUser(userId, name, accessToken, refreshToken, expiresAt, userType))
+        return write(token, new AuthUser(identity.subject(), identity.displayName(), accessToken,
+                        refreshToken, expiresAt, identity, identityFetchedAt))
                 .thenReturn(token);
     }
 
@@ -50,15 +53,15 @@ public class AuthSessionStore {
         try {
             payload = json.writeValueAsString(user);
         } catch (Exception e) {
-            return Mono.error(new IllegalStateException("Failed to serialize auth session for user " + user.userId(), e));
+            return Mono.error(new IllegalStateException("Failed to serialize auth session", e));
         }
         return redis.opsForValue().set(KEY_PREFIX + token, payload, TTL).then();
     }
 
     /**
      * A stored payload that cannot be read back as a usable session (unparseable JSON, or an
-     * old-shape payload written before the OAuth2 migration that has no expiresAt) is treated as
-     * absent rather than as an error, so the caller's "no session" path yields a clean 401 and the
+     * old-shape payload missing its token expiry, mapped identity, or identity timestamp) is treated
+     * as absent rather than as an error, so the caller's "no session" path yields a clean 401 and the
      * user simply logs in again instead of seeing an opaque 500.
      */
     public Mono<AuthUser> resolve(String token) {
@@ -67,11 +70,13 @@ public class AuthSessionStore {
             try {
                 user = json.readValue(raw, AuthUser.class);
             } catch (Exception e) {
-                log.warn("Discarding unreadable auth session payload, treating as logged out", e);
+                log.warn("Discarding unreadable auth session payload, treating as logged out");
                 return Mono.<AuthUser>empty();
             }
-            if (user.expiresAt() == null) {
-                log.warn("Discarding auth session without expiresAt (pre-OAuth2 shape), treating as logged out");
+            if (user.expiresAt() == null || user.identity() == null || user.identityFetchedAt() == null
+                    || !Objects.equals(user.subject(), user.identity().subject())
+                    || !Objects.equals(user.displayName(), user.identity().displayName())) {
+                log.warn("Discarding incomplete auth session payload, treating as logged out");
                 return Mono.<AuthUser>empty();
             }
             return Mono.just(user);
@@ -88,13 +93,29 @@ public class AuthSessionStore {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public record AuthUser(String userId, String name, String accessToken, String refreshToken,
-                            Instant expiresAt, String userType) {
+    public record AuthUser(String subject, String displayName, String accessToken, String refreshToken,
+                            Instant expiresAt, IdentityContext identity, Instant identityFetchedAt) {
+
+        public String userId() {
+            return subject;
+        }
+
+        public String name() {
+            return displayName;
+        }
+
+        /** Compatibility projection for the legacy endpoint; authorization consumes identity directly. */
+        public String userType() {
+            if (identity == null || identity.roles().isEmpty()) return null;
+            return String.join(",", identity.roles().stream().sorted().toList());
+        }
+
         @Override
         public String toString() {
-            return "AuthUser[userId=" + userId + ", name=" + name
+            return "AuthUser[subject=" + subject + ", displayName=" + displayName
                     + ", accessToken=[REDACTED], refreshToken=[REDACTED]"
-                    + ", expiresAt=" + expiresAt + ", userType=" + userType + "]";
+                    + ", expiresAt=" + expiresAt + ", identity=[PRESENT], identityFetchedAt="
+                    + identityFetchedAt + "]";
         }
     }
 }

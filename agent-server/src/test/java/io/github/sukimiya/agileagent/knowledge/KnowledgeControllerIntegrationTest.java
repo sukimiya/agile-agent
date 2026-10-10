@@ -26,6 +26,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
+import io.github.sukimiya.agileagent.TestAuthUsers;
 import io.github.sukimiya.agileagent.service.LlmClient;
 
 import io.r2dbc.spi.ConnectionFactories;
@@ -58,7 +59,8 @@ class KnowledgeControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         when(llm.summarize(org.mockito.ArgumentMatchers.anyString())).thenReturn(Mono.just("自动生成的摘要"));
-        token = sessions.create("knowledge-test-user", "Knowledge Test", "sl-tok", "refresh-tok", Instant.now().plusSeconds(3600), "test").block();
+        token = sessions.create("sl-tok", "refresh-tok", Instant.now().plusSeconds(3600),
+                TestAuthUsers.identity("knowledge-test-user", "Knowledge Test", java.util.Set.of("test")), Instant.now()).block();
         deleteRecursively(Path.of(props.getTempDir()));
         deleteRecursively(Path.of(props.getLibDir()));
     }

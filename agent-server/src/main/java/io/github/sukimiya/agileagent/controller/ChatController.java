@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -26,7 +25,6 @@ import io.github.sukimiya.agileagent.agent.Orchestrator;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.SessionService;
-import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.CurrentUser;
 
 import reactor.core.publisher.Flux;
@@ -66,7 +64,7 @@ class ChatController {
                     if (access == SessionService.AccessResult.FORBIDDEN) {
                         return ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build();
                     }
-                    Flux<String> stream = orchestrator.chat(ownerId, user.accessToken(), userMsg, identity(user))
+                    Flux<String> stream = orchestrator.chat(ownerId, user.accessToken(), userMsg, user.identity())
                             .flatMap(line -> toContentChunk(line).map(Flux::just).orElseGet(Flux::empty))
                             .map(line -> {
                                 var chunk = json.createObjectNode();
@@ -123,7 +121,7 @@ class ChatController {
                 .map(access -> access == SessionService.AccessResult.FORBIDDEN
                         ? ResponseEntity.status(HttpStatus.NOT_FOUND).<Flux<String>>build()
                         : ResponseEntity.ok().body(orchestrator.chat(ownerId, user.accessToken(),
-                                request.message(), identity(user))));
+                                request.message(), user.identity())));
     }
 
     @GetMapping("/conversations")
@@ -162,11 +160,6 @@ class ChatController {
     }
 
     record ChatRequest(String conversationId, String message) {}
-
-    private static IdentityContext identity(AuthSessionStore.AuthUser user) {
-        return new IdentityContext(user.userId(), user.name(), null, null, null, null,
-                user.userType() == null ? Set.of() : Set.of(user.userType()), Set.of(), Set.of(), false, false);
-    }
 
     record ConversationSummary(String id, String title, LocalDateTime updatedAt) {}
 

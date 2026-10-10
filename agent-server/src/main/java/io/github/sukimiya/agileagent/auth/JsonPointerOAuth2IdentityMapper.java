@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.auth;
 
 import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.stereotype.Component;
 import io.github.sukimiya.agileagent.config.OAuth2ClaimProperties;
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
@@ -9,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /** Reads identity fields from arbitrary userinfo JSON using configured JSON Pointers. */
+@Component
 public final class JsonPointerOAuth2IdentityMapper implements OAuth2IdentityMapper {
 
     private final OAuth2ClaimProperties claims;

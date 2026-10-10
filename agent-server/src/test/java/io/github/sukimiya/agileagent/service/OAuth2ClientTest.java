@@ -10,6 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import io.github.sukimiya.agileagent.config.OAuth2Properties;
+import io.github.sukimiya.agileagent.config.OAuth2ClaimProperties;
+import io.github.sukimiya.agileagent.auth.IdentityMappingException;
+import io.github.sukimiya.agileagent.auth.JsonPointerOAuth2IdentityMapper;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -37,7 +40,7 @@ class OAuth2ClientTest {
     }
 
     private static OAuth2Client clientWith(OAuth2Properties props) {
-        return new OAuth2Client(props, WebClient.builder());
+        return new OAuth2Client(props, WebClient.builder(), new JsonPointerOAuth2IdentityMapper(props));
     }
 
     @AfterEach
@@ -104,7 +107,7 @@ class OAuth2ClientTest {
         String sentinel = "sentinel-oauth2-token-userinfo";
         server.enqueue(new MockResponse().setResponseCode(401).setBody("Bearer " + sentinel));
 
-        StepVerifier.create(client.fetchUserInfo("access-token"))
+        StepVerifier.create(client.fetchIdentity("access-token"))
                 .expectErrorSatisfies(error -> assertSafeProviderFailure(error, sentinel, "401",
                         OAuth2Client.OAuth2UnavailableException.class))
                 .verify();
@@ -145,15 +148,35 @@ class OAuth2ClientTest {
     }
 
     @Test
-    void fetchUserInfoSendsBearerHeaderAndParsesConfiguredUserTypeClaim() throws InterruptedException {
+    void fetchIdentityDelegatesRawUserInfoToConfiguredClaimMapper() throws Exception, InterruptedException {
+        var configured = props("ignored", null);
+        configured = new OAuth2Properties(configured.authorizationUri(), configured.tokenUri(),
+                configured.userInfoUri(), configured.revocationUri(), configured.clientId(), configured.clientSecret(),
+                configured.redirectUri(), configured.scope(), configured.userTypeClaim(),
+                configured.frontendRedirectUri(),
+                new OAuth2ClaimProperties("/principal/id", "/principal/label", "/account/tenant/id",
+                        "/account/tenant/label", "/organization/primary/id", "/organization/primary/label",
+                        "/authz/roles", "/authz/manage", "/authz/read"),
+                new OAuth2Properties.Roles("root", "tenant_owner"));
+        var configuredClient = clientWith(configured);
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
-                .setBody("{\"sub\":\"u-9\",\"name\":\"张三\",\"userType\":\"admin\"}"));
+                .setBody("{\"principal\":{\"id\":\"u-9\",\"label\":\"张三\"},"
+                        + "\"account\":{\"tenant\":{\"id\":\"tenant-9\",\"label\":\"Tenant 9\"}},"
+                        + "\"organization\":{\"primary\":{\"id\":\"org-3\",\"label\":\"Primary Org\"}},"
+                        + "\"authz\":{\"roles\":[\"root\",\"reader\"],\"manage\":[\"org-3\"],\"read\":[\"org-4\"]}}"));
 
-        StepVerifier.create(client.fetchUserInfo("at-1"))
+        StepVerifier.create(configuredClient.fetchIdentity("at-1"))
                 .assertNext(info -> {
                     assertThat(info.subject()).isEqualTo("u-9");
-                    assertThat(info.name()).isEqualTo("张三");
-                    assertThat(info.userType()).isEqualTo("admin");
+                    assertThat(info.displayName()).isEqualTo("张三");
+                    assertThat(info.tenantId()).isEqualTo("tenant-9");
+                    assertThat(info.tenantName()).isEqualTo("Tenant 9");
+                    assertThat(info.primaryOrgId()).isEqualTo("org-3");
+                    assertThat(info.primaryOrgName()).isEqualTo("Primary Org");
+                    assertThat(info.roles()).containsExactlyInAnyOrder("root", "reader");
+                    assertThat(info.manageableOrgIds()).containsExactly("org-3");
+                    assertThat(info.readableOrgIds()).containsExactly("org-4");
+                    assertThat(info.platformAdmin()).isTrue();
                 })
                 .verifyComplete();
 
@@ -176,36 +199,60 @@ class OAuth2ClientTest {
     }
 
     @Test
-    void fetchUserInfoLeavesUserTypeNullWhenClaimNotConfigured() {
+    void fetchIdentityAllowsMissingTenantClaims() {
         var blankClaimClient = clientWith(props("", null));
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
-                .setBody("{\"sub\":\"u-9\",\"name\":\"张三\",\"userType\":\"admin\"}"));
+                .setBody("{\"sub\":\"u-9\",\"name\":\"张三\",\"roles\":[],"
+                        + "\"manageable_org_ids\":[],\"readable_org_ids\":[]}"));
 
-        StepVerifier.create(blankClaimClient.fetchUserInfo("at-1"))
+        StepVerifier.create(blankClaimClient.fetchIdentity("at-1"))
                 .assertNext(info -> {
                     assertThat(info.subject()).isEqualTo("u-9");
-                    assertThat(info.userType()).isNull();
+                    assertThat(info.tenantId()).isNull();
                 })
                 .verifyComplete();
     }
 
     @Test
-    void fetchUserInfoErrorsWhenSubjectClaimMissing() {
+    void fetchIdentityFailsOnInvalidMappedClaimsWithoutReturningPartialIdentity() {
+        String sentinel = "identity-claim-user-sentinel";
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
-                .setBody("{\"name\":\"张三\",\"userType\":\"admin\"}"));
+                .setBody("{\"name\":\"张三\",\"roles\":[],\"manageable_org_ids\":[],"
+                        + "\"readable_org_ids\":[],\"private\":\"" + sentinel + "\"}"));
 
-        StepVerifier.create(client.fetchUserInfo("at-1"))
-                .expectError(OAuth2Client.OAuth2AuthException.class)
+        StepVerifier.create(client.fetchIdentity("at-1"))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(IdentityMappingException.class)
+                        .hasMessageContaining("subject")
+                        .hasMessageNotContaining(sentinel))
                 .verify();
     }
 
     @Test
-    void fetchUserInfoErrorsWhenSubjectClaimBlank() {
+    void fetchIdentityRejectsBlankMappedSubject() {
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
-                .setBody("{\"sub\":\"  \",\"name\":\"张三\"}"));
+                .setBody("{\"sub\":\"  \",\"name\":\"张三\",\"roles\":[],"
+                        + "\"manageable_org_ids\":[],\"readable_org_ids\":[]}"));
 
-        StepVerifier.create(client.fetchUserInfo("at-1"))
-                .expectError(OAuth2Client.OAuth2AuthException.class)
+        StepVerifier.create(client.fetchIdentity("at-1"))
+                .expectError(IdentityMappingException.class)
+                .verify();
+    }
+
+    @Test
+    void fetchIdentitySanitizesUnexpectedMapperFailure() {
+        String sentinel = "sentinel-mapper-provider-message";
+        var unsafeMapper = (io.github.sukimiya.agileagent.auth.OAuth2IdentityMapper) body -> {
+            throw new IllegalStateException(sentinel);
+        };
+        var unsafeClient = new OAuth2Client(props("", null), WebClient.builder(), unsafeMapper);
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{}"));
+
+        StepVerifier.create(unsafeClient.fetchIdentity("at-1"))
+                .expectErrorSatisfies(error -> assertThat(error)
+                        .isInstanceOf(OAuth2Client.OAuth2UnavailableException.class)
+                        .hasMessageNotContaining(sentinel)
+                        .hasNoCause())
                 .verify();
     }
 
@@ -222,7 +269,7 @@ class OAuth2ClientTest {
     void transportFailureOnUserInfoEndpointMapsToUnavailable() throws IOException {
         server.shutdown();
 
-        StepVerifier.create(client.fetchUserInfo("at-1"))
+        StepVerifier.create(client.fetchIdentity("at-1"))
                 .expectError(OAuth2Client.OAuth2UnavailableException.class)
                 .verify();
     }

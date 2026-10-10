@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.controller;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -75,7 +76,7 @@ class AuthController {
                                         @RequestParam(required = false) String error,
                                         ServerHttpRequest request) {
         if (error != null) {
-            log.warn("OAuth2 callback: provider returned error={}", error);
+            log.warn("OAuth2 callback: provider returned an authorization error");
             return Mono.just(redirectWithError("auth_failed"));
         }
         if (code == null || state == null) {
@@ -92,17 +93,16 @@ class AuthController {
         return states.consume(state)
                 .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2AuthException("unknown or expired state")))
                 .flatMap(codeVerifier -> oauth2.exchangeCode(code, codeVerifier))
-                .flatMap(tokens -> oauth2.fetchUserInfo(tokens.accessToken())
-                        .flatMap(info -> sessions.create(info.subject(), info.name(),
-                                tokens.accessToken(), tokens.refreshToken(),
-                                Instant.now().plusSeconds(tokens.expiresInSeconds()), info.userType())))
+                .flatMap(tokens -> oauth2.fetchIdentity(tokens.accessToken())
+                        .flatMap(identity -> sessions.create(tokens.accessToken(), tokens.refreshToken(),
+                                Instant.now().plusSeconds(tokens.expiresInSeconds()), identity, Instant.now())))
                 .map(this::redirectWithToken)
                 .onErrorResume(OAuth2Client.OAuth2AuthException.class, e -> {
-                    log.warn("OAuth2 callback failed during state/code exchange or userinfo lookup", e);
+                    log.warn("OAuth2 callback failed during state/code exchange or userinfo lookup");
                     return Mono.just(redirectWithError("auth_failed"));
                 })
                 .onErrorResume(OAuth2Client.OAuth2UnavailableException.class, e -> {
-                    log.warn("OAuth2 callback failed: identity provider unavailable", e);
+                    log.warn("OAuth2 callback failed: identity provider unavailable");
                     return Mono.just(redirectWithError("provider_unavailable"));
                 });
     }
@@ -129,8 +129,23 @@ class AuthController {
     }
 
     @GetMapping("/me")
-    Map<String, String> me(@CurrentUser AuthSessionStore.AuthUser user) {
-        return Map.of("userId", user.userId(), "name", user.name());
+    Map<String, Object> me(@CurrentUser AuthSessionStore.AuthUser user) {
+        var identity = user.identity();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("userId", user.subject());
+        response.put("name", user.displayName());
+        response.put("subject", identity.subject());
+        response.put("displayName", identity.displayName());
+        response.put("tenantId", identity.tenantId());
+        response.put("tenantName", identity.tenantName());
+        response.put("primaryOrgId", identity.primaryOrgId());
+        response.put("primaryOrgName", identity.primaryOrgName());
+        response.put("roles", identity.roles());
+        response.put("manageableOrgIds", identity.manageableOrgIds());
+        response.put("readableOrgIds", identity.readableOrgIds());
+        response.put("platformAdmin", identity.platformAdmin());
+        response.put("tenantAdmin", identity.tenantAdmin());
+        return response;
     }
 
     @PostMapping("/logout")
@@ -141,7 +156,7 @@ class AuthController {
         return sessions.resolve(token)
                 .flatMap(user -> oauth2.revoke(user.refreshToken()))
                 .onErrorResume(e -> {
-                    log.warn("Logout: token revocation at identity provider failed, continuing", e);
+                    log.warn("Logout: token revocation at identity provider failed, continuing");
                     return Mono.empty();
                 })
                 .then(sessions.delete(token))

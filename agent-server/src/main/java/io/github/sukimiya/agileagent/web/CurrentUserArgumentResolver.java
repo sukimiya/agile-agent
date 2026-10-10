@@ -15,6 +15,7 @@ import org.springframework.web.server.ServerWebExchange;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Component
@@ -23,8 +24,13 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
     private static final Logger log = LoggerFactory.getLogger(CurrentUserArgumentResolver.class);
 
     private static final Duration REFRESH_SKEW = Duration.ofSeconds(30);
+    private static final Duration IDENTITY_FRESHNESS = Duration.ofMinutes(5);
     private static final String REFRESH_LOCK_PREFIX = "oauth2refreshlock:";
-    private static final Duration REFRESH_LOCK_TTL = Duration.ofSeconds(10);
+    // Token refresh and userinfo each have 15s connect + 15s response limits in OAuth2Client.
+    private static final Duration REFRESH_LOCK_TTL = Duration.ofSeconds(65);
+    private static final Duration WINNER_POLL_INTERVAL = Duration.ofMillis(100);
+    // Slightly outlast the lock so a canceled or failed winner cannot make a loser return stale state.
+    private static final int WINNER_POLL_COUNT = 700;
 
     private final AuthSessionStore sessions;
     private final OAuth2Client oauth2;
@@ -50,46 +56,109 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
         if (token == null) return Mono.error(new UnauthorizedException());
         return sessions.resolve(token)
                 .switchIfEmpty(Mono.error(new UnauthorizedException()))
-                .flatMap(user -> refreshIfNearExpiry(token, user))
+                .flatMap(user -> refreshIfRequired(token, user))
                 .cast(Object.class);
     }
 
-    private Mono<AuthSessionStore.AuthUser> refreshIfNearExpiry(String token, AuthSessionStore.AuthUser user) {
-        if (Instant.now().isBefore(user.expiresAt().minus(REFRESH_SKEW))) {
+    /**
+     * Token validity and identity freshness share one per-app-session single-flight. A session is
+     * returned only when both its access token and mapped identity are current.
+     */
+    private Mono<AuthSessionStore.AuthUser> refreshIfRequired(String token, AuthSessionStore.AuthUser user) {
+        if (isReadyToReturn(user, Instant.now())) {
             return Mono.just(user);
         }
-        // Single-flight guard: the UI runs an SSE stream plus parallel REST calls, so several requests
-        // for one session can all see "near expiry" before any of them persists the new token pair.
-        // Against providers with refresh-token rotation + reuse detection, the second concurrent use of
-        // the same refresh token looks like a replay and revokes the whole token family — a hard logout
-        // during entirely normal usage. Only the SETNX winner refreshes; the losers keep using the
-        // current (still-valid, just near-expiry) access token for this one request and will pick up the
-        // refreshed pair from Redis on their next call.
-        return redis.opsForValue().setIfAbsent(REFRESH_LOCK_PREFIX + token, "1", REFRESH_LOCK_TTL)
+        String lockKey = REFRESH_LOCK_PREFIX + token;
+        return redis.opsForValue().setIfAbsent(lockKey, "1", REFRESH_LOCK_TTL)
                 .defaultIfEmpty(Boolean.FALSE)
-                .flatMap(acquired -> Boolean.TRUE.equals(acquired) ? doRefresh(token, user) : Mono.just(user));
+                .flatMap(acquired -> Boolean.TRUE.equals(acquired)
+                        ? sessions.resolve(token)
+                                .switchIfEmpty(Mono.error(new UnauthorizedException()))
+                                .flatMap(current -> isReadyToReturn(current, Instant.now())
+                                        ? releaseRefreshLock(token).thenReturn(current)
+                                        : refreshAndPersist(token, current))
+                        : awaitWinner(token, lockKey));
     }
 
-    private Mono<AuthSessionStore.AuthUser> doRefresh(String token, AuthSessionStore.AuthUser user) {
-        return oauth2.refresh(user.refreshToken())
-                .map(tokens -> new AuthSessionStore.AuthUser(user.userId(), user.name(),
-                        tokens.accessToken(),
-                        // RFC 6749 §6 makes refresh_token optional in the response; non-rotating providers
-                        // omit it and expect the existing one to keep being used. Storing null here would
-                        // break every subsequent refresh for the lifetime of the session.
-                        tokens.refreshToken() == null ? user.refreshToken() : tokens.refreshToken(),
-                        Instant.now().plusSeconds(tokens.expiresInSeconds()), user.userType()))
+    private Mono<AuthSessionStore.AuthUser> refreshAndPersist(String token, AuthSessionStore.AuthUser user) {
+        Instant now = Instant.now();
+        boolean refreshAccessToken = isAccessTokenNearExpiry(user, now);
+        Mono<TokenFamily> tokenFamily = refreshAccessToken
+                ? oauth2.refresh(user.refreshToken())
+                        .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                                "OAuth2 token provider response was empty")))
+                        .map(tokens -> {
+                            if (tokens.accessToken() == null || tokens.accessToken().isBlank()
+                                    || tokens.expiresInSeconds() <= REFRESH_SKEW.toSeconds()) {
+                                throw new OAuth2Client.OAuth2UnavailableException(
+                                        "OAuth2 token provider response was invalid");
+                            }
+                            String refreshToken = tokens.refreshToken() == null || tokens.refreshToken().isBlank()
+                                    ? user.refreshToken() : tokens.refreshToken();
+                            return new TokenFamily(tokens.accessToken(), refreshToken,
+                                    Instant.now().plusSeconds(tokens.expiresInSeconds()));
+                        })
+                : Mono.just(new TokenFamily(user.accessToken(), user.refreshToken(), user.expiresAt()));
+
+        return tokenFamily.flatMap(tokens -> oauth2.fetchIdentity(tokens.accessToken())
+                .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                        "OAuth2 userinfo response was empty")))
+                .map(identity -> {
+                    if (!user.subject().equals(identity.subject())) {
+                        throw new OAuth2Client.OAuth2AuthException("userinfo subject changed for current session");
+                    }
+                    return new AuthSessionStore.AuthUser(identity.subject(), identity.displayName(),
+                            tokens.accessToken(), tokens.refreshToken(), tokens.expiresAt(), identity, Instant.now());
+                })
                 .flatMap(refreshed -> sessions.update(token, refreshed).thenReturn(refreshed))
-                // On success the lock is deliberately left to expire with its TTL: a concurrent request
-                // that read the pre-refresh session before we wrote it would otherwise grab a freed lock
-                // and refresh a second time with the now-stale refresh token. On failure we release it so
-                // the next request can retry immediately.
+                .flatMap(refreshed -> isReadyToReturn(refreshed, Instant.now())
+                        // Keep the lock until its short TTL expires. Requests that loaded the old
+                        // session before this write must observe the lock and re-read this winner,
+                        // not refresh again with the rotated token. A later lock winner re-checks
+                        // Redis after acquisition, so it can safely release if the session is ready.
+                        ? Mono.just(refreshed)
+                        : Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                                "OAuth2 token provider returned a near-expiry access token"))))
                 .onErrorResume(e -> releaseRefreshLock(token).then(Mono.error(e)))
-                .doOnError(e -> log.warn("OAuth2 access token refresh failed for current session", e))
-                // Only a genuine auth failure (refresh token invalid/revoked) means "log in again".
-                // Provider outages and Redis failures must not be relabelled as an invalid session.
+                .doOnError(e -> log.warn("OAuth2 session refresh or identity update failed"))
                 .onErrorMap(OAuth2Client.OAuth2AuthException.class, e -> new UnauthorizedException());
     }
+
+    /**
+     * A lock loser repeatedly re-reads Redis. It may return only the persisted winner's record,
+     * never the snapshot it loaded before the lock race. If the lock disappears without a ready
+     * session, fail closed; the loser must not race a second refresh or return stale privileges.
+     */
+    private Mono<AuthSessionStore.AuthUser> awaitWinner(String token, String lockKey) {
+        return Flux.interval(Duration.ZERO, WINNER_POLL_INTERVAL)
+                .take(WINNER_POLL_COUNT)
+                .concatMap(tick -> sessions.resolve(token)
+                        .switchIfEmpty(Mono.error(new UnauthorizedException()))
+                        .flatMap(current -> isReadyToReturn(current, Instant.now())
+                                ? Mono.just(current)
+                                : redis.hasKey(lockKey).flatMap(lockExists -> Boolean.TRUE.equals(lockExists)
+                                        ? Mono.<AuthSessionStore.AuthUser>empty()
+                                        : Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                                                "OAuth2 session refresh did not complete")))))
+                .next()
+                .switchIfEmpty(Mono.error(new OAuth2Client.OAuth2UnavailableException(
+                        "OAuth2 session refresh did not complete")));
+    }
+
+    private static boolean isReadyToReturn(AuthSessionStore.AuthUser user, Instant now) {
+        return !isAccessTokenNearExpiry(user, now) && isIdentityFresh(user, now);
+    }
+
+    private static boolean isAccessTokenNearExpiry(AuthSessionStore.AuthUser user, Instant now) {
+        return !user.expiresAt().isAfter(now.plus(REFRESH_SKEW));
+    }
+
+    private static boolean isIdentityFresh(AuthSessionStore.AuthUser user, Instant now) {
+        Instant fetchedAt = user.identityFetchedAt();
+        return fetchedAt != null && !fetchedAt.isAfter(now) && now.isBefore(fetchedAt.plus(IDENTITY_FRESHNESS));
+    }
+
+    private record TokenFamily(String accessToken, String refreshToken, Instant expiresAt) {}
 
     private Mono<Void> releaseRefreshLock(String token) {
         return redis.delete(REFRESH_LOCK_PREFIX + token).then().onErrorResume(e -> Mono.empty());
