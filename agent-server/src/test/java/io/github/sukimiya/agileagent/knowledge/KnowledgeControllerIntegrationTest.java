@@ -150,8 +150,8 @@ class KnowledgeControllerIntegrationTest {
                 .expectBody(String.class)
                 .isEqualTo("# 退款流程\n\n用户申请退款后...");
 
-        var libFile = Path.of(props.getLibDir(), id + ".md");
-        var metaFile = Path.of(props.getLibDir(), id + ".meta.json");
+        var libFile = Path.of(props.getLibDir(), id + ".v1.md");
+        var metaFile = Path.of(props.getLibDir(), id + ".v1.meta.json");
         org.assertj.core.api.Assertions.assertThat(Files.exists(libFile)).isTrue();
         org.assertj.core.api.Assertions.assertThat(Files.exists(metaFile)).isTrue();
     }

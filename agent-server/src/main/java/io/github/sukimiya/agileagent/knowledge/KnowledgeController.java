@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.knowledge;
 
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -37,10 +38,13 @@ class KnowledgeController {
 
     private final KnowledgeDocumentService service;
     private final KnowledgeProperties props;
+    private final KnowledgeDocumentRepository repository;
 
-    KnowledgeController(KnowledgeDocumentService service, KnowledgeProperties props) {
+    KnowledgeController(KnowledgeDocumentService service, KnowledgeProperties props,
+            KnowledgeDocumentRepository repository) {
         this.service = service;
         this.props = props;
+        this.repository = repository;
     }
 
     @PostMapping("/upload")
@@ -68,18 +72,27 @@ class KnowledgeController {
     @GetMapping("/{id}/download")
     Mono<ResponseEntity<?>> download(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
         return service.get(id, user.identity())
-                .flatMap(row -> Mono.fromCallable(() -> {
-                    var path = row.status() == Status.APPROVED
-                            ? Path.of(props.getLibDir(), row.id() + ".md")
-                            : Path.of(row.tempPath());
-                    if (!Files.isRegularFile(path)) {
-                        return (ResponseEntity<?>) ResponseEntity.notFound().build();
-                    }
-                    return ResponseEntity.ok()
-                            .contentType(MediaType.TEXT_PLAIN)
-                            .body((Object) new FileSystemResource(path));
-                }).subscribeOn(Schedulers.boundedElastic()))
+                .flatMap(row -> row.status() == Status.APPROVED
+                        ? repository.findApprovedArtifactPointers()
+                                .filter(pointer -> pointer.id().equals(row.id()))
+                                .next()
+                                .publishOn(Schedulers.boundedElastic())
+                                .flatMap(pointer -> fileResponse(KnowledgeFileStorage.approvedArtifactPath(
+                                        Path.of(props.getLibDir()).toAbsolutePath().normalize(),
+                                        pointer.id(), pointer.owner(), pointer.version(), ".md")))
+                        : fileResponse(Path.of(row.tempPath())))
                 .defaultIfEmpty((ResponseEntity<?>) ResponseEntity.notFound().build());
+    }
+
+    private static Mono<ResponseEntity<?>> fileResponse(Path path) {
+        return Mono.fromCallable(() -> {
+            if (Files.isSymbolicLink(path) || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                return (ResponseEntity<?>) ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok()
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body((Object) new FileSystemResource(path));
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @PostMapping("/{id}/approve")

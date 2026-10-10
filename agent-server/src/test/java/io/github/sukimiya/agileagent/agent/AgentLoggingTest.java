@@ -64,19 +64,24 @@ class AgentLoggingTest {
 
     @Test
     void allLogEventsShareTraceIdAndDomainAgentLogsCarryTheirRole(@TempDir Path libDir) throws Exception {
-        Files.writeString(libDir.resolve("doc-1.md"), "# Stage API\nstage.set(key, value)", StandardCharsets.UTF_8);
-        Files.writeString(libDir.resolve("doc-1.meta.json"),
+        String knowledgeId = "00000000-0000-0000-0000-000000000001";
+        Files.writeString(libDir.resolve(knowledgeId + ".v1.md"), "# Stage API\nstage.set(key, value)", StandardCharsets.UTF_8);
+        Files.writeString(libDir.resolve(knowledgeId + ".v1.meta.json"),
                 "{\"title\":\"Stage API\",\"summary\":\"stage 用法\"}", StandardCharsets.UTF_8);
         var knowledgeProps = new KnowledgeProperties();
         knowledgeProps.setLibDir(libDir.toString());
-        var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps);
+        var knowledgeRepository = mock(io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.class);
+        when(knowledgeRepository.findApprovedArtifactPointers()).thenReturn(Flux.just(
+                new io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.ApprovedArtifactPointer(
+                        knowledgeId, "reviewer-1", 1L)));
+        var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps, knowledgeRepository);
 
         ChatMemory memory = mock(ChatMemory.class);
         when(memory.get(any())).thenReturn(Mono.just(List.of()));
         when(memory.append(any(), anyList())).thenReturn(Mono.empty());
 
         LlmClient llm = mock(LlmClient.class);
-        var toolCall = new LlmClient.ToolCall("c1", "readKnowledgeDoc", "{\"id\":\"doc-1\"}");
+        var toolCall = new LlmClient.ToolCall("c1", "readKnowledgeDoc", "{\"id\":\"" + knowledgeId + "\"}");
         when(llm.chatStream(any(), any()))
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("[\"KNOWLEDGE\"]"))
                         .subscribeOn(Schedulers.parallel())) // 1) routing, forced onto another thread

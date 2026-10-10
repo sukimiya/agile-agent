@@ -39,6 +39,7 @@ class KnowledgeControllerTest {
 
     @Autowired WebTestClient client;
     @MockBean KnowledgeDocumentService service;
+    @MockBean KnowledgeDocumentRepository repository;
     @MockBean KnowledgeProperties props;
     @MockBean AuthSessionStore sessions;
     @MockBean OAuth2Client oauth2;

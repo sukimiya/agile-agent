@@ -15,6 +15,7 @@ public class KnowledgeProperties {
     private Duration approvalWorkflowTimeout = Duration.ofMinutes(5);
     private Duration approvalCompensationTimeout = Duration.ofMinutes(3);
     private Duration approvalClaimLease = Duration.ofMinutes(15);
+    private Duration approvalClaimRenewalInterval = Duration.ofMinutes(1);
     private Duration approvalClaimSafetyMargin = Duration.ofMinutes(2);
     private int approvalClaimReleaseMaxAttempts = 3;
     private Duration approvalClaimReleaseRetryDelay = Duration.ofMillis(100);
@@ -33,6 +34,8 @@ public class KnowledgeProperties {
     public void setApprovalCompensationTimeout(Duration v) { this.approvalCompensationTimeout = v; }
     public Duration getApprovalClaimLease() { return approvalClaimLease; }
     public void setApprovalClaimLease(Duration v) { this.approvalClaimLease = v; }
+    public Duration getApprovalClaimRenewalInterval() { return approvalClaimRenewalInterval; }
+    public void setApprovalClaimRenewalInterval(Duration v) { this.approvalClaimRenewalInterval = v; }
     public Duration getApprovalClaimSafetyMargin() { return approvalClaimSafetyMargin; }
     public void setApprovalClaimSafetyMargin(Duration v) { this.approvalClaimSafetyMargin = v; }
     public int getApprovalClaimReleaseMaxAttempts() { return approvalClaimReleaseMaxAttempts; }
@@ -44,7 +47,8 @@ public class KnowledgeProperties {
 
     public void validateApprovalClaimSettings() {
         if (!positive(approvalWorkflowTimeout) || !positive(approvalCompensationTimeout)
-                || !positive(approvalClaimLease) || !positive(approvalClaimSafetyMargin)
+                || !positive(approvalClaimLease) || !positive(approvalClaimRenewalInterval)
+                || !positive(approvalClaimSafetyMargin)
                 || !positive(approvalClaimReleaseRetryDelay) || approvalClaimReleaseMaxAttempts < 1
                 || approvalClaimReleaseMaxAttempts > 10) {
             throw new IllegalArgumentException(
@@ -55,6 +59,10 @@ public class KnowledgeProperties {
         if (approvalClaimLease.compareTo(minimumLease) <= 0) {
             throw new IllegalArgumentException(
                     "knowledge approval claim lease must exceed workflow and compensation timeouts plus safety margin");
+        }
+        if (approvalClaimRenewalInterval.compareTo(approvalClaimLease.dividedBy(2)) >= 0) {
+            throw new IllegalArgumentException(
+                    "knowledge approval claim renewal interval must be less than half the lease");
         }
         long leaseSeconds = approvalClaimLease.getSeconds() + (approvalClaimLease.getNano() > 0 ? 1 : 0);
         if (leaseSeconds > Integer.MAX_VALUE) {

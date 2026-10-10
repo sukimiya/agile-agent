@@ -28,7 +28,7 @@ class KnowledgeCapabilityProviderTest {
     @Test
     void definitionBuildsKnowledgePromptAndReadToolFromCurrentCatalog() {
         KnowledgeCatalog catalog = mock(KnowledgeCatalog.class);
-        when(catalog.compactIndex()).thenReturn("doc-1 | Stage API | stage 用法\n");
+        when(catalog.compactIndex()).thenReturn(Mono.just("doc-1 | Stage API | stage 用法\n"));
         var provider = new KnowledgeCapabilityProvider(catalog);
         var tokenReads = new AtomicInteger();
 
@@ -39,7 +39,7 @@ class KnowledgeCapabilityProviderTest {
         assertThat(definition.tools().getFirst().parametersSchema().path("properties").path("id").path("enum").toString())
                 .isEqualTo("[\"doc-1\"]");
         assertThat(tokenReads).hasValue(0);
-        when(catalog.compactIndex()).thenReturn("doc-2 | Updated | Current\n");
+        when(catalog.compactIndex()).thenReturn(Mono.just("doc-2 | Updated | Current\n"));
         var updated = provider.definition(context(tokenReads)).block();
         assertThat(updated.systemPrompt()).contains("doc-2 | Updated | Current");
         assertThat(updated.tools().getFirst().parametersSchema().path("properties").path("id").path("enum").toString())

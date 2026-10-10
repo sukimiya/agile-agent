@@ -3,8 +3,11 @@ package io.github.sukimiya.agileagent.knowledge;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
+import io.r2dbc.spi.ConnectionFactory;
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.r2dbc.connection.R2dbcTransactionManager;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.reactive.TransactionalOperator;
 
 import io.r2dbc.spi.Readable;
 import reactor.core.publisher.Flux;
@@ -14,9 +17,11 @@ import reactor.core.publisher.Mono;
 public class KnowledgeDocumentRepository {
 
     private final DatabaseClient db;
+    private final TransactionalOperator transactions;
 
-    public KnowledgeDocumentRepository(DatabaseClient db) {
+    public KnowledgeDocumentRepository(DatabaseClient db, ConnectionFactory connectionFactory) {
         this.db = db;
+        this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
     }
 
     public Mono<Void> insert(KnowledgeDocumentRow row) {
@@ -73,95 +78,154 @@ public class KnowledgeDocumentRepository {
                 .all();
     }
 
-    public Mono<Long> claimPendingApproval(String id, String claimToken) {
-        return claimPendingApproval(id, claimToken, Duration.ofMinutes(15));
+    /** Current, durable filesystem pointer for catalog publication. */
+    public Flux<ApprovedArtifactPointer> findApprovedArtifactPointers() {
+        return db.sql("""
+                SELECT id, approval_owner, approval_version
+                FROM knowledge_documents
+                WHERE status = 'APPROVED' AND approval_owner IS NOT NULL
+                ORDER BY uploaded_at DESC
+                """)
+                .map((row, metadata) -> new ApprovedArtifactPointer(
+                        row.get("id", String.class), row.get("approval_owner", String.class),
+                        row.get("approval_version", Long.class)))
+                .all();
     }
 
-    public Mono<Long> claimPendingApproval(String id, String claimToken, Duration claimLease) {
+    /**
+     * Atomically claims a PENDING row and returns its new fencing generation, or zero if a
+     * non-expired owner already holds it. The row lock and transaction keep the returned
+     * generation paired with this owner's fresh database-time lease.
+     */
+    public Mono<Long> claimPendingApproval(String id, String owner, Duration claimLease) {
+        var seconds = leaseSeconds(claimLease);
+        var claim = db.sql("""
+                UPDATE knowledge_documents
+                SET approval_owner = :owner,
+                    approval_claimed_at = CURRENT_TIMESTAMP,
+                    approval_version = approval_version + 1
+                WHERE id = :id AND status = 'PENDING'
+                  AND (approval_owner IS NULL OR approval_claimed_at IS NULL OR
+                       approval_claimed_at <= TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP))
+                """)
+                .bind("owner", owner)
+                .bind("id", id)
+                .bind("leaseSeconds", seconds)
+                .fetch().rowsUpdated()
+                .flatMap(updated -> updated == 0
+                        ? Mono.just(0L)
+                        : db.sql("""
+                                SELECT approval_version
+                                FROM knowledge_documents
+                                WHERE id = :id AND status = 'PENDING' AND approval_owner = :owner
+                                """)
+                                .bind("id", id)
+                                .bind("owner", owner)
+                                .map((row, metadata) -> row.get("approval_version", Long.class))
+                                .one()
+                                .defaultIfEmpty(0L));
+        return transactions.transactional(claim);
+    }
+
+    /** Renew an exact live owner/generation. An expired claim cannot be revived. */
+    public Mono<Long> renewPendingApprovalClaim(String id, String owner, long version, Duration claimLease) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET approval_claim_token = :claimToken, approval_claimed_at = CURRENT_TIMESTAMP
+                SET approval_claimed_at = CURRENT_TIMESTAMP
                 WHERE id = :id AND status = 'PENDING'
-                  AND (approval_claim_token IS NULL OR
-                       (approval_claimed_at IS NOT NULL AND approval_claimed_at <=
-                        TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)))
+                  AND approval_owner = :owner AND approval_version = :version
+                  AND approval_claimed_at IS NOT NULL
+                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
                 """)
-                .bind("claimToken", claimToken)
                 .bind("id", id)
-                .bind("leaseSeconds", Math.toIntExact(claimLease.getSeconds()
-                        + (claimLease.getNano() > 0 ? 1 : 0)))
+                .bind("owner", owner)
+                .bind("version", version)
+                .bind("leaseSeconds", leaseSeconds(claimLease))
                 .fetch().rowsUpdated();
     }
 
     public Mono<Long> approveClaimedPending(
-            String id, String claimToken, String summary, String reviewedByUserId, LocalDateTime reviewedAt) {
+            String id, String owner, long version, Duration claimLease,
+            String summary, String reviewedByUserId, LocalDateTime reviewedAt) {
         return db.sql("""
                 UPDATE knowledge_documents
                 SET status = 'APPROVED', summary = :summary,
                     reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
-                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
+                WHERE id = :id AND status = 'PENDING'
+                  AND approval_owner = :owner AND approval_version = :version
+                  AND approval_claimed_at IS NOT NULL
+                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
                 """)
                 .bind("summary", summary == null ? "" : summary)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)
-                .bind("claimToken", claimToken)
+                .bind("owner", owner)
+                .bind("version", version)
                 .bind("id", id)
+                .bind("leaseSeconds", leaseSeconds(claimLease))
                 .fetch().rowsUpdated();
     }
 
-    /** Return an exact attempt's status without exposing the internal claim token on document rows. */
-    public Mono<KnowledgeDocumentRow.Status> statusForApprovalClaim(String id, String claimToken) {
+    public Mono<KnowledgeDocumentRow.Status> statusForApprovalClaim(String id, String owner, long version) {
         return db.sql("""
                 SELECT status FROM knowledge_documents
-                WHERE id = :id AND approval_claim_token = :claimToken
+                WHERE id = :id AND approval_owner = :owner AND approval_version = :version
                 """)
                 .bind("id", id)
-                .bind("claimToken", claimToken)
+                .bind("owner", owner)
+                .bind("version", version)
                 .map((row, metadata) -> KnowledgeDocumentRow.Status.valueOf(row.get("status", String.class)))
                 .one();
     }
 
-    /** Restore PENDING only while this exact attempt still owns the claim; keep the claim through file cleanup. */
-    public Mono<Long> recoverPendingApprovalClaim(String id, String claimToken, String originalSummary) {
+    /** Restore PENDING only while this exact owner/generation still controls the row. */
+    public Mono<Long> recoverPendingApprovalClaim(
+            String id, String owner, long version, String originalSummary) {
         return db.sql("""
                 UPDATE knowledge_documents
                 SET status = 'PENDING',
                     summary = :summary,
                     reviewed_by_user_id = NULL, reviewed_at = NULL
-                WHERE id = :id AND approval_claim_token = :claimToken
+                WHERE id = :id AND approval_owner = :owner AND approval_version = :version
                   AND status IN ('PENDING', 'APPROVED')
                 """)
                 .bind("summary", originalSummary == null ? "" : originalSummary)
                 .bind("id", id)
-                .bind("claimToken", claimToken)
+                .bind("owner", owner)
+                .bind("version", version)
                 .fetch().rowsUpdated();
     }
 
-    /** Clear an exact claim after compensation cleanup or a completed approval. */
-    public Mono<Long> releasePendingApprovalClaim(String id, String claimToken) {
+    public Mono<Long> releasePendingApprovalClaim(String id, String owner, long version) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET approval_claim_token = NULL, approval_claimed_at = NULL
-                WHERE id = :id AND status IN ('PENDING', 'APPROVED')
-                  AND approval_claim_token = :claimToken
+                SET approval_owner = NULL, approval_claimed_at = NULL
+                WHERE id = :id AND status = 'PENDING'
+                  AND approval_owner = :owner AND approval_version = :version
                 """)
                 .bind("id", id)
-                .bind("claimToken", claimToken)
+                .bind("owner", owner)
+                .bind("version", version)
                 .fetch().rowsUpdated();
     }
 
     public Mono<Long> rejectClaimedPending(
-            String id, String claimToken, String reviewedByUserId, LocalDateTime reviewedAt) {
+            String id, String owner, long version, Duration claimLease,
+            String reviewedByUserId, LocalDateTime reviewedAt) {
         return db.sql("""
                 UPDATE knowledge_documents
-                SET status = 'REJECTED', reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt,
-                    approval_claim_token = NULL, approval_claimed_at = NULL
-                WHERE id = :id AND status = 'PENDING' AND approval_claim_token = :claimToken
+                SET status = 'REJECTED', reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
+                WHERE id = :id AND status = 'PENDING'
+                  AND approval_owner = :owner AND approval_version = :version
+                  AND approval_claimed_at IS NOT NULL
+                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
                 """)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)
-                .bind("claimToken", claimToken)
+                .bind("owner", owner)
+                .bind("version", version)
                 .bind("id", id)
+                .bind("leaseSeconds", leaseSeconds(claimLease))
                 .fetch().rowsUpdated();
     }
 
@@ -169,12 +233,16 @@ public class KnowledgeDocumentRepository {
         return db.sql("""
                 UPDATE knowledge_documents
                 SET status = 'REJECTED', reviewed_by_user_id = :reviewedBy, reviewed_at = :reviewedAt
-                WHERE id = :id AND status = 'PENDING' AND approval_claim_token IS NULL
+                WHERE id = :id AND status = 'PENDING' AND approval_owner IS NULL
                 """)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)
                 .bind("id", id)
                 .fetch().rowsUpdated();
+    }
+
+    private static int leaseSeconds(Duration lease) {
+        return Math.toIntExact(lease.getSeconds() + (lease.getNano() > 0 ? 1 : 0));
     }
 
     private static KnowledgeDocumentRow mapRow(Readable row) {
@@ -213,4 +281,6 @@ public class KnowledgeDocumentRepository {
 
         public enum ScopeType { GLOBAL, TENANT, ORG }
     }
+
+    public record ApprovedArtifactPointer(String id, String owner, long version) {}
 }

@@ -32,8 +32,13 @@ class KnowledgeScopeMigrationTest {
                 .containsExactly("GLOBAL", "GLOBAL", "GLOBAL");
         assertThat(jdbc.queryForList("SELECT tenant_id, tenant_name, org_id, org_name FROM knowledge_documents"))
                 .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
-        assertThat(jdbc.queryForList("SELECT approval_claim_token, approval_claimed_at FROM knowledge_documents"))
-                .hasSize(3).allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
+        assertThat(jdbc.queryForList("SELECT approval_owner, approval_claimed_at, approval_version "
+                + "FROM knowledge_documents"))
+                .hasSize(3).allSatisfy(row -> {
+                    assertThat(row.get("APPROVAL_OWNER")).isNull();
+                    assertThat(row.get("APPROVAL_CLAIMED_AT")).isNull();
+                    assertThat(row.get("APPROVAL_VERSION")).isEqualTo(0L);
+                });
         assertThat(jdbc.queryForList("SELECT status FROM knowledge_documents ORDER BY id", String.class))
                 .containsExactly("APPROVED", "PENDING", "REJECTED");
         assertThat(jdbc.queryForList("SELECT summary FROM knowledge_documents ORDER BY id", String.class))
@@ -67,33 +72,37 @@ class KnowledgeScopeMigrationTest {
     }
 
     @Test
-    void v6ChecksumRemainsStableAndV7AddsApprovalClaimLeaseAfterV6WasApplied() {
+    void v6ChecksumRemainsStableAndV7AddsOwnerVersionLeaseAfterV6WasApplied() {
         var dataSource = dataSource("knowledge-approval-claim-" + System.nanoTime());
         var v6 = flyway(dataSource, "6");
         v6.migrate();
         var jdbc = new JdbcTemplate(dataSource);
 
+        jdbc.update("INSERT INTO knowledge_documents "
+                + "(id, title, original_filename, temp_path, status, summary, uploader_user_id, uploaded_at, "
+                + "reviewed_by_user_id, reviewed_at, scope_type) "
+                + "VALUES (?, ?, ?, ?, 'APPROVED', ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, 'GLOBAL')",
+                "legacy-approved", "title", "legacy.md", "/tmp/legacy.md", "summary", "uploader", "reviewer");
+
         assertThat(jdbc.queryForObject("SELECT \"checksum\" FROM \"" + historyTable()
                 + "\" WHERE \"version\" = '6'", Integer.class)).isEqualTo(-1183775273);
         assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
                 + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME IN "
-                + "('APPROVAL_CLAIM_TOKEN', 'APPROVAL_CLAIMED_AT')", String.class)).isEmpty();
+                + "('APPROVAL_OWNER', 'APPROVAL_CLAIMED_AT', 'APPROVAL_VERSION')", String.class)).isEmpty();
 
         flyway(dataSource).migrate();
 
         assertThat(jdbc.queryForList("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
                 + "WHERE TABLE_NAME = 'KNOWLEDGE_DOCUMENTS' AND COLUMN_NAME IN "
-                + "('APPROVAL_CLAIM_TOKEN', 'APPROVAL_CLAIMED_AT') ORDER BY COLUMN_NAME",
-                String.class)).containsExactly("APPROVAL_CLAIMED_AT", "APPROVAL_CLAIM_TOKEN");
-
+                + "('APPROVAL_OWNER', 'APPROVAL_CLAIMED_AT', 'APPROVAL_VERSION') ORDER BY COLUMN_NAME",
+                String.class)).containsExactly("APPROVAL_CLAIMED_AT", "APPROVAL_OWNER", "APPROVAL_VERSION");
+        assertThat(jdbc.queryForMap("SELECT approval_owner, approval_version FROM knowledge_documents "
+                + "WHERE id = 'legacy-approved'"))
+                .containsEntry("APPROVAL_OWNER", "reviewer")
+                .containsEntry("APPROVAL_VERSION", 0L);
         insertLegacyRow(jdbc, "one");
-        insertLegacyRow(jdbc, "two");
-        jdbc.update("UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "one");
-        jdbc.update("UPDATE knowledge_documents SET approval_claimed_at = CURRENT_TIMESTAMP WHERE id = ?", "one");
-
-        assertThatThrownBy(() -> jdbc.update(
-                "UPDATE knowledge_documents SET approval_claim_token = ? WHERE id = ?", "attempt-a", "two"))
-                .isInstanceOf(DataAccessException.class);
+        assertThat(jdbc.queryForObject("SELECT approval_version FROM knowledge_documents WHERE id = 'one'",
+                Long.class)).isEqualTo(0L);
     }
 
     private static void insertLegacyRow(JdbcTemplate jdbc, String id) {

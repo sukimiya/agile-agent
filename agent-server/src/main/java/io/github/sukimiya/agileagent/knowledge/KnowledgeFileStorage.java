@@ -6,9 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.UUID;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
@@ -26,7 +24,6 @@ public class KnowledgeFileStorage {
 
     private static final Pattern GENERATED_ID = Pattern.compile(
             "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
-    private static final Pattern STAGING_SUFFIX = Pattern.compile("[0-9a-f-]{36}\\.(md|meta)\\.stage");
     private static final java.util.Set<String> ALLOWED_CONTENT_TYPES = java.util.Set.of(
             MediaType.TEXT_PLAIN_VALUE, "text/markdown");
 
@@ -117,17 +114,19 @@ public class KnowledgeFileStorage {
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
-    public Mono<Void> promoteToLib(String id, LibraryMetadata metadata) {
-        return Mono.fromRunnable(() -> doPromote(id, metadata))
+    public Mono<Void> promoteToLib(String id, String owner, long version, LibraryMetadata metadata) {
+        return Mono.fromRunnable(() -> doPromote(id, owner, version, metadata))
                 .subscribeOn(Schedulers.boundedElastic())
                 .then();
     }
 
-    private void doPromote(String id, LibraryMetadata metadata) {
+    private void doPromote(String id, String owner, long version, LibraryMetadata metadata) {
         Path stageMarkdown = null;
         Path stageMetadata = null;
         Path libraryMarkdown = null;
+        Path libraryMetadata = null;
         boolean markdownPublished = false;
+        boolean metadataPublished = false;
         try {
             var tempRoot = configuredRoot(props.getTempDir()).toRealPath();
             var libRoot = configuredRoot(props.getLibDir());
@@ -138,15 +137,19 @@ public class KnowledgeFileStorage {
             if (Files.isSymbolicLink(tempFile) || !Files.isRegularFile(tempFile, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("temporary document is unavailable");
             }
-            libraryMarkdown = confinedPath(libRoot, id, ".md");
-            var libraryMetadata = confinedPath(libRoot, id, ".meta.json");
-            if (Files.exists(libraryMarkdown, LinkOption.NOFOLLOW_LINKS)) {
-                throw new IOException("library document already exists");
+            if (metadata == null || !owner.equals(metadata.approvedBy())) {
+                throw new RejectedException("FILE_REJECTED", "approval owner is invalid");
             }
-
-            var token = UUID.randomUUID().toString();
-            stageMarkdown = libRoot.resolve(id + "." + token + ".md.stage").normalize();
-            stageMetadata = libRoot.resolve(id + "." + token + ".meta.stage").normalize();
+            libraryMarkdown = attemptPath(libRoot, id, owner, version, ".md");
+            libraryMetadata = attemptPath(libRoot, id, owner, version, ".meta.json");
+            stageMarkdown = attemptPath(libRoot, id, owner, version, ".md.stage");
+            stageMetadata = attemptPath(libRoot, id, owner, version, ".meta.stage");
+            if (Files.exists(libraryMarkdown, LinkOption.NOFOLLOW_LINKS)
+                    || Files.exists(libraryMetadata, LinkOption.NOFOLLOW_LINKS)
+                    || Files.exists(stageMarkdown, LinkOption.NOFOLLOW_LINKS)
+                    || Files.exists(stageMetadata, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("attempt artifacts already exist");
+            }
             ensureWithinRoot(libRoot, stageMarkdown);
             ensureWithinRoot(libRoot, stageMetadata);
             Files.copy(tempFile, stageMarkdown);
@@ -154,11 +157,14 @@ public class KnowledgeFileStorage {
 
             moveWithoutReplacement(stageMarkdown, libraryMarkdown);
             markdownPublished = true;
-            // The metadata file is the catalog's publication marker, so it moves last.
             moveWithoutReplacement(stageMetadata, libraryMetadata);
+            metadataPublished = true;
         } catch (IOException | RuntimeException error) {
             if (markdownPublished && libraryMarkdown != null) {
                 deleteGeneratedFileQuietly(libraryMarkdown);
+            }
+            if (metadataPublished && libraryMetadata != null) {
+                deleteGeneratedFileQuietly(libraryMetadata);
             }
             deleteGeneratedFileQuietly(stageMarkdown);
             deleteGeneratedFileQuietly(stageMetadata);
@@ -191,7 +197,7 @@ public class KnowledgeFileStorage {
         }
     }
 
-    public Mono<Void> deleteLibraryArtifacts(String id) {
+    public Mono<Void> deleteLibraryArtifacts(String id, String owner, long version) {
         return Mono.fromRunnable(() -> {
             try {
                 var root = configuredRoot(props.getLibDir());
@@ -199,25 +205,14 @@ public class KnowledgeFileStorage {
                     return;
                 }
                 var realRoot = root.toRealPath();
-                deleteGeneratedFile(confinedPath(realRoot, id, ".md"));
-                deleteGeneratedFile(confinedPath(realRoot, id, ".meta.json"));
-                deleteStagingFiles(realRoot, id);
+                deleteGeneratedFile(attemptPath(realRoot, id, owner, version, ".md"));
+                deleteGeneratedFile(attemptPath(realRoot, id, owner, version, ".meta.json"));
+                deleteGeneratedFile(attemptPath(realRoot, id, owner, version, ".md.stage"));
+                deleteGeneratedFile(attemptPath(realRoot, id, owner, version, ".meta.stage"));
             } catch (IOException e) {
                 throw new StorageFailureException();
             }
         }).subscribeOn(Schedulers.boundedElastic()).then();
-    }
-
-    private static void deleteStagingFiles(Path root, String id) throws IOException {
-        try (Stream<Path> files = Files.list(root)) {
-            files.filter(path -> {
-                var name = path.getFileName().toString();
-                if (!name.startsWith(id + ".")) {
-                    return false;
-                }
-                return STAGING_SUFFIX.matcher(name.substring(id.length() + 1)).matches();
-            }).forEach(KnowledgeFileStorage::deleteGeneratedFileQuietly);
-        }
     }
 
     private static void moveWithoutReplacement(Path source, Path target) throws IOException {
@@ -238,6 +233,23 @@ public class KnowledgeFileStorage {
         var target = root.resolve(id + suffix).normalize();
         ensureWithinRoot(root, target);
         return target;
+    }
+
+    static Path attemptPath(Path root, String id, String owner, long version, String suffix) {
+        if (id == null || !GENERATED_ID.matcher(id).matches()
+                || owner == null || owner.isBlank() || version <= 0) {
+            throw new RejectedException("FILE_REJECTED", "document attempt is invalid");
+        }
+        var target = root.resolve(id + ".v" + version + suffix).normalize();
+        ensureWithinRoot(root, target);
+        return target;
+    }
+
+    static Path approvedArtifactPath(Path root, String id, String owner, long version, String suffix) {
+        if (owner == null || owner.isBlank() || version < 0) {
+            throw new RejectedException("FILE_REJECTED", "approved artifact pointer is invalid");
+        }
+        return version == 0 ? confinedPath(root, id, suffix) : attemptPath(root, id, owner, version, suffix);
     }
 
     private static void ensureWithinRoot(Path root, Path target) {

@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.knowledge;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -23,6 +24,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
@@ -82,7 +84,7 @@ class KnowledgeDocumentServiceTest {
         assertThat(result.orgName()).isEqualTo("Org A");
         assertThat(result.uploaderUserId()).isEqualTo("user-a");
         assertThat(result.summary()).isEqualTo("summary");
-        verify(storage, never()).promoteToLib(anyString(), any());
+        verify(storage, never()).promoteToLib(anyString(), anyString(), anyLong(), any());
     }
 
     @Test
@@ -112,9 +114,10 @@ class KnowledgeDocumentServiceTest {
             return Mono.empty();
         });
         claimSucceeds(repository);
-        when(storage.deleteLibraryArtifacts(anyString())).thenReturn(Mono.empty());
-        when(storage.promoteToLib(anyString(), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(anyString(), anyString(), anyString(), eq("platform-admin"), any()))
+        when(storage.deleteLibraryArtifacts(anyString(), anyString(), anyLong())).thenReturn(Mono.empty());
+        when(storage.promoteToLib(anyString(), anyString(), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(anyString(), anyString(), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenReturn(Mono.just(1L));
         when(repository.findById(anyString())).thenAnswer(call -> Mono.just(approved(inserted.get(), "")));
         when(storage.deleteTemp(anyString())).thenReturn(Mono.empty());
@@ -135,9 +138,10 @@ class KnowledgeDocumentServiceTest {
         var order = inOrder(repository, storage, catalog);
         order.verify(repository).insert(any(KnowledgeDocumentRow.class));
         order.verify(repository).claimPendingApproval(anyString(), anyString(), any());
-        order.verify(storage).deleteLibraryArtifacts(anyString());
-        order.verify(storage).promoteToLib(anyString(), any(KnowledgeFileStorage.LibraryMetadata.class));
-        order.verify(repository).approveClaimedPending(anyString(), anyString(), eq(""), eq("platform-admin"), any());
+        order.verify(storage).deleteLibraryArtifacts(anyString(), anyString(), anyLong());
+        order.verify(storage).promoteToLib(anyString(), anyString(), anyLong(), any(KnowledgeFileStorage.LibraryMetadata.class));
+        order.verify(repository).approveClaimedPending(anyString(), anyString(), anyLong(), any(), eq(""),
+                eq("platform-admin"), any());
         order.verify(repository).findById(anyString());
         order.verify(catalog).reload();
         order.verify(storage).deleteTemp(anyString());
@@ -158,9 +162,10 @@ class KnowledgeDocumentServiceTest {
             return Mono.empty();
         });
         claimSucceeds(repository);
-        when(storage.deleteLibraryArtifacts(anyString())).thenReturn(Mono.empty());
-        when(storage.promoteToLib(anyString(), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(anyString(), anyString(), anyString(), eq("tenant-admin"), any()))
+        when(storage.deleteLibraryArtifacts(anyString(), anyString(), anyLong())).thenReturn(Mono.empty());
+        when(storage.promoteToLib(anyString(), anyString(), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(anyString(), anyString(), anyLong(), any(), anyString(),
+                eq("tenant-admin"), any()))
                 .thenReturn(Mono.just(1L));
         when(repository.findById(anyString())).thenAnswer(call -> Mono.just(approved(inserted.get(), "summary")));
         when(storage.deleteTemp(anyString())).thenReturn(Mono.empty());
@@ -174,7 +179,7 @@ class KnowledgeDocumentServiceTest {
         assertThat(result.tenantName()).isEqualTo("Tenant A");
         assertThat(result.orgId()).isNull();
         var metadata = ArgumentCaptor.forClass(KnowledgeFileStorage.LibraryMetadata.class);
-        verify(storage).promoteToLib(eq(inserted.get().id()), metadata.capture());
+        verify(storage).promoteToLib(eq(inserted.get().id()), eq("tenant-admin"), anyLong(), metadata.capture());
         assertThat(metadata.getValue().scopeType()).isEqualTo(ScopeType.TENANT);
         assertThat(metadata.getValue().tenantId()).isEqualTo("tenant-a");
         assertThat(metadata.getValue().tenantName()).isEqualTo("Tenant A");
@@ -185,9 +190,10 @@ class KnowledgeDocumentServiceTest {
         order.verify(storage).saveTemp(anyString(), any());
         order.verify(repository).insert(any(KnowledgeDocumentRow.class));
         order.verify(repository).claimPendingApproval(anyString(), anyString(), any());
-        order.verify(storage).deleteLibraryArtifacts(anyString());
-        order.verify(storage).promoteToLib(anyString(), any(KnowledgeFileStorage.LibraryMetadata.class));
-        order.verify(repository).approveClaimedPending(anyString(), anyString(), eq("summary"), eq("tenant-admin"), any());
+        order.verify(storage).deleteLibraryArtifacts(anyString(), anyString(), anyLong());
+        order.verify(storage).promoteToLib(anyString(), anyString(), anyLong(), any(KnowledgeFileStorage.LibraryMetadata.class));
+        order.verify(repository).approveClaimedPending(anyString(), anyString(), anyLong(), any(), eq("summary"),
+                eq("tenant-admin"), any());
     }
 
     @Test
@@ -204,9 +210,9 @@ class KnowledgeDocumentServiceTest {
         });
         claimSucceeds(repository);
         when(repository.findById(anyString())).thenAnswer(call -> Mono.just(inserted.get()));
-        when(storage.promoteToLib(anyString(), any()))
+        when(storage.promoteToLib(anyString(), anyString(), anyLong(), any()))
                 .thenReturn(Mono.error(new KnowledgeFileStorage.StorageFailureException()));
-        when(storage.deleteLibraryArtifacts(anyString())).thenReturn(Mono.empty());
+        when(storage.deleteLibraryArtifacts(anyString(), anyString(), anyLong())).thenReturn(Mono.empty());
         var service = service(repository, storage, resolver, mock(KnowledgeCatalog.class));
 
         assertThatThrownBy(() -> service.upload(
@@ -215,10 +221,11 @@ class KnowledgeDocumentServiceTest {
 
         assertThat(inserted.get().status()).isEqualTo(Status.PENDING);
         assertThat(inserted.get().scopeType()).isEqualTo(ScopeType.TENANT);
-        verify(repository, never()).approveClaimedPending(anyString(), anyString(), anyString(), anyString(), any());
+        verify(repository, never()).approveClaimedPending(anyString(), anyString(), anyLong(), any(), anyString(),
+                anyString(), any());
         verify(storage, never()).deleteTemp(anyString());
-        verify(storage, times(2)).deleteLibraryArtifacts(anyString());
-        verify(repository).releasePendingApprovalClaim(anyString(), anyString());
+        verify(storage, times(2)).deleteLibraryArtifacts(anyString(), anyString(), anyLong());
+        verify(repository).releasePendingApprovalClaim(anyString(), anyString(), anyLong());
     }
 
     @Test
@@ -290,19 +297,21 @@ class KnowledgeDocumentServiceTest {
         claimSucceeds(repository);
         when(repository.findById("doc-1")).thenAnswer(call -> Mono.just(
                 persistedStatus.get() == Status.PENDING ? pending : approved(pending, "uploader-summary")));
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.<Void>create(sink -> {
+        when(storage.promoteToLib(eq("doc-1"), anyString(), anyLong(), any())).thenReturn(Mono.<Void>create(sink -> {
             libraryVisible.set(true);
             published.countDown();
             awaitLatch(releasePromotion);
             sink.success();
         }).subscribeOn(Schedulers.boundedElastic()));
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenAnswer(call -> {
                     persistedStatus.set(Status.APPROVED);
                     approvalPersisted.countDown();
                     return Mono.just(1L);
                 });
-        when(storage.deleteLibraryArtifacts("doc-1")).thenAnswer(call -> Mono.fromRunnable(() -> libraryVisible.set(false)));
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), anyString(), anyLong()))
+                .thenAnswer(call -> Mono.fromRunnable(() -> libraryVisible.set(false)));
         when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
         doAnswer(call -> {
             return null;
@@ -400,7 +409,7 @@ class KnowledgeDocumentServiceTest {
             return Mono.just(persistedStatus.get() == Status.PENDING
                     ? pending : approved(pending, "uploader-summary"));
         });
-        when(storage.promoteToLib(eq("doc-1"), any())).thenAnswer(call -> Mono.<Void>create(sink -> {
+        when(storage.promoteToLib(eq("doc-1"), anyString(), anyLong(), any())).thenAnswer(call -> Mono.<Void>create(sink -> {
             promotionCount.incrementAndGet();
             firstPromotionStarted.countDown();
             awaitLatch(releasePromotion);
@@ -408,15 +417,16 @@ class KnowledgeDocumentServiceTest {
         }).subscribeOn(Schedulers.boundedElastic()));
         when(repository.claimPendingApproval(eq("doc-1"), anyString(), any()))
                 .thenAnswer(call -> Mono.just(claimAvailable.compareAndSet(false, true) ? 1L : 0L));
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenAnswer(call -> {
                     var updated = persistedStatus.compareAndSet(Status.PENDING, Status.APPROVED);
                     casCount.incrementAndGet();
                     return Mono.just(updated ? 1L : 0L);
                 });
-        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyString())).thenReturn(Mono.just(1L));
-        when(repository.releasePendingApprovalClaim(anyString(), anyString())).thenReturn(Mono.just(1L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
+        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.releasePendingApprovalClaim(anyString(), anyString(), anyLong())).thenReturn(Mono.just(1L));
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), anyString(), anyLong())).thenReturn(Mono.empty());
         when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
         doAnswer(call -> null).when(catalog).reload();
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
@@ -452,7 +462,214 @@ class KnowledgeDocumentServiceTest {
         assertThat(promotionCount.get()).isEqualTo(1);
         assertThat(casCount.get()).isEqualTo(1);
         assertThat(outcome.get().values()).containsExactlyInAnyOrder(ActionResult.OK, ActionResult.CONFLICT);
-        verify(storage).deleteLibraryArtifacts("doc-1");
+        verify(storage).deleteLibraryArtifacts(eq("doc-1"), anyString(), anyLong());
+    }
+
+    @Test
+    void expiredOldApprovalCannotPublishOverNewOwnersArtifacts() throws InterruptedException {
+        var repository = mock(KnowledgeDocumentRepository.class);
+        var storage = mock(KnowledgeFileStorage.class);
+        var catalog = mock(KnowledgeCatalog.class);
+        var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
+        var status = new AtomicReference<>(Status.PENDING);
+        var currentVersion = new AtomicLong();
+        var approvedSummary = new AtomicReference<>("new-summary");
+        var artifacts = new java.util.concurrent.ConcurrentHashMap<Long, String>();
+        var leaseExpired = new AtomicBoolean();
+        var initialReads = new AtomicInteger();
+        var oldPromotionStarted = new CountDownLatch(1);
+        var releaseOldPromotion = new CountDownLatch(1);
+        var oldCompleted = new CountDownLatch(1);
+        var newCompleted = new CountDownLatch(1);
+        var outcomes = new java.util.concurrent.ConcurrentHashMap<String, ActionResult>();
+
+        when(repository.findById("doc-1")).thenAnswer(call -> {
+            if (initialReads.incrementAndGet() <= 2) return Mono.just(pending);
+            return Mono.just(status.get() == Status.APPROVED
+                    ? approved(pending, approvedSummary.get()) : pending);
+        });
+        when(repository.claimPendingApproval(eq("doc-1"), eq("platform-admin"), any())).thenAnswer(call -> {
+            long version = currentVersion.incrementAndGet();
+            if (version == 1L || leaseExpired.get()) {
+                currentVersion.set(version);
+                return Mono.just(version);
+            }
+            return Mono.just(0L);
+        });
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenAnswer(call -> Mono.fromRunnable(() -> artifacts.remove(call.getArgument(2, Long.class))));
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenAnswer(call -> {
+            long version = call.getArgument(2, Long.class);
+            var metadata = call.getArgument(3, KnowledgeFileStorage.LibraryMetadata.class);
+            if ("old-summary".equals(metadata.summary())) {
+                return Mono.<Void>create(sink -> {
+                    oldPromotionStarted.countDown();
+                    awaitLatch(releaseOldPromotion);
+                    artifacts.put(version, "old-summary");
+                    sink.success();
+                }).subscribeOn(Schedulers.boundedElastic());
+            }
+            artifacts.put(version, metadata.summary());
+            return Mono.empty();
+        });
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
+                anyString(), eq("platform-admin"), any()))
+                .thenAnswer(call -> {
+                    long version = call.getArgument(2, Long.class);
+                    if (version != currentVersion.get() || status.get() != Status.PENDING) return Mono.just(0L);
+                    approvedSummary.set(call.getArgument(4, String.class));
+                    status.set(Status.APPROVED);
+                    return Mono.just(1L);
+                });
+        when(repository.recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(), anyString()))
+                .thenAnswer(call -> {
+            if (call.getArgument(2, Long.class) != currentVersion.get()) return Mono.just(0L);
+            status.set(Status.PENDING);
+            return Mono.just(1L);
+        });
+        when(repository.statusForApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenReturn(Mono.empty());
+        when(repository.releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenAnswer(call -> {
+            return Mono.just(1L);
+        });
+        when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
+        doAnswer(call -> null).when(catalog).reload();
+        var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
+
+        var oldOwner = service.approve("doc-1", identity("platform-admin", null, null, true, false), "old-summary")
+                .doOnNext(result -> {
+                    outcomes.put("old", result);
+                    oldCompleted.countDown();
+                }).subscribe();
+        var newOwner = (reactor.core.Disposable) null;
+        try {
+            assertThat(oldPromotionStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            leaseExpired.set(true);
+            newOwner = service.approve("doc-1", identity("platform-admin", null, null, true, false), "new-summary")
+                    .doOnNext(result -> {
+                        outcomes.put("new", result);
+                        newCompleted.countDown();
+                    }).subscribe();
+            assertThat(newCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            releaseOldPromotion.countDown();
+            assertThat(oldCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseOldPromotion.countDown();
+            oldOwner.dispose();
+            if (newOwner != null) newOwner.dispose();
+        }
+
+        assertThat(outcomes).containsEntry("new", ActionResult.OK).containsEntry("old", ActionResult.CONFLICT);
+        assertThat(status.get()).isEqualTo(Status.APPROVED);
+        assertThat(artifacts.get(2L)).isEqualTo("new-summary");
+        assertThat(artifacts).doesNotContainKey(1L);
+    }
+
+    @Test
+    void expiredOldCompensationCannotDeleteNewOwnersArtifacts() throws InterruptedException {
+        var repository = mock(KnowledgeDocumentRepository.class);
+        var storage = mock(KnowledgeFileStorage.class);
+        var catalog = mock(KnowledgeCatalog.class);
+        var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
+        var status = new AtomicReference<>(Status.PENDING);
+        var currentVersion = new AtomicLong();
+        var approvedSummary = new AtomicReference<>("new-summary");
+        var artifacts = new java.util.concurrent.ConcurrentHashMap<Long, String>();
+        var leaseExpired = new AtomicBoolean();
+        var initialReads = new AtomicInteger();
+        var deleteCalls = new AtomicInteger();
+        var oldCleanupStarted = new CountDownLatch(1);
+        var releaseOldCleanup = new CountDownLatch(1);
+        var oldCompleted = new CountDownLatch(1);
+        var newCompleted = new CountDownLatch(1);
+        var outcomes = new java.util.concurrent.ConcurrentHashMap<String, ActionResult>();
+
+        when(repository.findById("doc-1")).thenAnswer(call -> {
+            if (initialReads.incrementAndGet() <= 2) return Mono.just(pending);
+            return Mono.just(status.get() == Status.APPROVED
+                    ? approved(pending, approvedSummary.get()) : pending);
+        });
+        when(repository.claimPendingApproval(eq("doc-1"), eq("platform-admin"), any())).thenAnswer(call -> {
+            long version = currentVersion.incrementAndGet();
+            if (version == 1L || leaseExpired.get()) {
+                currentVersion.set(version);
+                return Mono.just(version);
+            }
+            return Mono.just(0L);
+        });
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong())).thenAnswer(call -> {
+            long version = call.getArgument(2, Long.class);
+            int deleteNumber = deleteCalls.incrementAndGet();
+            if (version == 1L && deleteNumber == 2) {
+                return Mono.fromRunnable(() -> {
+                    oldCleanupStarted.countDown();
+                    awaitLatch(releaseOldCleanup);
+                    artifacts.remove(version);
+                }).subscribeOn(Schedulers.boundedElastic());
+            }
+            return Mono.fromRunnable(() -> artifacts.remove(version));
+        });
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenAnswer(call -> {
+            long version = call.getArgument(2, Long.class);
+            var metadata = call.getArgument(3, KnowledgeFileStorage.LibraryMetadata.class);
+            artifacts.put(version, metadata.summary());
+            return Mono.empty();
+        });
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
+                anyString(), eq("platform-admin"), any()))
+                .thenAnswer(call -> {
+                    long version = call.getArgument(2, Long.class);
+                    if (version != currentVersion.get() || status.get() != Status.PENDING) return Mono.just(0L);
+                    if ("old-summary".equals(call.getArgument(4, String.class))) return Mono.just(0L);
+                    approvedSummary.set(call.getArgument(4, String.class));
+                    status.set(Status.APPROVED);
+                    return Mono.just(1L);
+                });
+        when(repository.recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(), anyString()))
+                .thenAnswer(call -> {
+            if (call.getArgument(2, Long.class) != currentVersion.get()) return Mono.just(0L);
+            status.set(Status.PENDING);
+            return Mono.just(1L);
+        });
+        when(repository.statusForApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenReturn(Mono.empty());
+        when(repository.releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong()))
+                .thenAnswer(call -> {
+            return Mono.just(1L);
+        });
+        when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
+        doAnswer(call -> null).when(catalog).reload();
+        var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
+
+        var oldOwner = service.approve("doc-1", identity("platform-admin", null, null, true, false), "old-summary")
+                .doOnNext(result -> {
+                    outcomes.put("old", result);
+                    oldCompleted.countDown();
+                }).subscribe();
+        var newOwner = (reactor.core.Disposable) null;
+        try {
+            assertThat(oldCleanupStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            leaseExpired.set(true);
+            newOwner = service.approve("doc-1", identity("platform-admin", null, null, true, false), "new-summary")
+                    .doOnNext(result -> {
+                        outcomes.put("new", result);
+                        newCompleted.countDown();
+                    }).subscribe();
+            assertThat(newCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            releaseOldCleanup.countDown();
+            assertThat(oldCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseOldCleanup.countDown();
+            oldOwner.dispose();
+            if (newOwner != null) newOwner.dispose();
+        }
+
+        assertThat(outcomes).containsEntry("new", ActionResult.OK).containsEntry("old", ActionResult.CONFLICT);
+        assertThat(status.get()).isEqualTo(Status.APPROVED);
+        assertThat(artifacts.get(2L))
+                .as("a stale version's compensation must not delete the new approved generation")
+                .isEqualTo("new-summary");
     }
 
     @Test
@@ -463,10 +680,11 @@ class KnowledgeDocumentServiceTest {
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
         claimSucceeds(repository);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending), Mono.just(approved(pending, "summary")));
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(storage.promoteToLib(eq("doc-1"), anyString(), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenReturn(Mono.just(1L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), anyString(), anyLong())).thenReturn(Mono.empty());
         doThrow(new UncheckedIOException("failed to list knowledge lib dir /private/configured/path",
                 new IOException("/private/configured/path"))).when(catalog).reload();
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
@@ -493,7 +711,8 @@ class KnowledgeDocumentServiceTest {
 
         verifyNoInteractions(storage);
         verify(repository, never()).claimPendingApproval(anyString(), anyString(), any());
-        verify(repository, never()).approveClaimedPending(anyString(), anyString(), anyString(), anyString(), any());
+        verify(repository, never()).approveClaimedPending(anyString(), anyString(), anyLong(), any(), anyString(),
+                anyString(), any());
         verify(repository, never()).rejectIfPending(anyString(), anyString(), any());
     }
 
@@ -520,20 +739,22 @@ class KnowledgeDocumentServiceTest {
         var repository = mock(KnowledgeDocumentRepository.class);
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending));
-        when(repository.claimPendingApproval(eq("doc-1"), anyString(), any())).thenReturn(Mono.just(1L));
-        when(repository.rejectClaimedPending(eq("doc-1"), anyString(), eq("tenant-admin"), any()))
+        when(repository.claimPendingApproval(eq("doc-1"), eq("tenant-admin"), any())).thenReturn(Mono.just(1L));
+        when(repository.rejectClaimedPending(eq("doc-1"), eq("tenant-admin"), anyLong(), any(),
+                eq("tenant-admin"), any()))
                 .thenReturn(Mono.just(1L));
-        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyString())).thenReturn(Mono.just(1L));
-        when(repository.releasePendingApprovalClaim(anyString(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.releasePendingApprovalClaim(anyString(), anyString(), anyLong())).thenReturn(Mono.just(1L));
         var storage = mock(KnowledgeFileStorage.class);
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("tenant-admin"), anyLong())).thenReturn(Mono.empty());
         var service = service(repository, storage,
                 mock(TenantLlmClientResolver.class), mock(KnowledgeCatalog.class));
 
         var result = service.reject("doc-1", identity("tenant-admin", "tenant-a", null, false, true)).block();
 
         assertThat(result).isEqualTo(KnowledgeDocumentService.ActionResult.OK);
-        verify(repository).rejectClaimedPending(eq("doc-1"), anyString(), eq("tenant-admin"), any());
+        verify(repository).rejectClaimedPending(eq("doc-1"), eq("tenant-admin"), anyLong(), any(),
+                eq("tenant-admin"), any());
     }
 
     @Test
@@ -542,9 +763,10 @@ class KnowledgeDocumentServiceTest {
         var storage = mock(KnowledgeFileStorage.class);
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending));
-        when(repository.claimPendingApproval(eq("doc-1"), anyString(), any())).thenReturn(Mono.just(1L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
-        when(repository.rejectClaimedPending(eq("doc-1"), anyString(), eq("tenant-admin"), any()))
+        when(repository.claimPendingApproval(eq("doc-1"), eq("tenant-admin"), any())).thenReturn(Mono.just(1L));
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("tenant-admin"), anyLong())).thenReturn(Mono.empty());
+        when(repository.rejectClaimedPending(eq("doc-1"), eq("tenant-admin"), anyLong(), any(),
+                eq("tenant-admin"), any()))
                 .thenReturn(Mono.just(1L));
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), mock(KnowledgeCatalog.class));
 
@@ -553,8 +775,9 @@ class KnowledgeDocumentServiceTest {
 
         var order = inOrder(repository, storage);
         order.verify(repository).claimPendingApproval(eq("doc-1"), anyString(), any());
-        order.verify(storage).deleteLibraryArtifacts("doc-1");
-        order.verify(repository).rejectClaimedPending(eq("doc-1"), anyString(), eq("tenant-admin"), any());
+        order.verify(storage).deleteLibraryArtifacts(eq("doc-1"), eq("tenant-admin"), anyLong());
+        order.verify(repository).rejectClaimedPending(eq("doc-1"), eq("tenant-admin"), anyLong(), any(),
+                eq("tenant-admin"), any());
     }
 
     @Test
@@ -566,10 +789,10 @@ class KnowledgeDocumentServiceTest {
         var approved = approved(pending, "approved summary");
         claimSucceeds(repository);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending), Mono.just(approved));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), eq("approved summary"),
-                eq("platform-admin"), any()))
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong())).thenReturn(Mono.empty());
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
+                eq("approved summary"), eq("platform-admin"), any()))
                 .thenReturn(Mono.just(1L));
         when(storage.deleteTemp("doc-1")).thenReturn(Mono.empty());
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), catalog);
@@ -578,11 +801,12 @@ class KnowledgeDocumentServiceTest {
 
         assertThat(result).isEqualTo(KnowledgeDocumentService.ActionResult.OK);
         var order = inOrder(repository, storage, catalog);
-        order.verify(repository).claimPendingApproval(eq("doc-1"), anyString(), any());
-        order.verify(storage).deleteLibraryArtifacts("doc-1");
-        order.verify(storage).promoteToLib(eq("doc-1"), any(KnowledgeFileStorage.LibraryMetadata.class));
-        order.verify(repository).approveClaimedPending(eq("doc-1"), anyString(), eq("approved summary"),
-                eq("platform-admin"), any());
+        order.verify(repository).claimPendingApproval(eq("doc-1"), eq("platform-admin"), any());
+        order.verify(storage).deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong());
+        order.verify(storage).promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(),
+                any(KnowledgeFileStorage.LibraryMetadata.class));
+        order.verify(repository).approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(),
+                eq("approved summary"), eq("platform-admin"), any());
         order.verify(repository).findById("doc-1");
         order.verify(catalog).reload();
         order.verify(storage).deleteTemp("doc-1");
@@ -595,19 +819,20 @@ class KnowledgeDocumentServiceTest {
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
         claimSucceeds(repository);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending), Mono.just(pending));
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenReturn(Mono.just(0L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong())).thenReturn(Mono.empty());
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), mock(KnowledgeCatalog.class));
 
         var result = service.approve("doc-1", identity("platform-admin", null, null, true, false), null).block();
 
         assertThat(result).isEqualTo(KnowledgeDocumentService.ActionResult.CONFLICT);
-        verify(storage, times(2)).deleteLibraryArtifacts("doc-1");
+        verify(storage, times(2)).deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong());
         verify(storage, never()).deleteTemp("doc-1");
-        verify(repository).recoverPendingApprovalClaim(eq("doc-1"), anyString(), eq("uploader-summary"));
-        verify(repository).releasePendingApprovalClaim(eq("doc-1"), anyString());
+        verify(repository).recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(), eq("uploader-summary"));
+        verify(repository).releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong());
     }
 
     @Test
@@ -618,11 +843,12 @@ class KnowledgeDocumentServiceTest {
         var releaseAttempts = new AtomicInteger();
         claimSucceeds(repository);
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending));
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenReturn(Mono.just(0L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
-        when(repository.releasePendingApprovalClaim(eq("doc-1"), anyString())).thenAnswer(call ->
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong())).thenReturn(Mono.empty());
+        when(repository.releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong())).thenAnswer(call ->
                 releaseAttempts.incrementAndGet() == 1
                         ? Mono.error(new IllegalStateException("temporary database outage"))
                         : Mono.just(1L));
@@ -640,24 +866,26 @@ class KnowledgeDocumentServiceTest {
         var storage = mock(KnowledgeFileStorage.class);
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
         var releaseAttempts = new AtomicInteger();
-        var currentClaim = new AtomicReference<String>();
+        var currentVersion = new AtomicLong();
         var leaseExpired = new AtomicBoolean();
-        when(repository.claimPendingApproval(eq("doc-1"), anyString(), any())).thenAnswer(call -> {
-            String token = call.getArgument(1, String.class);
-            if (currentClaim.get() == null || leaseExpired.get()) {
-                currentClaim.set(token);
-                return Mono.just(1L);
+        when(repository.claimPendingApproval(eq("doc-1"), eq("platform-admin"), any())).thenAnswer(call -> {
+            long version = currentVersion.get() + 1;
+            if (version == 1L || leaseExpired.get()) {
+                currentVersion.set(version);
+                return Mono.just(version);
             }
             return Mono.just(0L);
         });
-        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString())).thenReturn(Mono.just(1L));
         when(repository.findById("doc-1")).thenReturn(Mono.just(pending));
-        when(storage.promoteToLib(eq("doc-1"), any())).thenReturn(Mono.empty());
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any())).thenReturn(Mono.empty());
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenReturn(Mono.just(0L));
-        when(storage.deleteLibraryArtifacts("doc-1")).thenReturn(Mono.empty());
-        when(repository.releasePendingApprovalClaim(eq("doc-1"), anyString())).thenAnswer(call -> {
-            if (!call.getArgument(1, String.class).equals(currentClaim.get())) return Mono.just(0L);
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong())).thenReturn(Mono.empty());
+        when(repository.statusForApprovalClaim(anyString(), anyString(), anyLong())).thenReturn(Mono.empty());
+        when(repository.releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong())).thenAnswer(call -> {
+            if (call.getArgument(2, Long.class) != currentVersion.get()) return Mono.just(0L);
             releaseAttempts.incrementAndGet();
             return Mono.error(new IllegalStateException("database remains unavailable"));
         });
@@ -667,19 +895,19 @@ class KnowledgeDocumentServiceTest {
                 .isEqualTo(ActionResult.CONFLICT);
 
         assertThat(releaseAttempts.get()).isEqualTo(3);
-        String failedAttempt = currentClaim.get();
-        assertThat(repository.claimPendingApproval("doc-1", "attempt-before-expiry", Duration.ofMinutes(15)).block())
+        long failedAttempt = currentVersion.get();
+        assertThat(repository.claimPendingApproval("doc-1", "platform-admin", Duration.ofMinutes(15)).block())
                 .isZero();
-        assertThat(currentClaim.get()).isEqualTo(failedAttempt);
+        assertThat(currentVersion.get()).isEqualTo(failedAttempt);
 
         leaseExpired.set(true);
-        assertThat(repository.claimPendingApproval("doc-1", "attempt-after-expiry", Duration.ofMinutes(15)).block())
-                .isEqualTo(1L);
-        assertThat(currentClaim.get()).isEqualTo("attempt-after-expiry");
-        assertThat(repository.releasePendingApprovalClaim("doc-1", failedAttempt).block()).isZero();
-        assertThat(currentClaim.get()).isEqualTo("attempt-after-expiry");
-        verify(repository).recoverPendingApprovalClaim(eq("doc-1"), anyString(), eq("uploader-summary"));
-        verify(storage, times(2)).deleteLibraryArtifacts("doc-1");
+        assertThat(repository.claimPendingApproval("doc-1", "platform-admin", Duration.ofMinutes(15)).block())
+                .isEqualTo(2L);
+        assertThat(currentVersion.get()).isEqualTo(2L);
+        assertThat(repository.releasePendingApprovalClaim("doc-1", "platform-admin", failedAttempt).block()).isZero();
+        assertThat(currentVersion.get()).isEqualTo(2L);
+        verify(repository).recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(), eq("uploader-summary"));
+        verify(storage, times(2)).deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong());
     }
 
     @Test
@@ -687,33 +915,33 @@ class KnowledgeDocumentServiceTest {
         var repository = mock(KnowledgeDocumentRepository.class);
         var storage = mock(KnowledgeFileStorage.class);
         var pending = row("doc-1", ScopeType.ORG, "tenant-a", "org-a", "uploader", Status.PENDING);
-        var claimToken = new AtomicReference<String>();
+        var currentVersion = new AtomicLong();
         var persistedStatus = new AtomicReference<>(Status.PENDING);
         var libraryVisible = new AtomicBoolean();
-        when(repository.claimPendingApproval(eq("doc-1"), anyString(), any())).thenAnswer(call -> {
-            claimToken.set(call.getArgument(1, String.class));
+        when(repository.claimPendingApproval(eq("doc-1"), eq("platform-admin"), any())).thenAnswer(call -> {
+            currentVersion.set(1L);
             return Mono.just(1L);
         });
         when(repository.findById("doc-1")).thenAnswer(call -> Mono.just(
                 persistedStatus.get() == Status.APPROVED ? approved(pending, "summary") : pending));
-        when(storage.promoteToLib(eq("doc-1"), any()))
+        when(storage.promoteToLib(eq("doc-1"), eq("platform-admin"), anyLong(), any()))
                 .thenReturn(Mono.fromRunnable(() -> libraryVisible.set(true)));
-        when(repository.approveClaimedPending(eq("doc-1"), anyString(), anyString(), eq("platform-admin"), any()))
+        when(repository.approveClaimedPending(eq("doc-1"), eq("platform-admin"), anyLong(), any(), anyString(),
+                eq("platform-admin"), any()))
                 .thenAnswer(call -> Mono.defer(() -> {
                     persistedStatus.set(Status.APPROVED);
                     return Mono.error(new IllegalStateException("write acknowledgment lost"));
                 }));
-        when(repository.recoverPendingApprovalClaim(eq("doc-1"), anyString(), eq("uploader-summary")))
+        when(repository.recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(), eq("uploader-summary")))
                 .thenAnswer(call -> {
-                    if (!call.getArgument(1, String.class).equals(claimToken.get())) return Mono.just(0L);
+                    if (call.getArgument(2, Long.class) != currentVersion.get()) return Mono.just(0L);
                     persistedStatus.set(Status.PENDING);
                     return Mono.just(1L);
                 });
-        when(storage.deleteLibraryArtifacts("doc-1"))
+        when(storage.deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong()))
                 .thenReturn(Mono.fromRunnable(() -> libraryVisible.set(false)));
-        when(repository.releasePendingApprovalClaim(eq("doc-1"), anyString())).thenAnswer(call -> {
-            if (!call.getArgument(1, String.class).equals(claimToken.get())) return Mono.just(0L);
-            claimToken.set(null);
+        when(repository.releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong())).thenAnswer(call -> {
+            if (call.getArgument(2, Long.class) != currentVersion.get()) return Mono.just(0L);
             return Mono.just(1L);
         });
         var service = service(repository, storage, mock(TenantLlmClientResolver.class), mock(KnowledgeCatalog.class));
@@ -723,12 +951,13 @@ class KnowledgeDocumentServiceTest {
                 .verify();
 
         var order = inOrder(repository, storage);
-        order.verify(repository).recoverPendingApprovalClaim(eq("doc-1"), anyString(), eq("uploader-summary"));
-        order.verify(storage).deleteLibraryArtifacts("doc-1");
-        order.verify(repository).releasePendingApprovalClaim(eq("doc-1"), anyString());
+        order.verify(repository).recoverPendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong(),
+                eq("uploader-summary"));
+        order.verify(storage).deleteLibraryArtifacts(eq("doc-1"), eq("platform-admin"), anyLong());
+        order.verify(repository).releasePendingApprovalClaim(eq("doc-1"), eq("platform-admin"), anyLong());
         assertThat(persistedStatus.get()).isEqualTo(Status.PENDING);
         assertThat(libraryVisible.get()).isFalse();
-        assertThat(claimToken.get()).isNull();
+        assertThat(currentVersion.get()).isEqualTo(1L);
     }
 
     private static KnowledgeDocumentService service(KnowledgeDocumentRepository repository,
@@ -747,8 +976,8 @@ class KnowledgeDocumentServiceTest {
 
     private static void claimSucceeds(KnowledgeDocumentRepository repository) {
         when(repository.claimPendingApproval(anyString(), anyString(), any())).thenReturn(Mono.just(1L));
-        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyString())).thenReturn(Mono.just(1L));
-        when(repository.releasePendingApprovalClaim(anyString(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.recoverPendingApprovalClaim(anyString(), anyString(), anyLong(), anyString())).thenReturn(Mono.just(1L));
+        when(repository.releasePendingApprovalClaim(anyString(), anyString(), anyLong())).thenReturn(Mono.just(1L));
     }
 
     private static TenantLlmClientResolver resolverReturningSummary(String summary) {

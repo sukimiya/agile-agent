@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.knowledge;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +44,7 @@ class KnowledgeDocumentRepositoryTest {
                 .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
                 .build();
         var connectionFactory = ConnectionFactories.get(options);
-        repository = new KnowledgeDocumentRepository(DatabaseClient.create(connectionFactory));
+        repository = new KnowledgeDocumentRepository(DatabaseClient.create(connectionFactory), connectionFactory);
     }
 
     private static KnowledgeDocumentRow newRow(String id, Status status) {
@@ -51,6 +52,8 @@ class KnowledgeDocumentRepositoryTest {
                 status, "摘要", "user-1", LocalDateTime.now(), null, null,
                 ScopeType.GLOBAL, null, null, null, null);
     }
+
+    private static final Duration CLAIM_LEASE = Duration.ofMinutes(15);
 
     @Test
     void findByIdOnUnknownIdReturnsEmpty() {
@@ -142,10 +145,10 @@ class KnowledgeDocumentRepositoryTest {
     @Test
     void approveClaimedPendingUpdatesRowAndReturnsOneWhenPending() {
         repository.insert(newRow("k1", Status.PENDING)).block();
-        repository.claimPendingApproval("k1", "attempt-a").block();
+        var version = repository.claimPendingApproval("k1", "admin-1", CLAIM_LEASE).block();
 
         var updated = repository.approveClaimedPending(
-                "k1", "attempt-a", "新摘要", "admin-1", LocalDateTime.now()).block();
+                "k1", "admin-1", version, CLAIM_LEASE, "新摘要", "admin-1", LocalDateTime.now()).block();
 
         assertThat(updated).isEqualTo(1L);
         var row = repository.findById("k1").block();
@@ -153,6 +156,8 @@ class KnowledgeDocumentRepositoryTest {
         assertThat(row.summary()).isEqualTo("新摘要");
         assertThat(row.reviewedByUserId()).isEqualTo("admin-1");
         assertThat(row.reviewedAt()).isNotNull();
+        assertThat(repository.findApprovedArtifactPointers().collectList().block())
+                .containsExactly(new KnowledgeDocumentRepository.ApprovedArtifactPointer("k1", "admin-1", version));
     }
 
     @Test
@@ -160,7 +165,7 @@ class KnowledgeDocumentRepositoryTest {
         repository.insert(newRow("k1", Status.APPROVED)).block();
 
         var updated = repository.approveClaimedPending(
-                "k1", "attempt-a", "新摘要", "admin-1", LocalDateTime.now()).block();
+                "k1", "admin-1", 1L, CLAIM_LEASE, "新摘要", "admin-1", LocalDateTime.now()).block();
 
         assertThat(updated).isZero();
     }
@@ -168,9 +173,10 @@ class KnowledgeDocumentRepositoryTest {
     @Test
     void approveClaimedPendingCoercesNullSummaryToEmptyString() {
         repository.insert(newRow("k1", Status.PENDING)).block();
-        repository.claimPendingApproval("k1", "attempt-a").block();
+        var version = repository.claimPendingApproval("k1", "admin-1", CLAIM_LEASE).block();
 
-        repository.approveClaimedPending("k1", "attempt-a", null, "admin-1", LocalDateTime.now()).block();
+        repository.approveClaimedPending("k1", "admin-1", version, CLAIM_LEASE,
+                null, "admin-1", LocalDateTime.now()).block();
 
         var row = repository.findById("k1").block();
         assertThat(row.summary()).isEmpty();
@@ -180,10 +186,11 @@ class KnowledgeDocumentRepositoryTest {
     void recoverPendingApprovalClaimRestoresPendingStateAndOriginalSummary() {
         var reviewedAt = LocalDateTime.of(2026, 10, 10, 12, 30, 15, 123_456_000);
         repository.insert(newRow("k1", Status.PENDING)).block();
-        repository.claimPendingApproval("k1", "attempt-a").block();
-        repository.approveClaimedPending("k1", "attempt-a", "override", "admin-1", reviewedAt).block();
+        var version = repository.claimPendingApproval("k1", "admin-1", CLAIM_LEASE).block();
+        repository.approveClaimedPending("k1", "admin-1", version, CLAIM_LEASE,
+                "override", "admin-1", reviewedAt).block();
 
-        var reverted = repository.recoverPendingApprovalClaim("k1", "attempt-a", "摘要").block();
+        var reverted = repository.recoverPendingApprovalClaim("k1", "admin-1", version, "摘要").block();
 
         assertThat(reverted).isEqualTo(1L);
         var row = repository.findById("k1").block();
@@ -197,10 +204,11 @@ class KnowledgeDocumentRepositoryTest {
     void recoveryWithDifferentClaimDoesNotUndoApproval() {
         var reviewedAt = LocalDateTime.of(2026, 10, 10, 12, 30, 15, 123_456_000);
         repository.insert(newRow("k1", Status.PENDING)).block();
-        repository.claimPendingApproval("k1", "attempt-a").block();
-        repository.approveClaimedPending("k1", "attempt-a", "override", "admin-1", reviewedAt).block();
+        var version = repository.claimPendingApproval("k1", "admin-1", CLAIM_LEASE).block();
+        repository.approveClaimedPending("k1", "admin-1", version, CLAIM_LEASE,
+                "override", "admin-1", reviewedAt).block();
 
-        var reverted = repository.recoverPendingApprovalClaim("k1", "attempt-b", "摘要").block();
+        var reverted = repository.recoverPendingApprovalClaim("k1", "admin-2", version, "摘要").block();
 
         assertThat(reverted).isZero();
         assertThat(repository.findById("k1").block().status()).isEqualTo(Status.APPROVED);
@@ -231,10 +239,11 @@ class KnowledgeDocumentRepositoryTest {
     void statusTransitionsPreserveScopeMetadata() {
         repository.insert(scopedRow("org-transition", ScopeType.ORG,
                 "tenant-1", "Tenant One", "org-1", null)).block();
-        repository.claimPendingApproval("org-transition", "attempt-a").block();
+        var version = repository.claimPendingApproval("org-transition", "admin-1", CLAIM_LEASE).block();
 
         repository.approveClaimedPending(
-                "org-transition", "attempt-a", "摘要", "admin-1", LocalDateTime.now()).block();
+                "org-transition", "admin-1", version, CLAIM_LEASE,
+                "摘要", "admin-1", LocalDateTime.now()).block();
 
         var row = repository.findById("org-transition").block();
         assertThat(row.status()).isEqualTo(Status.APPROVED);
@@ -245,15 +254,15 @@ class KnowledgeDocumentRepositoryTest {
     }
 
     @Test
-    void approvalClaimSerializesAttemptsAndEveryTransitionRequiresExactToken() {
+    void approvalClaimUsesOwnerAndMonotonicVersionForEveryTransition() {
         repository.insert(newRow("claim", Status.PENDING)).block();
 
-        assertThat(repository.claimPendingApproval("claim", "attempt-a").block()).isEqualTo(1L);
-        assertThat(repository.claimPendingApproval("claim", "attempt-b").block()).isZero();
-        assertThat(repository.statusForApprovalClaim("claim", "attempt-b").blockOptional()).isEmpty();
-        assertThat(repository.statusForApprovalClaim("claim", "attempt-a").block())
+        assertThat(repository.claimPendingApproval("claim", "reviewer-a", CLAIM_LEASE).block()).isEqualTo(1L);
+        assertThat(repository.claimPendingApproval("claim", "reviewer-b", CLAIM_LEASE).block()).isZero();
+        assertThat(repository.statusForApprovalClaim("claim", "reviewer-b", 1L).blockOptional()).isEmpty();
+        assertThat(repository.statusForApprovalClaim("claim", "reviewer-a", 1L).block())
                 .isEqualTo(Status.PENDING);
-        assertThat(repository.recoverPendingApprovalClaim("claim", "attempt-a", "original summary").block())
+        assertThat(repository.recoverPendingApprovalClaim("claim", "reviewer-a", 1L, "original summary").block())
                 .isEqualTo(1L);
         assertThat(repository.findById("claim").block()).satisfies(row -> {
             assertThat(row.status()).isEqualTo(Status.PENDING);
@@ -261,20 +270,22 @@ class KnowledgeDocumentRepositoryTest {
         });
         assertThat(repository.rejectIfPending("claim", "admin", LocalDateTime.now()).block()).isZero();
 
-        assertThat(repository.approveClaimedPending("claim", "attempt-b", "summary", "admin",
-                LocalDateTime.now()).block()).isZero();
-        assertThat(repository.approveClaimedPending("claim", "attempt-a", "summary", "admin",
-                LocalDateTime.now()).block()).isEqualTo(1L);
-        assertThat(repository.statusForApprovalClaim("claim", "attempt-a").block())
+        assertThat(repository.approveClaimedPending("claim", "reviewer-b", 1L, CLAIM_LEASE,
+                "summary", "admin", LocalDateTime.now()).block()).isZero();
+        assertThat(repository.approveClaimedPending("claim", "reviewer-a", 1L, CLAIM_LEASE,
+                "summary", "admin", LocalDateTime.now()).block()).isEqualTo(1L);
+        assertThat(repository.statusForApprovalClaim("claim", "reviewer-a", 1L).block())
                 .isEqualTo(Status.APPROVED);
-        assertThat(repository.recoverPendingApprovalClaim("claim", "attempt-b", "original summary").block()).isZero();
-        assertThat(repository.recoverPendingApprovalClaim("claim", "attempt-a", "original summary").block())
+        assertThat(repository.recoverPendingApprovalClaim("claim", "reviewer-b", 1L,
+                "original summary").block()).isZero();
+        assertThat(repository.recoverPendingApprovalClaim("claim", "reviewer-a", 1L,
+                "original summary").block())
                 .isEqualTo(1L);
 
         assertThat(repository.findById("claim").block().status()).isEqualTo(Status.PENDING);
-        assertThat(repository.releasePendingApprovalClaim("claim", "attempt-b").block()).isZero();
-        assertThat(repository.releasePendingApprovalClaim("claim", "attempt-a").block()).isEqualTo(1L);
-        assertThat(repository.claimPendingApproval("claim", "attempt-b").block()).isEqualTo(1L);
+        assertThat(repository.releasePendingApprovalClaim("claim", "reviewer-b", 1L).block()).isZero();
+        assertThat(repository.releasePendingApprovalClaim("claim", "reviewer-a", 1L).block()).isEqualTo(1L);
+        assertThat(repository.claimPendingApproval("claim", "reviewer-a", CLAIM_LEASE).block()).isEqualTo(2L);
     }
 
     @Test
@@ -282,58 +293,92 @@ class KnowledgeDocumentRepositoryTest {
         repository.insert(newRow("concurrent-claim", Status.PENDING)).block();
 
         var claims = Flux.merge(
-                repository.claimPendingApproval("concurrent-claim", "attempt-a").subscribeOn(Schedulers.parallel()),
-                repository.claimPendingApproval("concurrent-claim", "attempt-b").subscribeOn(Schedulers.parallel()))
+                repository.claimPendingApproval("concurrent-claim", "reviewer-a", CLAIM_LEASE)
+                        .subscribeOn(Schedulers.parallel()),
+                repository.claimPendingApproval("concurrent-claim", "reviewer-b", CLAIM_LEASE)
+                        .subscribeOn(Schedulers.parallel()))
                 .collectList().block();
 
         assertThat(claims).containsExactlyInAnyOrder(0L, 1L);
-        assertThat(repository.statusForApprovalClaim("concurrent-claim", "attempt-a").blockOptional().isPresent()
-                ^ repository.statusForApprovalClaim("concurrent-claim", "attempt-b").blockOptional().isPresent())
+        assertThat(repository.statusForApprovalClaim("concurrent-claim", "reviewer-a", 1L)
+                .blockOptional().isPresent()
+                ^ repository.statusForApprovalClaim("concurrent-claim", "reviewer-b", 1L)
+                        .blockOptional().isPresent())
                 .isTrue();
     }
 
     @Test
-    void unexpiredApprovalClaimCannotBeStolen() {
+    void unexpiredApprovalClaimCannotBeStolenEvenByTheSameReviewer() {
         repository.insert(newRow("active-claim", Status.PENDING)).block();
-        assertThat(repository.claimPendingApproval("active-claim", "attempt-a").block()).isEqualTo(1L);
+        assertThat(repository.claimPendingApproval("active-claim", "same-reviewer", CLAIM_LEASE).block())
+                .isEqualTo(1L);
 
-        assertThat(repository.claimPendingApproval("active-claim", "attempt-b").block()).isZero();
-        assertThat(repository.statusForApprovalClaim("active-claim", "attempt-a").block())
+        assertThat(repository.claimPendingApproval("active-claim", "same-reviewer", CLAIM_LEASE).block()).isZero();
+        assertThat(repository.statusForApprovalClaim("active-claim", "same-reviewer", 1L).block())
                 .isEqualTo(Status.PENDING);
-        assertThat(repository.statusForApprovalClaim("active-claim", "attempt-b").blockOptional()).isEmpty();
     }
 
     @Test
-    void expiredApprovalClaimCanBeRecoveredByAStaleApprovalOrRejectAttempt() {
+    void expiredApprovalClaimIsTakenOverByNewVersionAndRejectFencesOldVersion() {
         repository.insert(newRow("expired-claim", Status.PENDING)).block();
-        assertThat(repository.claimPendingApproval("expired-claim", "attempt-a").block()).isEqualTo(1L);
+        assertThat(repository.claimPendingApproval("expired-claim", "same-reviewer", CLAIM_LEASE).block())
+                .isEqualTo(1L);
         jdbc.update("UPDATE knowledge_documents SET approval_claimed_at = TIMESTAMP '2000-01-01 00:00:00' "
                 + "WHERE id = ?", "expired-claim");
 
-        assertThat(repository.claimPendingApproval("expired-claim", "attempt-b").block()).isEqualTo(1L);
-        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-a").blockOptional()).isEmpty();
-        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-b").block())
+        assertThat(repository.claimPendingApproval("expired-claim", "same-reviewer", CLAIM_LEASE).block())
+                .isEqualTo(2L);
+        assertThat(repository.statusForApprovalClaim("expired-claim", "same-reviewer", 1L).blockOptional()).isEmpty();
+        assertThat(repository.statusForApprovalClaim("expired-claim", "same-reviewer", 2L).block())
                 .isEqualTo(Status.PENDING);
-        assertThat(repository.rejectClaimedPending("expired-claim", "attempt-a", "admin",
-                LocalDateTime.now()).block()).isZero();
-        assertThat(repository.releasePendingApprovalClaim("expired-claim", "attempt-a").block()).isZero();
-        assertThat(repository.rejectClaimedPending("expired-claim", "attempt-b", "admin",
-                LocalDateTime.now()).block()).isEqualTo(1L);
+        assertThat(repository.rejectClaimedPending("expired-claim", "same-reviewer", 1L, CLAIM_LEASE,
+                "admin", LocalDateTime.now()).block()).isZero();
+        assertThat(repository.releasePendingApprovalClaim("expired-claim", "same-reviewer", 1L).block()).isZero();
+        assertThat(repository.rejectClaimedPending("expired-claim", "same-reviewer", 2L, CLAIM_LEASE,
+                "admin", LocalDateTime.now()).block()).isEqualTo(1L);
         assertThat(repository.findById("expired-claim").block().status()).isEqualTo(Status.REJECTED);
-        assertThat(repository.statusForApprovalClaim("expired-claim", "attempt-b").blockOptional()).isEmpty();
+        assertThat(repository.statusForApprovalClaim("expired-claim", "same-reviewer", 2L).block())
+                .isEqualTo(Status.REJECTED);
     }
 
     @Test
-    void rejectClaimedPendingRequiresTheCurrentOwnerAndClearsTheLease() {
-        repository.insert(newRow("reject-claim", Status.PENDING)).block();
-        assertThat(repository.claimPendingApproval("reject-claim", "attempt-a").block()).isEqualTo(1L);
+    void staleSameReviewerVersionCannotApproveOrBecomeCatalogPointer() {
+        repository.insert(newRow("stale-version", Status.PENDING)).block();
+        assertThat(repository.claimPendingApproval("stale-version", "same-reviewer", CLAIM_LEASE).block())
+                .isEqualTo(1L);
+        jdbc.update("UPDATE knowledge_documents SET approval_claimed_at = TIMESTAMP '2000-01-01 00:00:00' "
+                + "WHERE id = ?", "stale-version");
+        assertThat(repository.claimPendingApproval("stale-version", "same-reviewer", CLAIM_LEASE).block())
+                .isEqualTo(2L);
 
-        assertThat(repository.rejectClaimedPending("reject-claim", "attempt-b", "admin",
-                LocalDateTime.now()).block()).isZero();
-        assertThat(repository.rejectClaimedPending("reject-claim", "attempt-a", "admin",
-                LocalDateTime.now()).block()).isEqualTo(1L);
+        assertThat(repository.approveClaimedPending("stale-version", "same-reviewer", 1L, CLAIM_LEASE,
+                "stale", "same-reviewer", LocalDateTime.now()).block()).isZero();
+        assertThat(repository.findApprovedArtifactPointers().collectList().block()).isEmpty();
+        assertThat(repository.approveClaimedPending("stale-version", "same-reviewer", 2L, CLAIM_LEASE,
+                "current", "same-reviewer", LocalDateTime.now()).block()).isEqualTo(1L);
+
+        assertThat(repository.findApprovedArtifactPointers().collectList().block())
+                .containsExactly(new KnowledgeDocumentRepository.ApprovedArtifactPointer(
+                        "stale-version", "same-reviewer", 2L));
+        assertThat(repository.recoverPendingApprovalClaim("stale-version", "same-reviewer", 1L, "old").block())
+                .isZero();
+        assertThat(repository.findById("stale-version").block().status()).isEqualTo(Status.APPROVED);
+    }
+
+    @Test
+    void rejectedRowRetainsOwnerAndGenerationAsAuditState() {
+        repository.insert(newRow("reject-claim", Status.PENDING)).block();
+        assertThat(repository.claimPendingApproval("reject-claim", "reviewer-a", CLAIM_LEASE).block())
+                .isEqualTo(1L);
+
+        assertThat(repository.rejectClaimedPending("reject-claim", "reviewer-b", 1L, CLAIM_LEASE,
+                "admin", LocalDateTime.now()).block()).isZero();
+        assertThat(repository.rejectClaimedPending("reject-claim", "reviewer-a", 1L, CLAIM_LEASE,
+                "admin", LocalDateTime.now()).block()).isEqualTo(1L);
         assertThat(repository.findById("reject-claim").block().status()).isEqualTo(Status.REJECTED);
-        assertThat(repository.statusForApprovalClaim("reject-claim", "attempt-a").blockOptional()).isEmpty();
+        assertThat(repository.statusForApprovalClaim("reject-claim", "reviewer-a", 1L).block())
+                .isEqualTo(Status.REJECTED);
+        assertThat(repository.findApprovedArtifactPointers().collectList().block()).isEmpty();
     }
 
     private static KnowledgeDocumentRow scopedRow(String id, ScopeType scopeType,

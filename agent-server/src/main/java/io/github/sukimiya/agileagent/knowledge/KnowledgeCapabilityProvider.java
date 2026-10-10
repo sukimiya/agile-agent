@@ -59,8 +59,7 @@ public class KnowledgeCapabilityProvider implements AgentCapabilityProvider {
 
     @Override
     public Mono<CapabilityDefinition> definition(AgentExecutionContext context) {
-        return Mono.fromSupplier(() -> {
-            String index = catalog.compactIndex();
+        return catalog.compactIndex().map(index -> {
             return new CapabilityDefinition(PROMPT_TEMPLATE.formatted(index), List.of(readTool(index)));
         });
     }

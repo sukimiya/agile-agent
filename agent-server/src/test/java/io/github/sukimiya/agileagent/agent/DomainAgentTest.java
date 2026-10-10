@@ -51,7 +51,8 @@ class DomainAgentTest {
     void knowledgeToolReadsDocumentThenCompletes() {
         LlmClient llm = mock(LlmClient.class);
         KnowledgeCatalog catalog = mock(KnowledgeCatalog.class);
-        when(catalog.compactIndex()).thenReturn("doc-1 | Stage API | stage 对象用法\n");
+        when(catalog.compactIndex()).thenReturn(reactor.core.publisher.Mono.just(
+                "doc-1 | Stage API | stage 对象用法\n"));
         when(catalog.content("doc-1")).thenReturn(Mono.just("# Stage API\nstage.set(key, value)"));
         var toolCall = new LlmClient.ToolCall("call_1", "readKnowledgeDoc", "{\"id\":\"doc-1\"}");
         when(llm.chatStream(any(), any()))
