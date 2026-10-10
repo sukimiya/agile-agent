@@ -241,6 +241,46 @@ class TenantLlmClientResolverTest {
         }
     }
 
+    @Test
+    void concurrentTenantRequestsUseOnlyTheirOwnResolvedProviderConfiguration() throws Exception {
+        try (var serverA = new MockWebServer(); var serverB = new MockWebServer()) {
+            serverA.enqueue(new MockResponse()
+                    .addHeader("Content-Type", "text/event-stream")
+                    .setBody("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"));
+            serverB.enqueue(new MockResponse()
+                    .addHeader("Content-Type", "text/event-stream")
+                    .setBody("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"));
+            serverA.start();
+            serverB.start();
+
+            var fixture = new Fixture();
+            fixture.add("tenant-a", "preset-a", serverA.url("/tenant-a/v1").toString(), "tenant-model-a", "key-tenant-a");
+            fixture.add("tenant-b", "preset-b", serverB.url("/tenant-b/v1").toString(), "tenant-model-b", "key-tenant-b");
+            var clientA = fixture.resolver.resolve("tenant-a").block();
+            var clientB = fixture.resolver.resolve("tenant-b").block();
+
+            Mono.when(
+                    clientA.chatStream(java.util.List.of(Message.user("hello-a")), java.util.List.of()).then(),
+                    clientB.chatStream(java.util.List.of(Message.user("hello-b")), java.util.List.of()).then())
+                    .block(Duration.ofSeconds(5));
+
+            var requestA = serverA.takeRequest(2, TimeUnit.SECONDS);
+            var requestB = serverB.takeRequest(2, TimeUnit.SECONDS);
+            assertThat(requestA).isNotNull();
+            assertThat(requestB).isNotNull();
+            assertThat(requestA.getMethod()).isEqualTo("POST");
+            assertThat(requestA.getPath()).isEqualTo("/tenant-a/v1/chat/completions");
+            assertThat(requestA.getHeader("Authorization")).isEqualTo("Bearer key-tenant-a");
+            assertThat(requestA.getBody().readUtf8()).contains("\"model\":\"tenant-model-a\"");
+            assertThat(requestB.getMethod()).isEqualTo("POST");
+            assertThat(requestB.getPath()).isEqualTo("/tenant-b/v1/chat/completions");
+            assertThat(requestB.getHeader("Authorization")).isEqualTo("Bearer key-tenant-b");
+            assertThat(requestB.getBody().readUtf8()).contains("\"model\":\"tenant-model-b\"");
+            assertThat(serverA.getRequestCount()).isEqualTo(1);
+            assertThat(serverB.getRequestCount()).isEqualTo(1);
+        }
+    }
+
     private static TenantLlmConfigRepository.TenantLlmConfigRow config(String tenant, String preset, String encrypted) {
         return new TenantLlmConfigRepository.TenantLlmConfigRow("id-" + tenant, tenant, preset, encrypted, NOW, NOW);
     }
