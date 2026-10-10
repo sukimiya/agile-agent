@@ -5,8 +5,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 
@@ -68,14 +70,53 @@ public class KnowledgeCatalog {
         return List.copyOf(result);
     }
 
-    private KnowledgeEntry parseEntry(String id, String owner, long version, Path metaFile) {
+    private KnowledgeEntry parseEntry(ApprovedArtifactPointer pointer, Path metaFile) {
         try {
             var node = json.readTree(Files.readString(metaFile, StandardCharsets.UTF_8));
-            return new KnowledgeEntry(id, node.path("title").asText(""),
-                    node.path("summary").asText(""), owner, version);
+            if (node == null || !node.isObject()
+                    || !hasNonblankText(node, "title")
+                    || !hasText(node, "summary")
+                    || !hasNonblankText(node, "approvedBy")
+                    || !hasNonblankText(node, "approvedAt")
+                    || !hasNonblankText(node, "scopeType")
+                    || !hasNullableText(node, "tenantId")
+                    || !hasNullableText(node, "tenantName")
+                    || !hasNullableText(node, "orgId")
+                    || !hasNullableText(node, "orgName")) {
+                return null;
+            }
+            if (!pointer.owner().equals(node.path("approvedBy").asText())) {
+                return null;
+            }
+            var scopeType = KnowledgeDocumentRepository.KnowledgeDocumentRow.ScopeType.valueOf(
+                    node.path("scopeType").asText());
+            if (scopeType != pointer.scopeType()
+                    || !Objects.equals(nullableText(node, "tenantId"), pointer.tenantId())
+                    || !Objects.equals(nullableText(node, "orgId"), pointer.orgId())) {
+                return null;
+            }
+            LocalDateTime.parse(node.path("approvedAt").asText());
+            return new KnowledgeEntry(pointer.id(), node.path("title").asText(),
+                    node.path("summary").asText(), pointer.owner(), pointer.version());
         } catch (IOException | RuntimeException e) {
-            throw new IllegalStateException("failed to read approved knowledge metadata");
+            return null;
         }
+    }
+
+    private static boolean hasNonblankText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.has(field) && node.get(field).isTextual() && !node.get(field).asText().isBlank();
+    }
+
+    private static boolean hasText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.has(field) && node.get(field).isTextual();
+    }
+
+    private static boolean hasNullableText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.has(field) && (node.get(field).isNull() || node.get(field).isTextual());
+    }
+
+    private static String nullableText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.get(field).isNull() ? null : node.get(field).asText();
     }
 
     public Mono<String> compactIndex(IdentityContext identity) {
@@ -105,7 +146,10 @@ public class KnowledgeCatalog {
                 || Files.isSymbolicLink(markdownFile)) {
             return null;
         }
-        var entry = parseEntry(pointer.id(), pointer.owner(), pointer.version(), metaFile);
+        var entry = parseEntry(pointer, metaFile);
+        if (entry == null) {
+            return null;
+        }
         var content = readContent(pointer);
         return content.isEmpty() ? null : new ApprovedArtifact(entry, content);
     }

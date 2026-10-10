@@ -51,7 +51,7 @@ class ReactiveChainBlockHoundTest {
         String knowledgeId = "00000000-0000-0000-0000-000000000001";
         Files.writeString(libDir.resolve(knowledgeId + ".v1.md"), "# Stage API\nstage.set(key, value)", StandardCharsets.UTF_8);
         Files.writeString(libDir.resolve(knowledgeId + ".v1.meta.json"),
-                "{\"title\":\"Stage API\",\"summary\":\"stage 用法\"}", StandardCharsets.UTF_8);
+                "{\"title\":\"Stage API\",\"summary\":\"stage 用法\",\"approvedBy\":\"reviewer-1\",\"approvedAt\":\"2026-07-28T10:00:00\",\"scopeType\":\"GLOBAL\",\"tenantId\":null,\"tenantName\":null,\"orgId\":null,\"orgName\":null}", StandardCharsets.UTF_8);
         var knowledgeProps = new KnowledgeProperties();
         knowledgeProps.setLibDir(libDir.toString());
         var knowledgeRepository = mock(io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.class);

@@ -43,8 +43,22 @@ class KnowledgeCatalogTest {
     private void writeDoc(Path libDir, String title, String summary, String content) throws Exception {
         Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".md"), content, StandardCharsets.UTF_8);
         Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".meta.json"), """
-                {"title":"%s","summary":"%s","approvedBy":"u1","approvedAt":"2026-07-28T10:00:00"}
-                """.formatted(title, summary), StandardCharsets.UTF_8);
+                {"title":"%s","summary":"%s","approvedBy":"%s","approvedAt":"2026-07-28T10:00:00",
+                 "scopeType":"GLOBAL","tenantId":null,"tenantName":null,"orgId":null,"orgName":null}
+                """.formatted(title, summary, OWNER), StandardCharsets.UTF_8);
+    }
+
+    private void writeMetadata(Path libDir, ApprovedArtifactPointer pointer, String title, String summary)
+            throws Exception {
+        Files.writeString(libDir.resolve(pointer.id() + ".v" + pointer.version() + ".meta.json"), """
+                {"title":"%s","summary":"%s","approvedBy":"%s","approvedAt":"2026-07-28T10:00:00",
+                 "scopeType":"%s","tenantId":%s,"tenantName":null,"orgId":%s,"orgName":null}
+                """.formatted(title, summary, OWNER, pointer.scopeType(), jsonString(pointer.tenantId()),
+                        jsonString(pointer.orgId())), StandardCharsets.UTF_8);
+    }
+
+    private static String jsonString(String value) {
+        return value == null ? "null" : "\"" + value + "\"";
     }
 
     @Test
@@ -142,16 +156,14 @@ class KnowledgeCatalogTest {
     }
 
     @Test
-    void compactIndexDoesNotExposeMetadataPathWhenApprovedMetadataIsMalformed(@TempDir Path libDir) throws Exception {
+    void malformedMetadataDoesNotExposeCauseOrContent(@TempDir Path libDir) throws Exception {
         Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".md"), "content", StandardCharsets.UTF_8);
         Files.writeString(libDir.resolve(ID + ".v" + VERSION + ".meta.json"), "{bad json",
                 StandardCharsets.UTF_8);
         var catalog = catalog(libDir, List.of(globalPointer(ID, OWNER, VERSION)));
 
-        assertThatThrownBy(() -> catalog.compactIndex(IDENTITY).block()).satisfies(error -> {
-            assertThat(error.getMessage()).isEqualTo("failed to read approved knowledge metadata");
-            assertThat(error.getMessage()).doesNotContain(libDir.toString());
-        });
+        assertThat(catalog.compactIndex(IDENTITY).block()).isEmpty();
+        assertThat(catalog.content(ID, IDENTITY).block()).isEmpty();
     }
 
     @Test
@@ -184,9 +196,7 @@ class KnowledgeCatalogTest {
         for (var pointer : pointers) {
             Files.writeString(libDir.resolve(pointer.id() + ".v" + pointer.version() + ".md"),
                     pointer.id().endsWith("016") ? "" : "content-" + pointer.id(), StandardCharsets.UTF_8);
-            Files.writeString(libDir.resolve(pointer.id() + ".v" + pointer.version() + ".meta.json"),
-                    "{\"title\":\"" + pointer.id() + "\",\"summary\":\"summary\"}",
-                    StandardCharsets.UTF_8);
+            writeMetadata(libDir, pointer, pointer.id(), "summary");
         }
         var catalog = catalog(libDir, pointers);
         var identity = identity("tenant-1", Set.of("org-shared"));
@@ -208,8 +218,7 @@ class KnowledgeCatalogTest {
         Files.createDirectories(libDir);
         var pointer = document("00000000-0000-0000-0000-000000000020", ScopeType.TENANT, "tenant-1", null);
         Files.writeString(libDir.resolve(pointer.id() + ".v" + pointer.version() + ".md"), "tenant content");
-        Files.writeString(libDir.resolve(pointer.id() + ".v" + pointer.version() + ".meta.json"),
-                "{\"title\":\"Tenant\",\"summary\":\"summary\"}");
+        writeMetadata(libDir, pointer, "Tenant", "summary");
         var catalog = catalog(libDir, List.of(pointer));
 
         assertThat(catalog.compactIndex(identity("tenant-1", Set.of())).block()).contains(pointer.id() + " |");
@@ -226,6 +235,52 @@ class KnowledgeCatalogTest {
 
         assertThat(catalog.compactIndex(IDENTITY).block()).isEmpty();
         assertThat(catalog.content(pointer.id(), IDENTITY).block()).isEmpty();
+    }
+
+    @Test
+    void malformedMetadataFailsClosedForIndexAndDirectReads(@TempDir Path libDir) throws Exception {
+        Files.createDirectories(libDir);
+        String validMetadata = """
+                {"title":"Title","summary":"Summary","approvedBy":"reviewer-1",
+                 "approvedAt":"2026-07-28T10:00:00","scopeType":"GLOBAL",
+                 "tenantId":null,"tenantName":null,"orgId":null,"orgName":null}
+                """;
+        var invalidMetadata = List.of(
+                "{bad json",
+                "{}",
+                "[]",
+                validMetadata.replace("\"title\":\"Title\",", ""),
+                validMetadata.replace("\"summary\":\"Summary\",", ""),
+                validMetadata.replace("\"approvedBy\":\"reviewer-1\",", ""),
+                validMetadata.replace("\"approvedAt\":\"2026-07-28T10:00:00\",", ""),
+                validMetadata.replace("\"scopeType\":\"GLOBAL\",", ""),
+                validMetadata.replace("\"tenantId\":null,", ""),
+                validMetadata.replace("\"tenantName\":null,", ""),
+                validMetadata.replace("\"orgId\":null,", ""),
+                validMetadata.replace(",\"orgName\":null", ""));
+        var pointers = new java.util.ArrayList<ApprovedArtifactPointer>();
+        for (int i = 0; i < invalidMetadata.size(); i++) {
+            String id = "00000000-0000-0000-0000-%012d".formatted(100 + i);
+            var pointer = globalPointer(id, OWNER, VERSION);
+            pointers.add(pointer);
+            Files.writeString(libDir.resolve(id + ".v" + VERSION + ".md"), "content-" + i);
+            Files.writeString(libDir.resolve(id + ".v" + VERSION + ".meta.json"), invalidMetadata.get(i));
+        }
+        String validId = "00000000-0000-0000-0000-000000000199";
+        var validPointer = globalPointer(validId, OWNER, VERSION);
+        pointers.add(validPointer);
+        Files.writeString(libDir.resolve(validId + ".v" + VERSION + ".md"), "valid content");
+        Files.writeString(libDir.resolve(validId + ".v" + VERSION + ".meta.json"), validMetadata);
+        var catalog = catalog(libDir, pointers);
+
+        String index = catalog.compactIndex(IDENTITY).block();
+
+        assertThat(index).contains(validId + " |");
+        for (var pointer : pointers.subList(0, invalidMetadata.size())) {
+            assertThat(index).doesNotContain(pointer.id() + " |");
+            assertThat(catalog.content(pointer.id(), IDENTITY).block()).isEmpty();
+        }
+        assertThat(catalog.content(validId, IDENTITY).block()).isEqualTo("valid content");
     }
 
     private static ApprovedArtifactPointer document(
