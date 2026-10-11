@@ -5,8 +5,8 @@ CREATE TABLE llm_provider_preset (
     model VARCHAR(255) NOT NULL,
     balance_path VARCHAR(500),
     created_by_subject VARCHAR(255) NOT NULL,
-    created_at DATETIME(6) NOT NULL,
-    updated_at DATETIME(6) NOT NULL
+    created_at TIMESTAMP(6) NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL
 );
 
 CREATE INDEX idx_llm_provider_preset_name ON llm_provider_preset (name);

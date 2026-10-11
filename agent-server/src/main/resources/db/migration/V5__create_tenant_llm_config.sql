@@ -3,8 +3,8 @@ CREATE TABLE tenant_llm_config (
     tenant_id VARCHAR(128) NOT NULL,
     preset_id VARCHAR(64) NOT NULL,
     api_key_encrypted TEXT NOT NULL,
-    created_at DATETIME(6) NOT NULL,
-    updated_at DATETIME(6) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL,
+    updated_at TIMESTAMP(6) NOT NULL,
     CONSTRAINT uq_tenant_llm_config_tenant_id UNIQUE (tenant_id)
 );
 
