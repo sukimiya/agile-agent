@@ -22,6 +22,13 @@ import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.TestAuthUsers;
 
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @TestPropertySource(properties = {
@@ -29,6 +36,11 @@ import io.github.sukimiya.agileagent.TestAuthUsers;
     "app.upload.allowed-content-types=image/png,application/pdf"
 })
 class UploadControllerTest {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
 
     @Autowired WebTestClient client;
     @Autowired UploadProperties props;

@@ -22,10 +22,22 @@ import io.github.sukimiya.agileagent.AgentApplication;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 import reactor.test.StepVerifier;
 
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = AgentApplication.class)
 class OpenAiCompatibleLlmClientTest {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
+
     @Autowired private ApplicationContext context;
     private final ObjectMapper json = new ObjectMapper();
     private MockWebServer server;

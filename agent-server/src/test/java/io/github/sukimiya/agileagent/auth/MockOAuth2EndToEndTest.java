@@ -215,7 +215,10 @@ class MockOAuth2EndToEndTest {
                 "server.port", mockPort,
                 "mock.oauth2.client-id", CLIENT_ID,
                 "mock.oauth2.client-secret", CLIENT_SECRET,
-                "mock.oauth2.redirect-uris", callbackUri);
+                "mock.oauth2.redirect-uris", callbackUri,
+                "spring.autoconfigure.exclude", "org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration,"
+                        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
+                        + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration");
         return new SpringApplicationBuilder(MockOAuth2Application.class)
                 .initializers(context -> context.getEnvironment().getPropertySources().addFirst(
                         new MapPropertySource("oauth2-e2e-mock", properties)))
