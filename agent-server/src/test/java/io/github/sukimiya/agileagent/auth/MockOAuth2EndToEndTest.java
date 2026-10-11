@@ -8,31 +8,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
-import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -52,10 +43,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import io.github.sukimiya.agileagent.mockoauth.MockOAuth2Application;
 import io.github.sukimiya.agileagent.LocalRedisTestServer;
-import io.r2dbc.spi.ConnectionFactories;
+import io.github.sukimiya.agileagent.PostgresTestDatabase;
 import io.r2dbc.spi.ConnectionFactory;
-import io.r2dbc.spi.ConnectionFactoryOptions;
-import io.r2dbc.spi.Option;
 
 /** Exercises the browser-facing authorization flow against two real local Spring Boot applications. */
 class MockOAuth2EndToEndTest {
@@ -73,8 +62,7 @@ class MockOAuth2EndToEndTest {
         int redisPort = LocalRedisTestServer.port();
         int mockPort = availablePort();
         int serverPort = availablePort();
-        String h2Database = "oauth2_e2e_" + UUID.randomUUID().toString().replace("-", "");
-        String jdbcUrl = h2JdbcUrl(h2Database);
+        PostgresTestDatabase database = PostgresTestDatabase.create("oauth2_e2e");
         LettuceConnectionFactory redisFactory = null;
         StringRedisTemplate redis = null;
 
@@ -90,7 +78,7 @@ class MockOAuth2EndToEndTest {
             String mockBaseUri = "http://127.0.0.1:" + mockPort;
             try (ConfigurableApplicationContext mockApplication = startMockApplication(mockPort, callbackUri);
                  ConfigurableApplicationContext serverApplication = startServerApplication(
-                         serverPort, mockBaseUri, callbackUri, redisPort, h2Database)) {
+                         serverPort, mockBaseUri, callbackUri, redisPort, database)) {
                 assertR2dbcSharesFlywayDatabase(serverApplication);
                 WebClient http = WebClient.builder().build();
                 String serverBaseUri = "http://127.0.0.1:" + port(serverApplication);
@@ -207,7 +195,7 @@ class MockOAuth2EndToEndTest {
             }
         } finally {
             try {
-                shutdownH2Database(jdbcUrl);
+                database.close();
             } finally {
                 try {
                     if (redis != null) {
@@ -236,21 +224,22 @@ class MockOAuth2EndToEndTest {
 
     private ConfigurableApplicationContext startServerApplication(int serverPort, String mockBaseUri,
                                                                    String callbackUri, int redisPort,
-                                                                   String h2Database) {
-        String jdbcUrl = h2JdbcUrl(h2Database);
+                                                                   PostgresTestDatabase database) {
         Map<String, Object> properties = Map.ofEntries(
                 Map.entry("server.address", "127.0.0.1"),
                 Map.entry("server.port", serverPort),
                 Map.entry("spring.data.redis.host", "127.0.0.1"),
                 Map.entry("spring.data.redis.port", redisPort),
                 Map.entry("spring.data.redis.database", TEST_REDIS_DATABASE),
-                Map.entry("spring.datasource.url", jdbcUrl),
-                Map.entry("spring.datasource.username", "sa"),
-                Map.entry("spring.datasource.password", ""),
-                Map.entry("spring.flyway.url", jdbcUrl),
-                Map.entry("spring.flyway.user", "sa"),
-                Map.entry("spring.flyway.password", ""),
-                Map.entry("task6.e2e.h2.database", h2Database),
+                Map.entry("spring.datasource.url", database.jdbcUrl()),
+                Map.entry("spring.datasource.username", database.username()),
+                Map.entry("spring.datasource.password", database.password()),
+                Map.entry("spring.flyway.url", database.jdbcUrl()),
+                Map.entry("spring.flyway.user", database.username()),
+                Map.entry("spring.flyway.password", database.password()),
+                Map.entry("spring.r2dbc.url", database.r2dbcUrl()),
+                Map.entry("spring.r2dbc.username", database.username()),
+                Map.entry("spring.r2dbc.password", database.password()),
                 Map.entry("oauth2.authorization-uri", mockBaseUri + "/oauth2/authorize"),
                 Map.entry("oauth2.token-uri", mockBaseUri + "/oauth2/token"),
                 Map.entry("oauth2.user-info-uri", mockBaseUri + "/oauth2/userinfo"),
@@ -258,7 +247,7 @@ class MockOAuth2EndToEndTest {
                 Map.entry("oauth2.redirect-uri", callbackUri),
                 Map.entry("oauth2.frontend-redirect-uri", FRONTEND_REDIRECT),
                 Map.entry("oauth2.client-secret", CLIENT_SECRET));
-        return new SpringApplicationBuilder(ServerTestApplication.class, TestDatabaseConfiguration.class)
+        return new SpringApplicationBuilder(ServerTestApplication.class)
                 .profiles("local-mock")
                 .initializers(context -> context.getEnvironment().getPropertySources().addFirst(
                         new MapPropertySource("oauth2-e2e-server", properties)))
@@ -285,18 +274,7 @@ class MockOAuth2EndToEndTest {
                 .map((row, metadata) -> row.get(0, Long.class))
                 .one()
                 .block(Duration.ofSeconds(10));
-        assertThat(migratedVersionCount).isEqualTo(8L);
-    }
-
-    private static String h2JdbcUrl(String database) {
-        return "jdbc:h2:mem:" + database + ";MODE=MySQL;DB_CLOSE_DELAY=-1";
-    }
-
-    private static void shutdownH2Database(String jdbcUrl) throws SQLException {
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, "sa", "");
-             Statement statement = connection.createStatement()) {
-            statement.execute("SHUTDOWN");
-        }
+        assertThat(migratedVersionCount).isEqualTo(7L);
     }
 
     private void poisonCachedIdentity(StringRedisTemplate redis, String appToken, JsonNode originalSession)
@@ -454,21 +432,5 @@ class MockOAuth2EndToEndTest {
                     classes = io.github.sukimiya.agileagent.AgentApplication.class)
     })
     static class ServerTestApplication {
-    }
-
-    @TestConfiguration(proxyBeanMethods = false)
-    static class TestDatabaseConfiguration {
-        @Bean
-        @Primary
-        ConnectionFactory testConnectionFactory(@Value("${task6.e2e.h2.database}") String database) {
-            return ConnectionFactories.get(ConnectionFactoryOptions.builder()
-                    .option(ConnectionFactoryOptions.DRIVER, "h2")
-                    .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                    .option(ConnectionFactoryOptions.DATABASE, database)
-                    .option(ConnectionFactoryOptions.USER, "sa")
-                    .option(ConnectionFactoryOptions.PASSWORD, "")
-                    .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
-                    .build());
-        }
     }
 }
