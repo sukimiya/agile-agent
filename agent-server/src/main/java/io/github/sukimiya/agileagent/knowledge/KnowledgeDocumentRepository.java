@@ -108,7 +108,7 @@ public class KnowledgeDocumentRepository {
                     approval_version = approval_version + 1
                 WHERE id = :id AND status = 'PENDING'
                   AND (approval_owner IS NULL OR approval_claimed_at IS NULL OR
-                       approval_claimed_at <= TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP))
+                       approval_claimed_at <= (CURRENT_TIMESTAMP - :leaseSeconds * INTERVAL '1 second'))
                 """)
                 .bind("owner", owner)
                 .bind("id", id)
@@ -137,7 +137,7 @@ public class KnowledgeDocumentRepository {
                 WHERE id = :id AND status = 'PENDING'
                   AND approval_owner = :owner AND approval_version = :version
                   AND approval_claimed_at IS NOT NULL
-                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
+                  AND approval_claimed_at > (CURRENT_TIMESTAMP - :leaseSeconds * INTERVAL '1 second')
                 """)
                 .bind("id", id)
                 .bind("owner", owner)
@@ -156,7 +156,7 @@ public class KnowledgeDocumentRepository {
                 WHERE id = :id AND status = 'PENDING'
                   AND approval_owner = :owner AND approval_version = :version
                   AND approval_claimed_at IS NOT NULL
-                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
+                  AND approval_claimed_at > (CURRENT_TIMESTAMP - :leaseSeconds * INTERVAL '1 second')
                 """)
                 .bind("summary", summary == null ? "" : summary)
                 .bind("reviewedBy", reviewedByUserId)
@@ -220,7 +220,7 @@ public class KnowledgeDocumentRepository {
                 WHERE id = :id AND status = 'PENDING'
                   AND approval_owner = :owner AND approval_version = :version
                   AND approval_claimed_at IS NOT NULL
-                  AND approval_claimed_at > TIMESTAMPADD(SECOND, -:leaseSeconds, CURRENT_TIMESTAMP)
+                  AND approval_claimed_at > (CURRENT_TIMESTAMP - :leaseSeconds * INTERVAL '1 second')
                 """)
                 .bind("reviewedBy", reviewedByUserId)
                 .bind("reviewedAt", reviewedAt)

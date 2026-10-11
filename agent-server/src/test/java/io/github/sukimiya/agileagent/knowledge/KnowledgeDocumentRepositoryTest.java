@@ -5,17 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import java.time.Duration;
 
-import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.r2dbc.core.DatabaseClient;
 
-import io.r2dbc.spi.ConnectionFactories;
-import io.r2dbc.spi.ConnectionFactoryOptions;
-import io.r2dbc.spi.Option;
-
+import io.github.sukimiya.agileagent.PostgresTestDatabase;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.Status;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeDocumentRepository.KnowledgeDocumentRow.ScopeType;
@@ -24,27 +19,21 @@ import reactor.core.scheduler.Schedulers;
 
 class KnowledgeDocumentRepositoryTest {
 
+    private PostgresTestDatabase database;
     private KnowledgeDocumentRepository repository;
     private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
-        var dbName = "knowledge-repo-test-" + System.nanoTime();
-        var dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:" + dbName + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
-        dataSource.setDriverClassName("org.h2.Driver");
-        Flyway.configure().dataSource(dataSource).load().migrate();
-        jdbc = new JdbcTemplate(dataSource);
-        var options = ConnectionFactoryOptions.builder()
-                .option(ConnectionFactoryOptions.DRIVER, "h2")
-                .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                .option(ConnectionFactoryOptions.DATABASE, dbName)
-                .option(ConnectionFactoryOptions.USER, "sa")
-                .option(ConnectionFactoryOptions.PASSWORD, "")
-                .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
-                .build();
-        var connectionFactory = ConnectionFactories.get(options);
-        repository = new KnowledgeDocumentRepository(DatabaseClient.create(connectionFactory), connectionFactory);
+        database = PostgresTestDatabase.create("knowledge_repo_test");
+        database.migrate();
+        jdbc = database.jdbc();
+        repository = new KnowledgeDocumentRepository(database.databaseClient(), database.connectionFactory());
+    }
+
+    @AfterEach
+    void tearDown() {
+        database.close();
     }
 
     private static KnowledgeDocumentRow newRow(String id, Status status) {

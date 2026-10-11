@@ -32,26 +32,26 @@ import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 
-import io.r2dbc.spi.ConnectionFactories;
-import io.r2dbc.spi.ConnectionFactory;
-import io.r2dbc.spi.ConnectionFactoryOptions;
-import io.r2dbc.spi.Option;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
-@Import(KnowledgeControllerIntegrationTest.TestDbConfig.class)
 @TestPropertySource(properties = {
     "app.knowledge.temp-dir=${java.io.tmpdir}/knowledge-test/pending",
-    "app.knowledge.lib-dir=${java.io.tmpdir}/knowledge-test/lib",
-    "spring.flyway.url=jdbc:h2:mem:knowledge-it-test;MODE=MySQL;DB_CLOSE_DELAY=-1",
-    "spring.flyway.user=sa",
-    "spring.flyway.password="
+    "app.knowledge.lib-dir=${java.io.tmpdir}/knowledge-test/lib"
 })
 class KnowledgeControllerIntegrationTest {
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
 
     @Autowired WebTestClient client;
     @Autowired KnowledgeProperties props;
@@ -456,20 +456,5 @@ class KnowledgeControllerIntegrationTest {
                 .expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo("FILE_REJECTED");
-    }
-
-    @TestConfiguration
-    static class TestDbConfig {
-        @Bean
-        ConnectionFactory connectionFactory() {
-            return ConnectionFactories.get(ConnectionFactoryOptions.builder()
-                    .option(ConnectionFactoryOptions.DRIVER, "h2")
-                    .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                    .option(ConnectionFactoryOptions.DATABASE, "knowledge-it-test")
-                    .option(ConnectionFactoryOptions.USER, "sa")
-                    .option(ConnectionFactoryOptions.PASSWORD, "")
-                    .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
-                    .build());
-        }
     }
 }
