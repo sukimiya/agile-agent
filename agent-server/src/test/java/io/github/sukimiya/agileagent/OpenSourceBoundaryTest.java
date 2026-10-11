@@ -160,7 +160,8 @@ class OpenSourceBoundaryTest {
                         "OAUTH2_CLAIM_TENANT_ID", "OAUTH2_CLAIM_PRIMARY_ORG_ID",
                         "OAUTH2_CLAIM_ROLES", "OAUTH2_PLATFORM_ADMIN_ROLE",
                         "OAUTH2_TENANT_ADMIN_ROLE", "future provider", "separate Maven module",
-                        "local-mock-password", "local-mock-root-password", "not production");
+                        "local-mock-password", "disposable PostgreSQL development credential defaults",
+                        "not production");
         assertThat(adapters).contains("agile-agent-spi", "AutoConfiguration.imports");
         assertThat(startScript)
                 .contains("mvn -pl agent-server -am -DskipTests package",
@@ -169,12 +170,12 @@ class OpenSourceBoundaryTest {
 
         String productionServer = composeServiceSection(compose, "agile-agent-server");
         String mockProvider = composeServiceSection(compose, "agile-agent-mock-oauth2");
-        String mysql = composeServiceSection(compose, "mysql");
+        String postgres = composeServiceSection(compose, "postgres");
         String redis = composeServiceSection(compose, "redis");
         assertThat(productionServer)
-                .doesNotContain("mock-oauth2", "OAUTH2_AUTHORIZATION_URI", "depends_on:", "mysql", "redis");
+                .doesNotContain("mock-oauth2", "OAUTH2_AUTHORIZATION_URI", "depends_on:", "postgres", "redis");
         assertThat(mockProvider).contains("profiles: [local-mock]");
-        assertThat(mysql).contains("profiles: [local-mock]");
+        assertThat(postgres).contains("profiles: [local-mock]");
         assertThat(redis).contains("profiles: [local-mock]");
         assertThat(compose).doesNotContain("LLM_CONFIG_SECRET:-");
     }

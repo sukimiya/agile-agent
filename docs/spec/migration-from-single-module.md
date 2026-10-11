@@ -32,7 +32,7 @@ export LLM_CONFIG_SECRET="$(openssl rand -base64 32)"
 docker compose -f docker/docker-compose.yml --profile local-mock up --build agile-agent-server-local-mock
 ```
 
-The profile runs the mock provider, MySQL, and Redis for local development. It publishes the server and mock-provider ports on loopback. Do not enable this profile in production or expose the mock provider to a network with real users or data.
+The profile runs the mock provider, PostgreSQL, and Redis for local development. It publishes the server and mock-provider ports on loopback. Do not enable this profile in production or expose the mock provider to a network with real users or data.
 
 ## Database upgrade and session behavior
 

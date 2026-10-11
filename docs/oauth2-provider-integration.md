@@ -58,4 +58,4 @@ For isolated development, use the Compose `local-mock` profile described in the 
 
 These are local fixtures. The mock provider is for development and isolated tests only; use a real provider for any shared or production deployment.
 
-The Compose `local-mock` profile also has disposable MySQL development credential defaults (`local-mock-password` and `local-mock-root-password`) and an empty mock OAuth2 client secret. These fixtures exist only to make an isolated local profile convenient; do not reuse them for shared environments or production. Production database, OAuth2, and LLM encryption credentials must come from external configuration or a secret manager.
+The Compose `local-mock` profile also has disposable PostgreSQL development credential defaults (`local-mock-password`) and an empty mock OAuth2 client secret. These fixtures exist only to make an isolated local profile convenient; do not reuse them for shared environments or production. Production database, OAuth2, and LLM encryption credentials must come from external configuration or a secret manager.

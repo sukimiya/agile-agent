@@ -46,15 +46,15 @@ services:
       APP_DATA_DIR: /data
       LLM_CONFIG_SECRET: ${LLM_CONFIG_SECRET:?LLM_CONFIG_SECRET must be set}
       SPRING_PROFILES_ACTIVE: local-mock
-      SPRING_FLYWAY_URL: jdbc:mysql://mysql:3306/agile_agent_local?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/agile_agent_local
       SPRING_FLYWAY_USER: agile_agent_local
-      SPRING_FLYWAY_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/agile_agent_local?useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_FLYWAY_PASSWORD: ${LOCAL_MOCK_POSTGRES_PASSWORD:-local-mock-password}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/agile_agent_local
       SPRING_DATASOURCE_USERNAME: agile_agent_local
-      SPRING_DATASOURCE_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
-      SPRING_R2DBC_URL: r2dbc:mysql://mysql:3306/agile_agent_local?sslMode=DISABLED
+      SPRING_DATASOURCE_PASSWORD: ${LOCAL_MOCK_POSTGRES_PASSWORD:-local-mock-password}
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/agile_agent_local
       SPRING_R2DBC_USERNAME: agile_agent_local
-      SPRING_R2DBC_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
+      SPRING_R2DBC_PASSWORD: ${LOCAL_MOCK_POSTGRES_PASSWORD:-local-mock-password}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_DATABASE: 0
@@ -71,28 +71,27 @@ services:
     depends_on:
       agile-agent-mock-oauth2:
         condition: service_started
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
-  mysql:
+  postgres:
     profiles: [local-mock]
-    image: mysql:8.4
-    container_name: agile-agent-local-mock-mysql
+    image: postgres:16-alpine
+    container_name: agile-agent-local-mock-postgres
     environment:
-      MYSQL_DATABASE: agile_agent_local
-      MYSQL_USER: agile_agent_local
-      MYSQL_PASSWORD: ${LOCAL_MOCK_MYSQL_PASSWORD:-local-mock-password}
-      MYSQL_ROOT_PASSWORD: ${LOCAL_MOCK_MYSQL_ROOT_PASSWORD:-local-mock-root-password}
+      POSTGRES_DB: agile_agent_local
+      POSTGRES_USER: agile_agent_local
+      POSTGRES_PASSWORD: ${LOCAL_MOCK_POSTGRES_PASSWORD:-local-mock-password}
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "pg_isready -U agile_agent_local -d agile_agent_local"]
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 20s
+      start_period: 10s
     volumes:
-      - agile-agent-local-mock-mysql:/var/lib/mysql
+      - agile-agent-local-mock-postgres:/var/lib/postgresql/data
 
   redis:
     profiles: [local-mock]
@@ -108,4 +107,4 @@ volumes:
   agile-agent-data:
     external: true
   agile-agent-local-mock-data:
-  agile-agent-local-mock-mysql:
+  agile-agent-local-mock-postgres:
