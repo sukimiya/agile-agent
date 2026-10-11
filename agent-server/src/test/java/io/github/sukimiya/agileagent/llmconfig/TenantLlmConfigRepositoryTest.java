@@ -6,44 +6,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 
-import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 
-import io.r2dbc.spi.ConnectionFactories;
-import io.r2dbc.spi.ConnectionFactoryOptions;
-import io.r2dbc.spi.Option;
+import io.github.sukimiya.agileagent.PostgresTestDatabase;
 import io.r2dbc.spi.R2dbcException;
 import reactor.core.publisher.Mono;
 
 class TenantLlmConfigRepositoryTest {
 
+    private PostgresTestDatabase database;
     private TenantLlmConfigRepository repository;
     private DatabaseClient db;
 
     @BeforeEach
     void setUp() {
-        var dbName = "tenant-llm-test-" + System.nanoTime();
-        var dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:" + dbName + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
-        dataSource.setDriverClassName("org.h2.Driver");
-        Flyway.configure().dataSource(dataSource)
-                .table(historyTable())
-                .locations("classpath:db/migration").load().migrate();
-        var options = ConnectionFactoryOptions.builder()
-                .option(ConnectionFactoryOptions.DRIVER, "h2")
-                .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                .option(ConnectionFactoryOptions.DATABASE, dbName)
-                .option(ConnectionFactoryOptions.USER, "sa")
-                .option(ConnectionFactoryOptions.PASSWORD, "")
-                .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
-                .build();
-        db = DatabaseClient.create(ConnectionFactories.get(options));
+        database = PostgresTestDatabase.create("tenant_llm_test");
+        database.flyway().table(historyTable()).load().migrate();
+        db = database.databaseClient();
         repository = new TenantLlmConfigRepository(db);
+    }
+
+    @AfterEach
+    void tearDown() {
+        database.close();
     }
 
     private static TenantLlmConfigRepository.TenantLlmConfigRow row(
