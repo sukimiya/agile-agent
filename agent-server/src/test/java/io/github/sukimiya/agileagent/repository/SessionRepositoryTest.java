@@ -2,37 +2,27 @@ package io.github.sukimiya.agileagent.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.r2dbc.core.DatabaseClient;
 
-import io.r2dbc.spi.ConnectionFactories;
-import io.r2dbc.spi.ConnectionFactoryOptions;
-import io.r2dbc.spi.Option;
+import io.github.sukimiya.agileagent.PostgresTestDatabase;
 
 class SessionRepositoryTest {
 
+    private PostgresTestDatabase database;
     private SessionRepository repository;
 
     @BeforeEach
     void setUp() {
-        var dbName = "session-repo-test-" + System.nanoTime();
-        var dataSource = new DriverManagerDataSource(
-                "jdbc:h2:mem:" + dbName + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
-        dataSource.setDriverClassName("org.h2.Driver");
-        Flyway.configure().dataSource(dataSource).load().migrate();
-        var options = ConnectionFactoryOptions.builder()
-                .option(ConnectionFactoryOptions.DRIVER, "h2")
-                .option(ConnectionFactoryOptions.PROTOCOL, "mem")
-                .option(ConnectionFactoryOptions.DATABASE, dbName)
-                .option(ConnectionFactoryOptions.USER, "sa")
-                .option(ConnectionFactoryOptions.PASSWORD, "")
-                .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
-                .build();
-        var connectionFactory = ConnectionFactories.get(options);
-        repository = new SessionRepository(DatabaseClient.create(connectionFactory));
+        database = PostgresTestDatabase.create("session_repo_test");
+        database.migrate();
+        repository = new SessionRepository(database.databaseClient());
+    }
+
+    @AfterEach
+    void tearDown() {
+        database.close();
     }
 
     @Test
