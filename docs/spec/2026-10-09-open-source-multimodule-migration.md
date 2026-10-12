@@ -283,7 +283,8 @@ client 配置和 claim 映射。
 - API Key 使用 AES-256-GCM 和随机 12 字节 IV。
 - 主密钥由 base64 编码的 32 字节环境变量提供；缺失或非法时启动失败。
 - Compose 和源码不得提供固定默认密钥。
-- 生产部署必须使用 HTTPS 访问 LLM provider。应用当前不在启动时或运行时强制检查 URL scheme；HTTP 仅允许用于 loopback 开发环境，生产运维必须保证外部 provider URL 使用 HTTPS。
+- LLM provider base URL 默认拒绝 HTTP（`llm.provider-preset.allow-http=false`）；只有 `local-mock` profile 显式启用 `allow-http=true`。HTTP 仅供本地开发部署使用。该配置只控制 URL scheme，不检查 host 是否为 loopback。
+- OAuth2 authorization 和 token endpoints 当前不做 URL scheme 的启动时或运行时强制检查。生产部署必须配置 HTTPS；HTTP 仅供 loopback 开发环境使用。应用不强制执行此要求，这是已接受并记录的风险。
 - API Key 不出现在 GET 响应、日志或远端错误回显中。
 
 ## 10. 知识库范围
