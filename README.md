@@ -56,7 +56,7 @@ The mock provider seeds five neutral identities:
 
 These identities and their organization scopes are local fixtures, not accounts for a business system. The mock is for development and isolated testing only. Do not expose it to the internet, connect it to real business data, or reuse the Compose development passwords outside this local profile.
 
-The local profile defaults to client ID `agile-agent-local`, callback `http://localhost:8088/api/auth/oauth2/callback`, and an empty client secret. This mock configuration is only for loopback development. Production deployments must supply real provider endpoints and all required secrets externally, use HTTPS for provider endpoints and public redirect URLs, and register the exact callback URI with the provider. No production secret is included in Compose or the image.
+The local profile defaults to client ID `agile-agent-local`, callback `http://localhost:8088/api/auth/oauth2/callback`, and an empty client secret. This mock configuration is only for loopback development. Production deployments must supply real provider endpoints and all required secrets externally, use HTTPS for provider endpoints and public redirect URLs, and register the exact callback URI with the provider. HTTPS is an operational deployment requirement; the application does not enforce URL schemes at startup. HTTP is suitable only for loopback development. No production secret is included in Compose or the image.
 
 To run the server and optional frontend without Compose, set `LLM_CONFIG_SECRET` and run `./start.sh`. The script builds the reactor's server dependencies before starting the server JAR. Add `web/node_modules` if you also want it to start the Vite frontend.
 

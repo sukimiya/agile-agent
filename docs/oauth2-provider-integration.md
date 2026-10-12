@@ -20,7 +20,7 @@ Set the required production values through the deployment environment or an exte
 | `OAUTH2_PLATFORM_ADMIN_ROLE` | Role value that maps to the platform administrator flag. |
 | `OAUTH2_TENANT_ADMIN_ROLE` | Role value that maps to the tenant administrator flag. |
 
-Production endpoint URLs, the callback URI, frontend redirect URI, and public application URL must use HTTPS. Register the exact callback URI with the provider. HTTP URLs are suitable only for loopback development. If TLS terminates at a reverse proxy, configure the public HTTPS callback and frontend URLs explicitly rather than registering an internal container address.
+Production endpoint URLs, the callback URI, frontend redirect URI, and public application URL must use HTTPS. This is a production deployment requirement; the application currently does not enforce URL schemes at startup or runtime. Production operators must ensure HTTPS is used. Register the exact callback URI with the provider. HTTP URLs are suitable only for loopback development. If TLS terminates at a reverse proxy, configure the public HTTPS callback and frontend URLs explicitly rather than registering an internal container address.
 
 Do not place client credentials, signing keys, or `LLM_CONFIG_SECRET` in the Docker image, Compose defaults, source control, or build arguments. The deployment environment must inject all secrets. The same `LLM_CONFIG_SECRET` must be used by all server instances that share encrypted tenant LLM configuration.
 

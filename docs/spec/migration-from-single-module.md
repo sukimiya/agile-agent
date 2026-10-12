@@ -45,10 +45,12 @@ Flyway applies the server's migrations in order, V1 through V7. The configured h
 | V3 (`V3__create_chat_hints_table.sql`) | Creates chat hints. |
 | V4 (`V4__create_llm_provider_presets.sql`) | Creates LLM provider presets. |
 | V5 (`V5__create_tenant_llm_config.sql`) | Creates tenant LLM configuration. |
-| V6 (`V6__add_knowledge_scope.sql`) | Adds knowledge scope and tenant/organization metadata; existing knowledge rows are explicitly assigned `GLOBAL` scope with tenant and organization fields cleared. |
+| V6 (`V6__add_knowledge_scope.sql`) | Adds knowledge scope and tenant/organization metadata; existing database rows are explicitly assigned `GLOBAL` scope with tenant and organization fields cleared. This does not rewrite legacy generation-0 files or guarantee they satisfy the new strict catalog metadata validation. |
 | V7 (`V7__add_knowledge_approval_claim_lease.sql`) | Adds `approval_owner`, `approval_claimed_at`, and monotonic `approval_version`; existing approved rows retain generation zero and their recorded reviewer as owner. |
 
-Back up the database before deployment and let Flyway apply these migrations once against the shared database. Do not manually edit the Flyway history table or mark a migration complete without applying its SQL. After upgrading, existing sessions are invalidated and users must re-login; the new server cannot continue sessions from the previous application.
+Before deployment, back up the database and export the existing knowledge files. Let Flyway apply these migrations once against the shared database. Do not manually edit the Flyway history table or mark a migration complete without applying its SQL. V6 updates database rows only; there is no automatic rewrite of legacy files. After upgrading, re-upload and re-approve knowledge files that must be available in the new strict catalog. Existing sessions are invalidated and users must re-login; the new server cannot continue sessions from the previous application.
+
+Migration validation for this release uses H2 in MySQL mode. A live MySQL migration test, including Testcontainers MySQL, has not been run; the current release accepts this limitation. A future migration to PostgreSQL is a later-version goal and is not implemented or claimed as supported here.
 
 V7 claim timestamps implement a lease for an in-progress approval. `approval_owner` identifies the reviewer holding the claim, and `approval_version` is the fencing generation used to reject stale work after a lease is reclaimed. Keep database writes on the new server version during rollout. Mixed old and new application writers are unsupported: the old writer does not participate in the V6 scope rules or V7 lease/version fencing.
 

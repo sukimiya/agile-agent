@@ -283,7 +283,7 @@ client 配置和 claim 映射。
 - API Key 使用 AES-256-GCM 和随机 12 字节 IV。
 - 主密钥由 base64 编码的 32 字节环境变量提供；缺失或非法时启动失败。
 - Compose 和源码不得提供固定默认密钥。
-- provider base URL 默认只接受 HTTPS；mock/test profile 可显式允许 HTTP。
+- 生产部署必须使用 HTTPS 访问 LLM provider。应用当前不在启动时或运行时强制检查 URL scheme；HTTP 仅允许用于 loopback 开发环境，生产运维必须保证外部 provider URL 使用 HTTPS。
 - API Key 不出现在 GET 响应、日志或远端错误回显中。
 
 ## 10. 知识库范围
@@ -363,8 +363,7 @@ client 配置和 claim 映射。
 - V5：`tenant_llm_config`；
 - V6：知识库 scope、tenant 和 org 字段及索引。
 
-V6 将存量知识文档设置为 `GLOBAL`，保持升级前可见性。迁移必须同时在 MySQL 和 H2 MySQL mode
-测试。迁移文件移动到 `agent-server` 后保持版本号和 Flyway history table 名称不变。
+V6 将存量知识数据库记录设置为 `GLOBAL`，并清空 tenant/org 字段；这不保证旧 generation-0 文件符合新 catalog 的严格元数据校验，也不保证这些文件可被新 catalog 消费。旧文件不会自动重写，升级后需要重新上传并重新审批知识文件。当前迁移验证覆盖 H2 MySQL mode，未运行 live MySQL 或 Testcontainers MySQL 验证；本次 release 接受这一限制。未来 PostgreSQL 迁移是后续版本目标，不属于本次实现，当前版本不声称支持 PostgreSQL。迁移文件移动到 `agent-server` 后保持版本号和 Flyway history table 名称不变。
 
 ## 14. 业务代码和资源清理
 
@@ -420,7 +419,7 @@ V6 将存量知识文档设置为 `GLOBAL`，保持升级前可见性。迁移�
 
 - 启动真实 mock OAuth2，覆盖 authorize、callback、userinfo、refresh 和 revoke；
 - 从空库运行 V1-V6；
-- 从 V2 schema 升级并验证存量知识为 GLOBAL；
+- 从 V2 schema 升级并验证存量知识数据库记录为 GLOBAL；不要求旧 generation-0 文件在严格 catalog 中可见；
 - 根目录执行全量测试和两个可执行 JAR 的 package；
 - 扫描受版本控制的源码和资源，禁止业务领域名、`com.jowo` 和 `l7-skill` 残留。
 
