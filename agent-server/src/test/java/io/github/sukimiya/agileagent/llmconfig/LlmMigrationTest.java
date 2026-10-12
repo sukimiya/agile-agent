@@ -27,7 +27,7 @@ class LlmMigrationTest {
                     .isEqualTo("legacy doc");
             assertThat(jdbc.queryForList(
                     "SELECT \"version\" FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' ORDER BY \"installed_rank\"",
-                    String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7");
+                    String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9");
             assertThat(jdbc.queryForObject("SELECT scope_type FROM knowledge_documents WHERE id = 'doc-v2'", String.class))
                     .isEqualTo("GLOBAL");
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_documents WHERE id = 'doc-v2' AND tenant_id IS NULL AND org_id IS NULL", Integer.class))
@@ -39,13 +39,13 @@ class LlmMigrationTest {
     }
 
     @Test
-    void emptyDatabaseMigratesThroughV7() {
+    void emptyDatabaseMigratesThroughV9() {
         try (var db = PostgresTestDatabase.create("llm_migration_empty")) {
             db.flyway().table(historyTable()).baselineOnMigrate(false).load().migrate();
 
             var jdbc = db.jdbc();
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL'", Integer.class))
-                    .isEqualTo(7);
+                    .isEqualTo(9);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables "
                     + "WHERE table_schema = 'public' AND table_name IN ('chat_hints', 'llm_provider_preset', 'tenant_llm_config')",
                     Integer.class)).isEqualTo(3);
