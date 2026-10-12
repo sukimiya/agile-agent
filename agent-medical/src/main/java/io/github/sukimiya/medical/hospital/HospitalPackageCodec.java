@@ -18,7 +18,7 @@ public final class HospitalPackageCodec {
             return Optional.empty();
         }
         try {
-            return Optional.of(JSON.readValue(contentJson, HospitalPackageContent.class));
+            return Optional.ofNullable(JSON.readValue(contentJson, HospitalPackageContent.class));
         } catch (JsonProcessingException e) {
             return Optional.empty();
         }

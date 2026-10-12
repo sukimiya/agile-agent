@@ -8,4 +8,9 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public record HospitalToolSpec(String name, String description, JsonNode parametersSchema,
         TransportBinding transport) {
+
+    /** Mirrors agent-spi's ToolDefinition deep-copy convention: JsonNode object/array nodes are mutable. */
+    public HospitalToolSpec {
+        parametersSchema = parametersSchema == null ? null : parametersSchema.deepCopy();
+    }
 }

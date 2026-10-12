@@ -33,6 +33,11 @@ class HospitalPackageCodecTest {
     }
 
     @Test
+    void parseTreatsJsonNullLiteralAsAbsent() {
+        assertThat(codec.parse("null")).isEmpty();
+    }
+
+    @Test
     void serializedBindingOmitsIrrelevantFields() {
         String json = codec.write(new HospitalPackageContent(1, List.of(
                 new HospitalToolSpec("searchServices", "d", new ObjectMapper().valueToTree(Map.of("type", "object")),
