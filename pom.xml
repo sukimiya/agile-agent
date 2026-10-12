@@ -43,6 +43,7 @@
 
 	<modules>
 		<module>agent-spi</module>
+		<module>agent-medical</module>
 		<module>agent-server</module>
 		<module>mock-oauth2</module>
 	</modules>
