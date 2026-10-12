@@ -149,6 +149,7 @@ public final class HospitalCapabilityProvider implements AgentCapabilityProvider
                 .filter(spec -> UnifiedToolCatalog.SCHEMA_V1_TOOL_SET.contains(spec.name()))
                 .filter(spec -> spec.transport() != null && executors.containsKey(spec.transport().type()))
                 .filter(spec -> spec.description() != null)
+                .filter(spec -> spec.parametersSchema() != null && !spec.parametersSchema().isNull())
                 .map(spec -> new ToolDefinition(toolName(row.hospitalCode(), spec.name()),
                         spec.description(), spec.parametersSchema()))
                 .toList();

@@ -218,6 +218,36 @@ class HospitalCapabilityProviderTest {
     }
 
     @Test
+    void missingOrNullParametersSchemaSkipsTheHospitalFailClosed() {
+        var partialContent = """
+                {"schemaVersion":1,"tools":[
+                  {"name":"searchServices","description":"描述-searchServices",
+                   "transport":{"type":"API","url":"https://api.mock.example/api/hospital/unified"}},
+                  {"name":"checkAvailability","description":"描述-checkAvailability","parametersSchema":null,
+                   "transport":{"type":"API","url":"https://api.mock.example/api/hospital/unified"}}
+                ]}
+                """;
+        var parsed = CODEC.parse(partialContent).orElseThrow();
+        assertThat(parsed.tools()).hasSize(2);
+        assertThat(parsed.tools().get(0).parametersSchema()).isNull();
+        assertThat(parsed.tools().get(1).parametersSchema()).isNotNull();
+        assertThat(parsed.tools().get(1).parametersSchema().isNull()).isTrue();
+        assertThat(parsed.tools().get(0).transport()).isNotNull();
+        assertThat(parsed.tools().get(0).transport().type()).isEqualTo(TransportType.API);
+        var partial = row("mocknull", "空模式医院", HospitalPackageRow.Status.APPROVED,
+                HospitalPackageRow.ScopeType.GLOBAL, null,
+                NOW.minusDays(1), NOW.plusDays(1), partialContent);
+        seed(partial, approvedRow("mockapi", "模拟互联网医院", API_BINDING));
+
+        var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
+
+        assertThat(definition.tools()).hasSize(5);
+        assertThat(definition.tools()).extracting(t -> t.name())
+                .allSatisfy(name -> assertThat(name).startsWith("mockapi_"));
+        assertThat(definition.systemPrompt()).doesNotContain("mocknull").contains("mockapi");
+    }
+
+    @Test
     void executeRoutesToTheMatchingExecutorWithTheCuratedRequest() {
         seed(approvedRow("mockapi", "模拟互联网医院", API_BINDING));
         var arguments = JSON.createObjectNode().put("keyword", "cardiology");
