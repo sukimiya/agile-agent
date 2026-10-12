@@ -4,6 +4,7 @@ Agile Agent is an open-source Maven multi-module project for a general-purpose a
 
 - `agent-spi` contains the public identity and capability contracts used by server-side adapters.
 - `agent-server` contains HTTP APIs, authentication, orchestration, model integration, and the generic `KNOWLEDGE` capability.
+- `agent-medical` contains the data-driven `HOSPITAL` capability adapter built against `agent-spi`.
 - `mock-oauth2` is a standalone development identity service for local OAuth2 login flows.
 
 External adapters are regular Spring Boot dependencies built against `agent-spi`; see the [capability adapter guide](docs/capability-adapters.md). For moving an existing deployment, see the [single-module migration guide](docs/spec/migration-from-single-module.md). Configure a production identity provider using the [OAuth2 provider guide](docs/oauth2-provider-integration.md).
@@ -14,6 +15,7 @@ Run Maven from the repository root so reactor dependencies are built together:
 
 ```sh
 mvn -pl agent-spi -am test
+mvn -pl agent-medical -am test
 mvn -pl agent-server -am test
 mvn -pl agent-server -am package
 mvn -pl agent-server,mock-oauth2 -am -DskipTests package
@@ -60,7 +62,7 @@ The local profile defaults to client ID `agile-agent-local`, callback `http://lo
 
 To run the server and optional frontend without Compose, set `LLM_CONFIG_SECRET` and run `./start.sh`. The script builds the reactor's server dependencies before starting the server JAR. Add `web/node_modules` if you also want it to start the Vite frontend.
 
-Redis-backed tests use an isolated test-only Redis server on a random loopback port; the cross-module OAuth2 end-to-end test also starts a temporary H2 database. Run the tests on a machine with `redis-server` available on `PATH`:
+Redis-backed tests use an isolated test-only Redis server on a random loopback port; database tests start disposable PostgreSQL 16 containers via Testcontainers. Run the tests on a machine with `redis-server` available on `PATH` and a running Docker daemon:
 
 ```sh
 mvn -pl agent-server -am -Dtest=MockOAuth2EndToEndTest test
