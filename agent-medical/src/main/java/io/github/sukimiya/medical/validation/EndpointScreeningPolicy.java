@@ -62,11 +62,22 @@ public final class EndpointScreeningPolicy {
         if (allowedHosts.contains(host)) {
             return true;
         }
+        // Screen IP literals by address directly — never through the resolver seam or DNS —
+        // so a rebinding hostname or injected resolver cannot launder an internal literal.
+        String literal = stripIpv6Brackets(host);
         InetAddress[] addresses;
-        try {
-            addresses = resolver.apply(host);
-        } catch (RuntimeException e) {
-            return false;
+        if (isIpLiteral(literal)) {
+            try {
+                addresses = new InetAddress[]{InetAddress.getByName(literal)};
+            } catch (UnknownHostException e) {
+                return false;
+            }
+        } else {
+            try {
+                addresses = resolver.apply(host);
+            } catch (RuntimeException e) {
+                return false;
+            }
         }
         if (addresses == null || addresses.length == 0) {
             return false;
@@ -77,6 +88,16 @@ public final class EndpointScreeningPolicy {
             }
         }
         return true;
+    }
+
+    private static String stripIpv6Brackets(String host) {
+        return (host.startsWith("[") && host.endsWith("]"))
+                ? host.substring(1, host.length() - 1)
+                : host;
+    }
+
+    private static boolean isIpLiteral(String host) {
+        return host.matches("\\d{1,3}(\\.\\d{1,3}){3}") || host.indexOf(':') >= 0;
     }
 
     private static boolean isPublic(InetAddress address) {
