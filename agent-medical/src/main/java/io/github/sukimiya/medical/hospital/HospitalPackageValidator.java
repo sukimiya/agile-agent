@@ -99,6 +99,7 @@ public final class HospitalPackageValidator {
                     violations.add(label + ": EMAIL transport requires an address");
                 }
             }
+            default -> violations.add(label + ": unknown transport type " + binding.type());
         }
     }
 

@@ -161,4 +161,63 @@ class HospitalPackageValidatorTest {
                 "source", LocalDateTime.now(), LocalDateTime.now().plusDays(1));
         assertThat(validator.validate(bad)).anyMatch(v -> v.contains("parametersSchema must be a JSON object"));
     }
+
+    @Test
+    void rejectsEqualBoundaryValidityWindow() {
+        var same = LocalDateTime.now();
+        var equal = row("demo", 1, codec.write(new HospitalPackageContent(1,
+                unifiedTools(t -> TransportBinding.human("hotline")))),
+                "source", same, same);
+        assertThat(validator.validate(equal))
+                .anyMatch(v -> v.contains("valid_until must be after valid_from"));
+    }
+
+    @Test
+    void rejectsNullValidityWindow() {
+        var nullWindow = row("demo", 1, codec.write(new HospitalPackageContent(1,
+                unifiedTools(t -> TransportBinding.human("hotline")))),
+                "source", null, null);
+        assertThat(validator.validate(nullWindow))
+                .anyMatch(v -> v.contains("valid_from and valid_until are required"));
+    }
+
+    @Test
+    void rejectsEmailBindingWithoutAddress() {
+        var bad = row("demo", 1, codec.write(new HospitalPackageContent(1,
+                unifiedTools(t -> TransportBinding.email(" ")))),
+                "source", LocalDateTime.now(), LocalDateTime.now().plusDays(1));
+        assertThat(validator.validate(bad)).anyMatch(v -> v.contains("EMAIL transport requires an address"));
+    }
+
+    @Test
+    void rejectsNullTransportBinding() {
+        var bad = row("demo", 1, codec.write(new HospitalPackageContent(1,
+                unifiedTools(t -> null))),
+                "source", LocalDateTime.now(), LocalDateTime.now().plusDays(1));
+        assertThat(validator.validate(bad))
+                .anyMatch(v -> v.contains("transport binding with a type is required"));
+    }
+
+    @Test
+    void rejectsBlankToolDescription() {
+        var tools = new ArrayList<>(unifiedTools(t -> TransportBinding.human("hotline")));
+        tools.set(0, new HospitalToolSpec("searchServices", " ",
+                tools.get(0).parametersSchema(), tools.get(0).transport()));
+        var bad = row("demo", 1, codec.write(new HospitalPackageContent(1, tools)),
+                "source", LocalDateTime.now(), LocalDateTime.now().plusDays(1));
+        assertThat(validator.validate(bad)).anyMatch(v -> v.contains("description must not be blank"));
+    }
+
+    @Test
+    void rejectsNullParametersSchema() {
+        // I-1 regression companion: Java-null and explicit JSON null (which round-trips to
+        // NullNode) must both fail schema validation, so no null-ish schema can ever reach
+        // the advertising path again.
+        var tools = new ArrayList<>(unifiedTools(t -> TransportBinding.human("hotline")));
+        tools.set(0, new HospitalToolSpec("searchServices", "d", null, tools.get(0).transport()));
+        var bad = row("demo", 1, codec.write(new HospitalPackageContent(1, tools)),
+                "source", LocalDateTime.now(), LocalDateTime.now().plusDays(1));
+        assertThat(validator.validate(bad))
+                .anyMatch(v -> v.contains("parametersSchema must be a JSON object"));
+    }
 }

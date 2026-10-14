@@ -47,4 +47,15 @@ class HospitalPackageCodecTest {
                 .doesNotContain("channel").doesNotContain("address");
     }
 
+    @Test
+    void parseRejectsUnknownFieldsAndUnknownTransportTypes() {
+        // Strict-Jackson pin: default FAIL_ON_UNKNOWN_PROPERTIES keeps schema drift failing
+        // closed, and unknown transport enum values die at parse time — the validator's
+        // default arm (M-3) is the second line of defense for future enum growth.
+        assertThat(codec.parse("{\"schemaVersion\":1,\"tools\":[],\"surprise\":true}")).isEmpty();
+        assertThat(codec.parse("{\"schemaVersion\":1,\"tools\":[{\"name\":\"searchServices\","
+                + "\"description\":\"d\",\"parametersSchema\":{\"type\":\"object\"},"
+                + "\"transport\":{\"type\":\"FAX\",\"channel\":\"x\"}}]}")).isEmpty();
+    }
+
 }
