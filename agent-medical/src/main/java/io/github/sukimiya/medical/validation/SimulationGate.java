@@ -88,6 +88,10 @@ public final class SimulationGate implements PackageGate {
                 .then(probeReadOnlyExecution(provider, shadow, content, simContext, violations))
                 .then(probeAnomalousArguments(provider, shadow, content, simContext, violations))
                 .then(probeCrossTenantIsolation(provider, shadow, content, violations))
+                // Inter-probe cleanup: read-only probes may have persisted human tasks
+                // (HUMAN-bound searchServices/checkAvailability) under the shared simulation
+                // conversation; they would pollute the repeat-submission probe's dedup count.
+                .then(tasks.deleteByConversationId(conversationId))
                 .then(probeRepeatSubmission(provider, shadow, content, simContext, conversationId,
                         violations))
                 .then(Mono.fromCallable(() -> List.copyOf(violations)))

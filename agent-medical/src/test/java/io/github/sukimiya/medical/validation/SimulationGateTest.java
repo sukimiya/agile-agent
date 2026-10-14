@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -129,7 +130,8 @@ class SimulationGateTest {
 
         assertThat(violations).isEmpty();
         verify(tasks).countByConversationId(startsWith("c02-simulation-"));
-        verify(tasks).deleteByConversationId(startsWith("c02-simulation-"));
+        // Inter-probe cleanup before the repeat probe + final cleanup after it.
+        verify(tasks, times(2)).deleteByConversationId(startsWith("c02-simulation-"));
     }
 
     @Test
@@ -141,7 +143,8 @@ class SimulationGateTest {
         var violations = evaluate(row);
 
         assertThat(violations).anyMatch(violation -> violation.startsWith("重复提交探针"));
-        verify(tasks).deleteByConversationId(startsWith("c02-simulation-"));
+        // Inter-probe cleanup before the repeat probe + final cleanup after it.
+        verify(tasks, times(2)).deleteByConversationId(startsWith("c02-simulation-"));
     }
 
     @Test
