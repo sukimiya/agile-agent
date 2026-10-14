@@ -27,7 +27,7 @@ public record HospitalPackageRow(
         String createdBy,
         LocalDateTime createdAt) {
 
-    public enum Status { PENDING, APPROVED, REVOKED }
+    public enum Status { PENDING, APPROVED, REJECTED, REVOKED }
 
     public enum ScopeType { GLOBAL, TENANT, ORG }
 }
