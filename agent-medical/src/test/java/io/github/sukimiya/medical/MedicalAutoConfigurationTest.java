@@ -15,7 +15,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import io.github.sukimiya.medical.hospital.HospitalCapabilityProvider;
 import io.github.sukimiya.medical.hospital.HospitalPackageRepository;
+import io.github.sukimiya.medical.hospital.HospitalPackageValidator;
+import io.github.sukimiya.medical.lifecycle.HospitalPackageLifecycleService;
 import io.github.sukimiya.medical.transport.TransportExecutor;
+import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
+import io.github.sukimiya.medical.validation.GatePipeline;
 import io.r2dbc.spi.ConnectionFactory;
 
 class MedicalAutoConfigurationTest {
@@ -62,6 +66,10 @@ class MedicalAutoConfigurationTest {
                     assertThat(context.getBeansOfType(TransportExecutor.class)).hasSize(2);
                     assertThat(context.getBean(HospitalCapabilityProvider.class).code())
                             .isEqualTo("HOSPITAL");
+                    assertThat(context).hasSingleBean(HospitalPackageValidator.class);
+                    assertThat(context).hasSingleBean(EndpointScreeningPolicy.class);
+                    assertThat(context).hasSingleBean(GatePipeline.class);
+                    assertThat(context).hasSingleBean(HospitalPackageLifecycleService.class);
                 });
     }
 
@@ -71,5 +79,18 @@ class MedicalAutoConfigurationTest {
                 .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
                 .withBean(WebClient.Builder.class, WebClient::builder)
                 .run(context -> assertThat(context).doesNotHaveBean(java.time.Clock.class));
+    }
+
+    @Test
+    void bindsEndpointAllowlistFromProperties() {
+        runner.withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+                .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
+                .withBean(WebClient.Builder.class, WebClient::builder)
+                .withPropertyValues("medical.hospital.endpoint-allowlist=127.0.0.1,localhost")
+                .run(context -> {
+                    assertThat(context.getBean(MedicalHospitalProperties.class).getEndpointAllowlist())
+                            .containsExactly("127.0.0.1", "localhost");
+                    assertThat(context).hasSingleBean(EndpointScreeningPolicy.class);
+                });
     }
 }
