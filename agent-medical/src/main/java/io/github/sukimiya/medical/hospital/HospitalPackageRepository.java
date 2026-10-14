@@ -105,6 +105,23 @@ public class HospitalPackageRepository {
     }
 
     /**
+     * Single-snapshot read for review: row and approval state come from ONE SELECT on one
+     * connection, so a review can never pair old content with an approval_version bumped by
+     * a concurrent replacement submit in between (spec §14 resolution 2).
+     */
+    public Mono<ReviewSnapshot> findForReview(String id) {
+        return db.sql("SELECT " + COLUMNS + ", approval_version, reviewed_by, reviewed_at, "
+                        + "rejection_reason, last_gate_report "
+                        + "FROM hospital_capability_packages WHERE id = :id")
+                .bind("id", id)
+                .map((row, metadata) -> new ReviewSnapshot(mapRow(row), mapApprovalState(row)))
+                .one();
+    }
+
+    /** Row and approval state captured from the same database snapshot. */
+    public record ReviewSnapshot(HospitalPackageRow row, HospitalPackageApprovalState state) {}
+
+    /**
      * Replacement-semantics submission: a conflict on hospital_code replaces the whole row,
      * forces PENDING, clears every audit column, and bumps the version fence so a stale
      * approval can never land on the new content (TOCTOU guard). The existing row keeps its id.

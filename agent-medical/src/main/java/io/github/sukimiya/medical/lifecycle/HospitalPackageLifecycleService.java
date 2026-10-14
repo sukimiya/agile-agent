@@ -47,16 +47,19 @@ public final class HospitalPackageLifecycleService {
                 .map(state -> new SubmissionResult(SubmissionStatus.SUBMITTED, state));
     }
 
-    /** Runs all six gates against the stored row and persists the report; never bumps the version. */
+    /**
+     * Runs all six gates against a single-snapshot read of the stored row and its approval
+     * state, then persists the report; never bumps the version. The one-read shape keeps a
+     * concurrent replacement submit from pairing old content with a new version (spec §14
+     * resolution 2).
+     */
     public Mono<GateReport> review(String id, IdentityContext reviewer) {
-        return packages.findById(id)
-                .zipWith(packages.findApprovalState(id))
-                .flatMap(tuple -> {
-                    HospitalPackageRow row = tuple.getT1();
-                    HospitalPackageApprovalState state = tuple.getT2();
+        return packages.findForReview(id)
+                .flatMap(snapshot -> {
+                    HospitalPackageRow row = snapshot.row();
                     GateContext context = new GateContext(row,
                             codec.parse(row.content()).orElse(null), reviewer);
-                    return pipeline.run(context, state.approvalVersion());
+                    return pipeline.run(context, snapshot.state().approvalVersion());
                 })
                 .flatMap(report -> packages.saveGateReport(id, report.toJson()).thenReturn(report));
     }

@@ -120,6 +120,35 @@ class HospitalPackageLifecycleRepositoryTest {
     }
 
     @Test
+    void findForReviewReturnsRowAndStateFromOneSnapshot() {
+        try (var db = PostgresTestDatabase.create("lifecycle_repo_snapshot")) {
+            db.migrate();
+            var repo = new HospitalPackageRepository(db.databaseClient());
+            repo.upsertPending(draft("pkg-1", "demo", "演示医院")).block(Duration.ofSeconds(10));
+            repo.saveGateReport("pkg-1", "{\"passed\":true,\"skippedGates\":[]}")
+                    .block(Duration.ofSeconds(10));
+
+            var snapshot = repo.findForReview("pkg-1").block(Duration.ofSeconds(10));
+
+            assertThat(snapshot).isNotNull();
+            assertThat(snapshot.row().id()).isEqualTo("pkg-1");
+            assertThat(snapshot.row().hospitalCode()).isEqualTo("demo");
+            assertThat(snapshot.row().hospitalName()).isEqualTo("演示医院");
+            assertThat(snapshot.row().status()).isEqualTo(HospitalPackageRow.Status.PENDING);
+            assertThat(snapshot.row().content()).isEqualTo("{\"schemaVersion\":1,\"tools\":[]}");
+            assertThat(snapshot.row().createdBy()).isEqualTo("seeder");
+            assertThat(snapshot.state().id()).isEqualTo("pkg-1");
+            assertThat(snapshot.state().status()).isEqualTo(HospitalPackageRow.Status.PENDING);
+            assertThat(snapshot.state().approvalVersion()).isZero();
+            assertThat(snapshot.state().reviewedBy()).isNull();
+            assertThat(snapshot.state().lastGateReport())
+                    .isEqualTo("{\"passed\":true,\"skippedGates\":[]}");
+
+            assertThat(repo.findForReview("missing-id").block(Duration.ofSeconds(10))).isNull();
+        }
+    }
+
+    @Test
     void saveGateReportRoundTripsWithoutBumpingVersion() {
         try (var db = PostgresTestDatabase.create("lifecycle_repo_report")) {
             db.migrate();

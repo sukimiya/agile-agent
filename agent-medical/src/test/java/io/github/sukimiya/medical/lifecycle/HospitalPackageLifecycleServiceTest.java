@@ -181,9 +181,9 @@ class HospitalPackageLifecycleServiceTest {
     @Test
     void reviewRunsAllGatesAndSavesReportAtCurrentVersion() {
         var row = storedRow("pkg-1", content("https://api.mock.example/unified"));
-        when(packages.findById("pkg-1")).thenReturn(Mono.just(row));
-        when(packages.findApprovalState("pkg-1")).thenReturn(
-                Mono.just(state(5L, HospitalPackageRow.Status.PENDING, null)));
+        when(packages.findForReview("pkg-1")).thenReturn(Mono.just(
+                new HospitalPackageRepository.ReviewSnapshot(row,
+                        state(5L, HospitalPackageRow.Status.PENDING, null))));
         when(packages.saveGateReport(eq("pkg-1"), anyString())).thenReturn(Mono.empty());
 
         var report = serviceWith(greenPipeline()).review("pkg-1", ADMIN)
@@ -196,6 +196,25 @@ class HospitalPackageLifecycleServiceTest {
         verify(packages).saveGateReport(eq("pkg-1"), saved.capture());
         assertThat(saved.getValue()).isEqualTo(report.toJson());
         assertThat(saved.getValue()).contains("\"passed\":true");
+    }
+
+    @Test
+    void reviewReadsRowAndApprovalStateInOneSnapshot() {
+        // Single-snapshot contract (spec §14 resolution 2): review must never pair old
+        // content with a newer approval_version via two independent reads.
+        var row = storedRow("pkg-1", content("https://api.mock.example/unified"));
+        when(packages.findForReview("pkg-1")).thenReturn(Mono.just(
+                new HospitalPackageRepository.ReviewSnapshot(row,
+                        state(7L, HospitalPackageRow.Status.PENDING, null))));
+        when(packages.saveGateReport(eq("pkg-1"), anyString())).thenReturn(Mono.empty());
+
+        var report = serviceWith(greenPipeline()).review("pkg-1", ADMIN)
+                .block(Duration.ofSeconds(5));
+
+        assertThat(report.approvalVersion()).isEqualTo(7L);
+        verify(packages).findForReview("pkg-1");
+        verify(packages, never()).findById(any());
+        verify(packages, never()).findApprovalState(any());
     }
 
     @Test
