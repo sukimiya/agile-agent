@@ -74,3 +74,30 @@ Never log, persist, serialize, or expose an OAuth2 access token. Do not copy it 
 ## In-reactor example
 
 `agent-medical` is the first adapter that lives inside this repository's Maven reactor instead of an external project. It follows the same rules: it depends on `agile-agent-spi` and Spring-managed libraries only, never on `agent-server` packages, and it registers its provider through `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. Its `MedicalAutoConfiguration` is guarded with `@ConditionalOnBean(ConnectionFactory.class)`, so applications that exclude R2DBC auto-configuration boot without any medical beans. Its package root `io.github.sukimiya.medical` is deliberately outside the server's component-scan base package: the provider is registered exactly once, by auto-configuration, and never also by component scan (which would trip the registry's duplicate-code guard).
+
+## Package lifecycle and six-gate validation
+
+`agent-medical` treats every hospital as knowledge data with a fenced lifecycle.
+`HospitalPackageLifecycleService` (a plain bean, no REST surface) owns the only status
+transitions:
+
+- `submit` upserts the draft by `hospital_code` with replacement semantics: the row goes
+  back to `PENDING`, `approval_version` increments, and all review columns are cleared, so
+  a package replaced mid-review can never be approved on a stale report.
+- `review` runs the fixed six-gate pipeline — SCHEMA, SEMANTIC, PROVENANCE, CAPABILITY,
+  SAFETY, SIMULATION — collects every violation into a `GateReport`, and stores it without
+  bumping the version. Unparsable content skips everything after SCHEMA; a red CAPABILITY
+  gate skips SIMULATION so un-screened endpoints are never probed. SIMULATION is a
+  deterministic sandbox dry-run (definition, read-only execution, anomalous arguments,
+  cross-tenant isolation, human-task idempotency) — it never calls an LLM.
+- `approve`, `reject`, and `revoke` require a platform admin and a matching
+  `approval_version` (optimistic CAS). `approve` additionally requires a green gate report
+  stored at the current version; `reject` and `revoke` require a reason.
+
+The CAPABILITY gate and the runtime `HttpApiTransportExecutor` share one
+`EndpointScreeningPolicy`: absolute `http(s)` endpoints resolving to public addresses only,
+with the operator allowlist `medical.hospital.endpoint-allowlist` (comma-separated hosts)
+as the escape hatch for local development such as `127.0.0.1,localhost`. Human-channel
+tools are idempotent per submission: the executor derives a `submission_key` from the
+conversation, hospital, tool, and arguments, so a retry reports the original task instead
+of creating a duplicate.
