@@ -34,4 +34,65 @@ class MedicalHumanTaskRepositoryTest {
             assertThat(repo.findById("missing").block(Duration.ofSeconds(10))).isNull();
         }
     }
+
+    @Test
+    void insertOrFindExistingDeduplicatesOnSubmissionKey() {
+        try (var db = PostgresTestDatabase.create("human_task_repo_dedup")) {
+            db.migrate();
+            var repo = new MedicalHumanTaskRepository(db.databaseClient());
+            var first = new MedicalHumanTaskRow("task-1", "conv-1", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null);
+            var second = new MedicalHumanTaskRow("task-2", "conv-1", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null);
+
+            var inserted = repo.insertOrFindExisting(first, "key-1").block(Duration.ofSeconds(10));
+            var duplicate = repo.insertOrFindExisting(second, "key-1").block(Duration.ofSeconds(10));
+
+            assertThat(inserted.id()).isEqualTo("task-1");
+            // The retry never inserts: it returns the ORIGINAL row, keeping one human task.
+            assertThat(duplicate.id()).isEqualTo("task-1");
+            assertThat(db.jdbc().queryForObject("SELECT COUNT(*) FROM medical_human_tasks", Integer.class))
+                    .isEqualTo(1);
+            assertThat(db.jdbc().queryForObject(
+                    "SELECT submission_key FROM medical_human_tasks WHERE id = 'task-1'", String.class))
+                    .isEqualTo("key-1");
+        }
+    }
+
+    @Test
+    void nullSubmissionKeyAllowsDuplicates() {
+        try (var db = PostgresTestDatabase.create("human_task_repo_nullkey")) {
+            db.migrate();
+            var repo = new MedicalHumanTaskRepository(db.databaseClient());
+            var first = new MedicalHumanTaskRow("task-1", "conv-1", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null);
+            var second = new MedicalHumanTaskRow("task-2", "conv-1", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null);
+
+            repo.insertOrFindExisting(first, null).block(Duration.ofSeconds(10));
+            repo.insertOrFindExisting(second, null).block(Duration.ofSeconds(10));
+
+            assertThat(db.jdbc().queryForObject("SELECT COUNT(*) FROM medical_human_tasks", Integer.class))
+                    .isEqualTo(2);
+        }
+    }
+
+    @Test
+    void countAndDeleteByConversationIdSupportSimulationCleanup() {
+        try (var db = PostgresTestDatabase.create("human_task_repo_conv")) {
+            db.migrate();
+            var repo = new MedicalHumanTaskRepository(db.databaseClient());
+            repo.insert(new MedicalHumanTaskRow("task-1", "conv-sim", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null)).block(Duration.ofSeconds(10));
+            repo.insert(new MedicalHumanTaskRow("task-2", "conv-sim", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null)).block(Duration.ofSeconds(10));
+            repo.insert(new MedicalHumanTaskRow("task-3", "conv-other", "demo", "requestConsultation",
+                    "{}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null)).block(Duration.ofSeconds(10));
+
+            assertThat(repo.countByConversationId("conv-sim").block(Duration.ofSeconds(10))).isEqualTo(2L);
+            assertThat(repo.deleteByConversationId("conv-sim").block(Duration.ofSeconds(10))).isEqualTo(2L);
+            assertThat(repo.countByConversationId("conv-sim").block(Duration.ofSeconds(10))).isZero();
+            assertThat(repo.countByConversationId("conv-other").block(Duration.ofSeconds(10))).isEqualTo(1L);
+        }
+    }
 }
