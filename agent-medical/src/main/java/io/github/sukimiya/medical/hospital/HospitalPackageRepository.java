@@ -84,11 +84,123 @@ public class HospitalPackageRepository {
                 .all();
     }
 
+    /**
+     * Legacy unfenced status write kept for existing tests and tooling. Every lifecycle
+     * transition must go through {@link #compareAndSetStatus}; do not add new callers.
+     */
     public Mono<Long> updateStatus(String id, HospitalPackageRow.Status status) {
         return db.sql("UPDATE hospital_capability_packages SET status = :status WHERE id = :id")
                 .bind("status", status.name())
                 .bind("id", id)
                 .fetch().rowsUpdated();
+    }
+
+    /** Approval-state projection over the V10 columns (spec §14 resolution 2). */
+    public Mono<HospitalPackageApprovalState> findApprovalState(String id) {
+        return db.sql("SELECT id, status, approval_version, reviewed_by, reviewed_at, "
+                        + "rejection_reason, last_gate_report FROM hospital_capability_packages WHERE id = :id")
+                .bind("id", id)
+                .map(HospitalPackageRepository::mapApprovalState)
+                .one();
+    }
+
+    /**
+     * Replacement-semantics submission: a conflict on hospital_code replaces the whole row,
+     * forces PENDING, clears every audit column, and bumps the version fence so a stale
+     * approval can never land on the new content (TOCTOU guard). The existing row keeps its id.
+     */
+    public Mono<HospitalPackageApprovalState> upsertPending(HospitalPackageRow draft) {
+        var query = db.sql("""
+                INSERT INTO hospital_capability_packages
+                    (id, hospital_code, hospital_name, routing_description, status, schema_version,
+                     content, source, valid_from, valid_until, scope_type, tenant_id, tenant_name,
+                     org_id, org_name, created_by)
+                VALUES
+                    (:id, :hospitalCode, :hospitalName, :routingDescription, 'PENDING', :schemaVersion,
+                     :content, :source, :validFrom, :validUntil, :scopeType, :tenantId, :tenantName,
+                     :orgId, :orgName, :createdBy)
+                ON CONFLICT (hospital_code) DO UPDATE SET
+                    hospital_name = EXCLUDED.hospital_name,
+                    routing_description = EXCLUDED.routing_description,
+                    status = 'PENDING',
+                    schema_version = EXCLUDED.schema_version,
+                    content = EXCLUDED.content,
+                    source = EXCLUDED.source,
+                    valid_from = EXCLUDED.valid_from,
+                    valid_until = EXCLUDED.valid_until,
+                    scope_type = EXCLUDED.scope_type,
+                    tenant_id = EXCLUDED.tenant_id,
+                    tenant_name = EXCLUDED.tenant_name,
+                    org_id = EXCLUDED.org_id,
+                    org_name = EXCLUDED.org_name,
+                    created_by = EXCLUDED.created_by,
+                    reviewed_by = NULL,
+                    reviewed_at = NULL,
+                    rejection_reason = NULL,
+                    last_gate_report = NULL,
+                    approval_version = hospital_capability_packages.approval_version + 1
+                RETURNING id, status, approval_version, reviewed_by, reviewed_at,
+                          rejection_reason, last_gate_report
+                """)
+                .bind("id", draft.id())
+                .bind("hospitalCode", draft.hospitalCode())
+                .bind("hospitalName", draft.hospitalName())
+                .bind("routingDescription", draft.routingDescription())
+                .bind("schemaVersion", draft.schemaVersion())
+                .bind("content", draft.content())
+                .bind("source", draft.source())
+                .bind("validFrom", draft.validFrom())
+                .bind("validUntil", draft.validUntil())
+                .bind("scopeType", draft.scopeType().name())
+                .bind("createdBy", draft.createdBy());
+        query = bindNullable(query, "tenantId", draft.tenantId());
+        query = bindNullable(query, "tenantName", draft.tenantName());
+        query = bindNullable(query, "orgId", draft.orgId());
+        query = bindNullable(query, "orgName", draft.orgName());
+        return query.map(HospitalPackageRepository::mapApprovalState).one();
+    }
+
+    /** Persists the six-gate report without touching the fence: a review is not a transition. */
+    public Mono<Void> saveGateReport(String id, String reportJson) {
+        return db.sql("UPDATE hospital_capability_packages SET last_gate_report = :report WHERE id = :id")
+                .bind("report", reportJson)
+                .bind("id", id)
+                .fetch().rowsUpdated().then();
+    }
+
+    /**
+     * The only sanctioned status transition (spec §14 resolution 2): applies only while the row
+     * is still at {@code expectedVersion}, bumps the fence, and stamps the reviewer. False means
+     * the race was lost — callers surface STALE_VERSION and never retry blindly.
+     */
+    public Mono<Boolean> compareAndSetStatus(String id, long expectedVersion,
+            HospitalPackageRow.Status newStatus, String reviewedBy, String rejectionReason) {
+        var query = db.sql("""
+                UPDATE hospital_capability_packages
+                SET status = :status,
+                    approval_version = approval_version + 1,
+                    reviewed_by = :reviewedBy,
+                    reviewed_at = CURRENT_TIMESTAMP,
+                    rejection_reason = :rejectionReason
+                WHERE id = :id AND approval_version = :expectedVersion
+                """)
+                .bind("status", newStatus.name())
+                .bind("reviewedBy", reviewedBy)
+                .bind("id", id)
+                .bind("expectedVersion", expectedVersion);
+        query = bindNullable(query, "rejectionReason", rejectionReason);
+        return query.fetch().rowsUpdated().map(updated -> updated == 1);
+    }
+
+    private static HospitalPackageApprovalState mapApprovalState(Readable row) {
+        return new HospitalPackageApprovalState(
+                row.get("id", String.class),
+                HospitalPackageRow.Status.valueOf(row.get("status", String.class)),
+                row.get("approval_version", Long.class),
+                row.get("reviewed_by", String.class),
+                row.get("reviewed_at", LocalDateTime.class),
+                row.get("rejection_reason", String.class),
+                row.get("last_gate_report", String.class));
     }
 
     private static HospitalPackageRow mapRow(Readable row) {
