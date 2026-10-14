@@ -2,6 +2,7 @@ package io.github.sukimiya.medical;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -17,6 +18,7 @@ import io.github.sukimiya.medical.hospital.MedicalHumanTaskRepository;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
 import io.github.sukimiya.medical.transport.TransportExecutor;
+import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
 import io.r2dbc.spi.ConnectionFactory;
 
 /**
@@ -55,7 +57,8 @@ public class MedicalAutoConfiguration {
 
     @Bean
     public HttpApiTransportExecutor httpApiTransportExecutor(WebClient.Builder webClientBuilder) {
-        return new HttpApiTransportExecutor(webClientBuilder);
+        // Interim default-deny screening; Task 12 wires MedicalHospitalProperties into the policy.
+        return new HttpApiTransportExecutor(webClientBuilder, new EndpointScreeningPolicy(Set.of()));
     }
 
     @Bean

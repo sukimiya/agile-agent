@@ -41,6 +41,7 @@ import io.github.sukimiya.medical.hospital.TransportBinding;
 import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
+import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import reactor.core.publisher.Flux;
@@ -117,7 +118,8 @@ class MedicalOrchestratorRoutingTest {
                 new HospitalPackageRepository(db.databaseClient()),
                 new HospitalPackageAccessPolicy(),
                 new HospitalPackageCodec(),
-                List.of(new HttpApiTransportExecutor(WebClient.builder()),
+                List.of(new HttpApiTransportExecutor(WebClient.builder(),
+                                new EndpointScreeningPolicy(Set.of("127.0.0.1", "localhost"))),
                         new HumanTaskTransportExecutor(new MedicalHumanTaskRepository(db.databaseClient()))),
                 Clock.systemDefaultZone());
     }

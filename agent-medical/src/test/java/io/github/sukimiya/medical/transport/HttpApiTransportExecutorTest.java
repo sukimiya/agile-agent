@@ -17,12 +17,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.medical.hospital.TransportBinding;
+import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 
 class HttpApiTransportExecutorTest {
 
-    private final HttpApiTransportExecutor executor = new HttpApiTransportExecutor(WebClient.builder());
+    private final HttpApiTransportExecutor executor = new HttpApiTransportExecutor(
+            WebClient.builder(), new EndpointScreeningPolicy(Set.of("127.0.0.1", "localhost")));
     private MockWebServer server;
 
     @BeforeEach
@@ -115,5 +117,44 @@ class HttpApiTransportExecutorTest {
 
         assertThat(result.success()).isTrue();
         assertThat(result.displayResult()).isEmpty();
+    }
+
+    @Test
+    void malformedUrlBecomesSafeFailureNotException() {
+        var result = executor.execute(request("http://not a uri %%%",
+                        new ObjectMapper().createObjectNode()))
+                .block(Duration.ofSeconds(15));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.displayResult()).isEqualTo("医院接口暂时不可用，请稍后重试或改用人工通道");
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void refusesScreenedHostWithoutHttpCall() {
+        // The cloud metadata endpoint (link-local) must never receive a packet:
+        // runtime screening happens before the request is even assembled.
+        var result = executor.execute(request("http://169.254.169.254/latest/meta-data",
+                        new ObjectMapper().createObjectNode()))
+                .block(Duration.ofSeconds(15));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.displayResult()).isEqualTo("医院接口暂时不可用，请稍后重试或改用人工通道");
+        assertThat(result.displayResult()).doesNotContain("169.254.169.254");
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void emptyAllowlistRejectsEvenLoopbackFailClosed() {
+        // Review focus #2: an empty or misspelled allowlist must never widen into "allow all".
+        var strict = new HttpApiTransportExecutor(WebClient.builder(),
+                new EndpointScreeningPolicy(Set.of()));
+        var result = strict.execute(request(server.url("/api/hospital/searchServices").toString(),
+                        new ObjectMapper().createObjectNode()))
+                .block(Duration.ofSeconds(15));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.displayResult()).isEqualTo("医院接口暂时不可用，请稍后重试或改用人工通道");
+        assertThat(server.getRequestCount()).isZero();
     }
 }
