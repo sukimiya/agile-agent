@@ -34,7 +34,7 @@ public final class HumanTaskTransportExecutor implements TransportExecutor {
     @Override
     public Mono<ToolResult> execute(TransportRequest request) {
         String taskId = UUID.randomUUID().toString();
-        var row = new MedicalHumanTaskRow(
+        var row = MedicalHumanTaskRow.normal(
                 taskId,
                 request.context().conversationId(),
                 request.hospitalCode(),

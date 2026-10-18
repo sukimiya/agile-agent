@@ -93,7 +93,7 @@ class HumanTaskTransportExecutorTest {
 
     @Test
     void deduplicatedRetryReportsTheExistingTaskId() {
-        var existing = new MedicalHumanTaskRow("task-existing", "conv-1", "demo", "requestConsultation",
+        var existing = MedicalHumanTaskRow.normal("task-existing", "conv-1", "demo", "requestConsultation",
                 "{\"keyword\":\"cardiology\"}", MedicalHumanTaskRow.TaskStatus.PENDING, "user-1", null);
         when(tasks.insertOrFindExisting(any(), anyString())).thenReturn(Mono.just(existing));
 
