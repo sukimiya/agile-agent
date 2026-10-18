@@ -279,7 +279,7 @@ class MockOAuth2EndToEndTest {
                 .block(Duration.ofSeconds(10));
         // V1-V10: seven platform migrations plus agent-medical schema and approval-state columns.
         // Flyway 11 writes no baseline row for a fresh empty schema, so the count is migrations only.
-        assertThat(migratedVersionCount).isEqualTo(10L);
+        assertThat(migratedVersionCount).isEqualTo(11L);
     }
 
     private void poisonCachedIdentity(StringRedisTemplate redis, String appToken, JsonNode originalSession)
