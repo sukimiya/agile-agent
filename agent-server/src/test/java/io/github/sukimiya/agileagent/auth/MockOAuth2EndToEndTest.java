@@ -277,7 +277,7 @@ class MockOAuth2EndToEndTest {
                 .map((row, metadata) -> row.get(0, Long.class))
                 .one()
                 .block(Duration.ofSeconds(10));
-        // V1-V10: seven platform migrations plus agent-medical schema and approval-state columns.
+        // V1-V11: seven platform migrations plus agent-medical schema and approval-state columns.
         // Flyway 11 writes no baseline row for a fresh empty schema, so the count is migrations only.
         assertThat(migratedVersionCount).isEqualTo(11L);
     }

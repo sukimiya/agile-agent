@@ -229,6 +229,55 @@ class RuleEngineTest {
     }
 
     @Test
+    void globalDonorFloorKeepsPlatformScriptsAtEqualSla() {
+        // Final review I-2: a HOSPITAL rule sharing the GLOBAL rule_code with an EQUAL
+        // slaSeconds (and its own scripts/ladder) must never substitute the platform's
+        // pre-approved fixed scripts — the GLOBAL row is the unconditional donor. The
+        // hospital's tightened additions (extra disease name) and the strictest
+        // priority/SLA merge still take effect.
+        when(rules.findApproved()).thenReturn(Flux.just(
+                emergencyRule("r-global", "baseline", MedicalRuleRow.ScopeType.GLOBAL, null,
+                        "{\"schemaVersion\":1,\"kind\":\"EMERGENCY\",\"condition\":{"
+                                + "\"triageCategories\":[\"EMERGENCY\"],"
+                                + "\"diseaseNames\":[\"stroke\"]},\"action\":{\"priority\":100,"
+                                + "\"slaSeconds\":0,\"escalationLevels\":[300,900],"
+                                + "\"awaitingTakeoverScript\":\"平台等待话术\","
+                                + "\"takenOverScript\":\"平台接管话术\"}}"),
+                emergencyRule("r-hosp", "baseline", MedicalRuleRow.ScopeType.HOSPITAL, "tenant-1",
+                        "{\"schemaVersion\":1,\"kind\":\"EMERGENCY\",\"condition\":{"
+                                + "\"triageCategories\":[],"
+                                + "\"diseaseNames\":[\"院级新增病种\"]},\"action\":{\"priority\":50,"
+                                + "\"slaSeconds\":0,\"escalationLevels\":[120],"
+                                + "\"awaitingTakeoverScript\":\"院级等待话术\","
+                                + "\"takenOverScript\":\"院级接管话术\"}}")));
+        stubCreateEcallEcho();
+
+        // GLOBAL category hit: donor = GLOBAL row despite the equal-SLA hospital rule
+        var result = engine().triage(args("EMERGENCY", "[]", null), context())
+                .block(Duration.ofSeconds(5));
+        assertThat(result.success()).isTrue();
+        assertThat(result.displayResult()).isEqualTo("平台等待话术");
+        var captor = ArgumentCaptor.forClass(EcallPayload.class);
+        verify(escalation).createEcall(eq("conv-1"), eq("user-1"), captor.capture());
+        assertThat(captor.getValue().awaitingTakeoverScript()).isEqualTo("平台等待话术");
+        assertThat(captor.getValue().takenOverScript()).isEqualTo("平台接管话术");
+        assertThat(captor.getValue().escalationLevels()).containsExactly(300, 900);
+        assertThat(captor.getValue().priority()).isEqualTo(100); // max merge
+        assertThat(captor.getValue().slaSeconds()).isZero();     // min merge
+
+        // The hospital's extra disease name still hits (union merge) — and still carries
+        // the GLOBAL scripts.
+        var hospitalAddition = engine().triage(args("ROUTINE",
+                "[{\"symptom\":\"院级症状\",\"disease\":\"院级新增病种\"}]", null), context())
+                .block(Duration.ofSeconds(5));
+        assertThat(hospitalAddition.success()).isTrue();
+        assertThat(hospitalAddition.displayResult()).isEqualTo("平台等待话术");
+        verify(escalation, times(2)).createEcall(eq("conv-1"), eq("user-1"), captor.capture());
+        assertThat(captor.getValue().ruleCode()).isEqualTo("baseline");
+        assertThat(captor.getValue().awaitingTakeoverScript()).isEqualTo("平台等待话术");
+    }
+
+    @Test
     void onlyGlobalAndOwnTenantRulesAreVisible() {
         // Ruling R3: engine visibility = GLOBAL always + TENANT/HOSPITAL by tenantId match
         when(rules.findApproved()).thenReturn(Flux.just(emergencyRule("r-other", "other",

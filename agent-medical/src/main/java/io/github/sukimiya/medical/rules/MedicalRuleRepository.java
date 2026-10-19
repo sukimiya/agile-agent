@@ -83,6 +83,7 @@ public class MedicalRuleRepository {
                      'PENDING', :createdBy)
                 ON CONFLICT (rule_code, scope_key) DO UPDATE SET
                     rule_kind = EXCLUDED.rule_kind,
+                    tenant_name = EXCLUDED.tenant_name,
                     org_id = EXCLUDED.org_id,
                     org_name = EXCLUDED.org_name,
                     content_json = EXCLUDED.content_json,

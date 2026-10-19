@@ -42,7 +42,11 @@ public class MedicalTaskEventRepository {
                 .all();
     }
 
-    /** Exact (task, type, detail) existence check — the ceiling/stale idempotency guard. */
+    /**
+     * Exact (task, type, detail) existence check — the ceiling/stale idempotency guard.
+     * {@code detail} must be non-null: SQL equality never matches a NULL detail, so a null
+     * argument is rejected at bind time rather than silently returning false.
+     */
     public Mono<Boolean> hasEvent(String taskId, MedicalTaskEventRow.EventType eventType,
             String detail) {
         return db.sql("SELECT EXISTS(SELECT 1 FROM medical_task_events WHERE task_id = :taskId "

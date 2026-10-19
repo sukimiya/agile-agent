@@ -98,8 +98,11 @@ public class RuleEngine {
      * Strictest merge per rule_code (spec §6, Review Focus #4): condition lists are unions
      * (lower scopes may only ADD categories/diseases, never remove GLOBAL entries),
      * priority is the max, the tightest SLA wins. Escalation ladder and fixed scripts come
-     * from the donor row: min slaSeconds, then the narrowest scope (HOSPITAL > TENANT >
-     * GLOBAL), then the smallest row id — fully deterministic.
+     * from the donor row: if a GLOBAL row shares the rule_code it is UNCONDITIONALLY the
+     * donor (final review I-2 — a tenant-approved narrower rule may tighten conditions and
+     * SLA but never substitute the platform's pre-approved scripts or ladder); otherwise
+     * the donor is min slaSeconds, then the narrowest scope (HOSPITAL > TENANT > GLOBAL),
+     * then the smallest row id — fully deterministic.
      */
     private static List<MergedRule> mergeByCode(List<LoadedRule> loaded) {
         Map<String, List<LoadedRule>> byCode = new LinkedHashMap<>();
@@ -121,11 +124,15 @@ public class RuleEngine {
                 slaSeconds = Math.min(slaSeconds, rule.content().action().slaSeconds());
             }
             LoadedRule donor = entry.getValue().stream()
-                    .min(Comparator
-                            .comparingInt((LoadedRule r) -> r.content().action().slaSeconds())
-                            .thenComparingInt(r -> -scopeRank(r.row()))
-                            .thenComparing(r -> r.row().id()))
-                    .orElseThrow();
+                    .filter(r -> r.row().scopeType() == MedicalRuleRow.ScopeType.GLOBAL)
+                    .min(Comparator.comparing(r -> r.row().id())) // GLOBAL floor (final review I-2)
+                    .orElseGet(() -> entry.getValue().stream()
+                            .min(Comparator
+                                    .comparingInt(
+                                            (LoadedRule r) -> r.content().action().slaSeconds())
+                                    .thenComparingInt(r -> -scopeRank(r.row()))
+                                    .thenComparing(r -> r.row().id()))
+                            .orElseThrow());
             merged.add(new MergedRule(entry.getKey(), List.copyOf(categories),
                     List.copyOf(diseases), priority, slaSeconds, donor));
         }

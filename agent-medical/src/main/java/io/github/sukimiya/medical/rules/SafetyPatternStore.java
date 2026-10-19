@@ -64,10 +64,11 @@ public final class SafetyPatternStore {
         return dataPatterns.get();
     }
 
+    /** valid_until is EXCLUSIVE — same boundary convention as RuleEngine (final review M-1). */
     private boolean withinValidityWindow(MedicalRuleRow row) {
         LocalDateTime now = LocalDateTime.now(clock);
         return row.validFrom() != null && row.validUntil() != null
-                && !now.isBefore(row.validFrom()) && !now.isAfter(row.validUntil());
+                && !now.isBefore(row.validFrom()) && now.isBefore(row.validUntil());
     }
 
     /** Defense in depth: a pattern that fails to compile is skipped, never fatal. */

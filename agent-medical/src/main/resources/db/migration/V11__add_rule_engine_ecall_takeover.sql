@@ -15,7 +15,7 @@ CREATE TABLE medical_rules (
     org_name VARCHAR(255),
     hospital_code VARCHAR(64),
     scope_key VARCHAR(255) GENERATED ALWAYS AS (
-        scope_type || '|' || COALESCE(tenant_id, '-') || COALESCE(hospital_code, '-')) STORED,
+        scope_type || '|' || COALESCE(tenant_id, '-') || '|' || COALESCE(hospital_code, '-')) STORED,
     content_json TEXT NOT NULL,
     source VARCHAR(16) NOT NULL,
     valid_from TIMESTAMP NOT NULL,

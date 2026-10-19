@@ -39,7 +39,7 @@ class LlmMigrationTest {
     }
 
     @Test
-    void emptyDatabaseMigratesThroughV10() {
+    void emptyDatabaseMigratesThroughV11() {
         try (var db = PostgresTestDatabase.create("llm_migration_empty")) {
             db.flyway().table(historyTable()).baselineOnMigrate(false).load().migrate();
 

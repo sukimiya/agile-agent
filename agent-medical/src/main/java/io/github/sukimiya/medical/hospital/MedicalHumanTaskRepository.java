@@ -8,7 +8,7 @@ import io.r2dbc.spi.Readable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** R2DBC access to medical_human_tasks (V9). Registered as a @Bean, never scanned. */
+/** R2DBC access to medical_human_tasks (V9, extended by V11). Registered as a @Bean, never scanned. */
 public class MedicalHumanTaskRepository {
 
     private static final String COLUMNS = """

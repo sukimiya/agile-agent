@@ -63,6 +63,44 @@ class MedicalRuleRepositoryTest {
         }
     }
 
+    private static MedicalRuleRow hospitalDraft(String id, String ruleCode, String tenantId,
+            String hospitalCode, String contentJson) {
+        return new MedicalRuleRow(id, ruleCode, "EMERGENCY",
+                MedicalRuleRow.ScopeType.HOSPITAL, tenantId, "租户", null, null, hospitalCode,
+                contentJson, "manual", LocalDateTime.now().minusDays(1),
+                LocalDateTime.now().plusDays(1), MedicalRuleRow.Status.PENDING, "admin", null);
+    }
+
+    @Test
+    void concatenationAmbiguousHospitalScopesDoNotCollideOnScopeKey() {
+        // Final review I-1: (tenant "ab", hospital "c") and (tenant "a", hospital "bc") used
+        // to produce the identical scope_key "HOSPITAL|abc", so the second upsertPending hit
+        // ux_medical_rules_code_scope and OVERWROTE the first row's content. With the '|'
+        // separator between the two ID segments the rows are distinct and coexist.
+        try (var db = PostgresTestDatabase.create("rule_repo_scope_key")) {
+            db.migrate();
+            var repo = new MedicalRuleRepository(db.databaseClient());
+
+            var first = repo.upsertPending(hospitalDraft("r-ab-c", "code-amb", "ab", "c",
+                    "{\"v\":\"ab-c\"}")).block(Duration.ofSeconds(10));
+            var second = repo.upsertPending(hospitalDraft("r-a-bc", "code-amb", "a", "bc",
+                    "{\"v\":\"a-bc\"}")).block(Duration.ofSeconds(10));
+
+            // Both inserts land independently — no ON CONFLICT between them.
+            assertThat(first.id()).isEqualTo("r-ab-c");
+            assertThat(second.id()).isEqualTo("r-a-bc");
+
+            var rowA = repo.findById("r-ab-c").block(Duration.ofSeconds(10));
+            assertThat(rowA.tenantId()).isEqualTo("ab");
+            assertThat(rowA.hospitalCode()).isEqualTo("c");
+            assertThat(rowA.contentJson()).isEqualTo("{\"v\":\"ab-c\"}");
+            var rowB = repo.findById("r-a-bc").block(Duration.ofSeconds(10));
+            assertThat(rowB.tenantId()).isEqualTo("a");
+            assertThat(rowB.hospitalCode()).isEqualTo("bc");
+            assertThat(rowB.contentJson()).isEqualTo("{\"v\":\"a-bc\"}");
+        }
+    }
+
     @Test
     void findForReviewReturnsRowAndStateFromOneSnapshot() {
         try (var db = PostgresTestDatabase.create("rule_repo_review")) {
