@@ -152,4 +152,25 @@ class GatePipelineTest {
                 "SCHEMA", "SEMANTIC", "PROVENANCE", "CAPABILITY", "SAFETY", "SIMULATION");
         assertThat(restored.skippedGates()).isEmpty();
     }
+
+    @Test
+    void runIsResubscriptionSafe() {
+        // Plan 3 final-review absorption: run() must be a cold pipeline — blocking the same
+        // Mono twice yields two identical, independent reports instead of accumulating into
+        // assembly-time shared state (skippedGates would grow to 10 entries pre-fix).
+        List<String> orderLog = new ArrayList<>();
+        var pipeline = pipeline(orderLog, Set.of("SCHEMA"));
+        var run = pipeline.run(context("{ not json"), 3L);
+
+        var first = run.block(Duration.ofSeconds(5));
+        var second = run.block(Duration.ofSeconds(5));
+
+        assertThat(orderLog).containsExactly("SCHEMA", "SCHEMA");
+        assertThat(first.skippedGates()).containsExactly(
+                "SEMANTIC", "PROVENANCE", "CAPABILITY", "SAFETY", "SIMULATION");
+        assertThat(second.skippedGates()).containsExactly(
+                "SEMANTIC", "PROVENANCE", "CAPABILITY", "SAFETY", "SIMULATION");
+        assertThat(first.violations().get("SCHEMA")).containsExactly("SCHEMA violation");
+        assertThat(second.violations().get("SCHEMA")).containsExactly("SCHEMA violation");
+    }
 }

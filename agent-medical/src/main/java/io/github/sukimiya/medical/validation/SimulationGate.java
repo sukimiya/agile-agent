@@ -168,7 +168,10 @@ public final class SimulationGate implements PackageGate {
                                 shadow.hospitalCode() + "_" + spec.name(),
                                 "probe-readonly-" + spec.name(), JSON.createObjectNode()), simContext)
                         .doOnNext(result -> {
-                            if (!result.success()) {
+                            if (result.displayResult() == null) {
+                                violations.add("只读执行探针 " + spec.name()
+                                        + ": displayResult 为 null（违反 ToolResult 契约）");
+                            } else if (!result.success()) {
                                 checkHostEcho(spec, result.displayResult(),
                                         "只读执行探针 " + spec.name(), violations);
                             }

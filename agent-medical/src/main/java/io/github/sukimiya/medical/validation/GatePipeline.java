@@ -25,24 +25,33 @@ public final class GatePipeline {
         this.gates = List.copyOf(gates);
     }
 
+    /**
+     * Runs all gates and collects the report. The returned Mono is cold and safe to
+     * resubscribe (retry, test re-run): per-subscription state lives inside
+     * {@code Mono.defer}. Sequencing: {@code concatMap} subscribes to each gate's evaluate
+     * payload only after the previous gate completes, in injected order — the skip rules
+     * read the violations collected so far, so this ordering is load-bearing.
+     */
     public Mono<GateReport> run(GateContext context, long approvalVersion) {
-        Map<String, List<String>> violations = new LinkedHashMap<>();
-        List<String> skipped = new ArrayList<>();
-        return Flux.fromIterable(gates)
-                .concatMap(gate -> {
-                    if (shouldSkip(gate.name(), context, violations)) {
-                        skipped.add(gate.name());
-                        violations.put(gate.name(), List.of());
-                        return Mono.empty();
-                    }
-                    return gate.evaluate(context)
-                            .doOnNext(found -> violations.put(gate.name(), List.copyOf(found)));
-                })
-                .then(Mono.fromCallable(() -> {
-                    boolean passed = violations.values().stream().allMatch(List::isEmpty);
-                    return new GateReport(context.candidate().hospitalCode(), approvalVersion,
-                            passed, violations, List.copyOf(skipped));
-                }));
+        return Mono.defer(() -> {
+            Map<String, List<String>> violations = new LinkedHashMap<>();
+            List<String> skipped = new ArrayList<>();
+            return Flux.fromIterable(gates)
+                    .concatMap(gate -> {
+                        if (shouldSkip(gate.name(), context, violations)) {
+                            skipped.add(gate.name());
+                            violations.put(gate.name(), List.of());
+                            return Mono.empty();
+                        }
+                        return gate.evaluate(context)
+                                .doOnNext(found -> violations.put(gate.name(), List.copyOf(found)));
+                    })
+                    .then(Mono.fromCallable(() -> {
+                        boolean passed = violations.values().stream().allMatch(List::isEmpty);
+                        return new GateReport(context.candidate().hospitalCode(), approvalVersion,
+                                passed, violations, List.copyOf(skipped));
+                    }));
+        });
     }
 
     private static boolean shouldSkip(String gateName, GateContext context,
