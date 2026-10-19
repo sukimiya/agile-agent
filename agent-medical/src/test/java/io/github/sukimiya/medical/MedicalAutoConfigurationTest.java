@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -17,9 +18,19 @@ import io.github.sukimiya.medical.hospital.HospitalCapabilityProvider;
 import io.github.sukimiya.medical.hospital.HospitalPackageRepository;
 import io.github.sukimiya.medical.hospital.HospitalPackageValidator;
 import io.github.sukimiya.medical.lifecycle.HospitalPackageLifecycleService;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.EscalationPoller;
+import io.github.sukimiya.medical.rules.EscalationService;
+import io.github.sukimiya.medical.rules.MedicalRuleLifecycleService;
+import io.github.sukimiya.medical.rules.MedicalRuleRepository;
+import io.github.sukimiya.medical.rules.MedicalRuleValidator;
+import io.github.sukimiya.medical.rules.MedicalTaskEventRepository;
+import io.github.sukimiya.medical.rules.RuleEngine;
+import io.github.sukimiya.medical.rules.SafetyPatternStore;
 import io.github.sukimiya.medical.transport.TransportExecutor;
 import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
 import io.github.sukimiya.medical.validation.GatePipeline;
+import io.github.sukimiya.medical.validation.TextSafetyScreen;
 import io.r2dbc.spi.ConnectionFactory;
 
 class MedicalAutoConfigurationTest {
@@ -91,6 +102,69 @@ class MedicalAutoConfigurationTest {
                     assertThat(context.getBean(MedicalHospitalProperties.class).getEndpointAllowlist())
                             .containsExactly("127.0.0.1", "localhost");
                     assertThat(context).hasSingleBean(EndpointScreeningPolicy.class);
+                });
+    }
+
+    @Test
+    void wiresTheRuleEngineStack() {
+        runner.withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+                .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
+                .withBean(WebClient.Builder.class, WebClient::builder)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(MedicalRuleRepository.class);
+                    assertThat(context).hasSingleBean(MedicalTaskEventRepository.class);
+                    assertThat(context).hasSingleBean(SafetyPatternStore.class);
+                    assertThat(context).hasSingleBean(MedicalRuleValidator.class);
+                    assertThat(context).hasSingleBean(MedicalRuleLifecycleService.class);
+                    assertThat(context).hasSingleBean(EscalationService.class);
+                    assertThat(context).hasSingleBean(ConversationGuard.class);
+                    assertThat(context).hasSingleBean(RuleEngine.class);
+                    assertThat(context).hasSingleBean(EscalationPoller.class);
+                    assertThat(context).hasSingleBean(TextSafetyScreen.class);
+                });
+    }
+
+    @Test
+    void escalationPollerIsSwitchable() {
+        runner.withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+                .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
+                .withBean(WebClient.Builder.class, WebClient::builder)
+                .withPropertyValues("medical.rules.escalation-poller-enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EscalationPoller.class);
+                    assertThat(context).hasSingleBean(EscalationService.class);
+                });
+    }
+
+    @Test
+    void bindsRulesProperties() {
+        runner.withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+                .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
+                .withBean(WebClient.Builder.class, WebClient::builder)
+                .withPropertyValues(
+                        "medical.rules.escalation-poll-interval=5s",
+                        "medical.rules.stale-claim-seconds=60",
+                        "medical.rules.stale-claim-release-enabled=false")
+                .run(context -> {
+                    var properties = context.getBean(MedicalRulesProperties.class);
+                    assertThat(properties.getEscalationPollInterval()).isEqualTo(Duration.ofSeconds(5));
+                    assertThat(properties.getStaleClaimSeconds()).isEqualTo(60L);
+                    assertThat(properties.isStaleClaimReleaseEnabled()).isFalse();
+                    assertThat(properties.isEscalationPollerEnabled()).isTrue();
+                });
+    }
+
+    @Test
+    void rulesPropertiesDefaultToSpecValues() {
+        runner.withBean(ConnectionFactory.class, () -> mock(ConnectionFactory.class))
+                .withBean(DatabaseClient.class, () -> mock(DatabaseClient.class))
+                .withBean(WebClient.Builder.class, WebClient::builder)
+                .run(context -> {
+                    var properties = context.getBean(MedicalRulesProperties.class);
+                    assertThat(properties.getEscalationPollInterval()).isEqualTo(Duration.ofSeconds(30));
+                    assertThat(properties.isEscalationPollerEnabled()).isTrue();
+                    assertThat(properties.getStaleClaimSeconds()).isEqualTo(1800L);
+                    assertThat(properties.isStaleClaimReleaseEnabled()).isTrue();
                 });
     }
 }
