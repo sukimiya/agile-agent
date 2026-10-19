@@ -276,13 +276,17 @@ public class EscalationService {
 
     private Mono<Boolean> recoverOne(MedicalHumanTaskRow task) {
         String detail = staleClaimReleaseEnabled ? STALE_RELEASED_DETAIL : STALE_DETECTED_DETAIL;
-        return events.hasEvent(task.id(), MedicalTaskEventRow.EventType.ESCALATED, detail)
+        // Marker is scoped per claim instance (claimed_at): a re-claimed task that gets
+        // stuck again must be recoverable — the pinned detail alone would match the
+        // first instance's audit and silence the second one forever (spec §8).
+        String marker = detail + "@" + task.claimedAt();
+        return events.hasEvent(task.id(), MedicalTaskEventRow.EventType.ESCALATED, marker)
                 .flatMap(already -> {
                     if (already) {
                         return Mono.just(false);
                     }
                     if (!staleClaimReleaseEnabled) {
-                        return auditStale(task, detail)
+                        return auditStale(task, marker)
                                 .doOnSuccess(ignored -> log.warn(
                                         "Stale claim detected (auto-release disabled): "
                                                 + "task={} claimedBy={}", task.id(),
@@ -294,7 +298,7 @@ public class EscalationService {
                                 if (!released) {
                                     return Mono.just(false); // claim moved on concurrently
                                 }
-                                return auditStale(task, detail)
+                                return auditStale(task, marker)
                                         .doOnSuccess(ignored -> log.warn(
                                                 "Stale claim released back to PENDING: "
                                                         + "task={} claimedBy={}", task.id(),

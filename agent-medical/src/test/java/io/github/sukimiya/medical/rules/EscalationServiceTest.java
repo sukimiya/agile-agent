@@ -340,7 +340,8 @@ class EscalationServiceTest {
         when(tasks.findClaimedBefore(NOW.minusSeconds(STALE_SECONDS)))
                 .thenReturn(Flux.just(stale));
         when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED,
-                EscalationService.STALE_RELEASED_DETAIL)).thenReturn(Mono.just(false));
+                EscalationService.STALE_RELEASED_DETAIL + "@" + stale.claimedAt()))
+                .thenReturn(Mono.just(false));
         when(tasks.releaseClaim("t1", stale.claimedAt())).thenReturn(Mono.just(true));
         when(events.insert(any())).thenReturn(Mono.empty());
 
@@ -348,7 +349,7 @@ class EscalationServiceTest {
         var captor = ArgumentCaptor.forClass(MedicalTaskEventRow.class);
         verify(events).insert(captor.capture());
         assertThat(captor.getValue().detail())
-                .isEqualTo(EscalationService.STALE_RELEASED_DETAIL);
+                .isEqualTo(EscalationService.STALE_RELEASED_DETAIL + "@" + stale.claimedAt());
     }
 
     @Test
@@ -357,7 +358,8 @@ class EscalationServiceTest {
         when(tasks.findClaimedBefore(NOW.minusSeconds(STALE_SECONDS)))
                 .thenReturn(Flux.just(stale));
         when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED,
-                EscalationService.STALE_DETECTED_DETAIL)).thenReturn(Mono.just(false));
+                EscalationService.STALE_DETECTED_DETAIL + "@" + stale.claimedAt()))
+                .thenReturn(Mono.just(false));
         when(events.insert(any())).thenReturn(Mono.empty());
 
         assertThat(service(false).recoverStaleClaims().block(Duration.ofSeconds(5))).isZero();
@@ -365,7 +367,7 @@ class EscalationServiceTest {
         var captor = ArgumentCaptor.forClass(MedicalTaskEventRow.class);
         verify(events).insert(captor.capture());
         assertThat(captor.getValue().detail())
-                .isEqualTo(EscalationService.STALE_DETECTED_DETAIL);
+                .isEqualTo(EscalationService.STALE_DETECTED_DETAIL + "@" + stale.claimedAt());
     }
 
     @Test
@@ -374,11 +376,44 @@ class EscalationServiceTest {
         when(tasks.findClaimedBefore(NOW.minusSeconds(STALE_SECONDS)))
                 .thenReturn(Flux.just(stale));
         when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED,
-                EscalationService.STALE_RELEASED_DETAIL)).thenReturn(Mono.just(true));
+                EscalationService.STALE_RELEASED_DETAIL + "@" + stale.claimedAt()))
+                .thenReturn(Mono.just(true));
 
         assertThat(service().recoverStaleClaims().block(Duration.ofSeconds(5))).isZero();
         verify(tasks, never()).releaseClaim(anyString(), any());
         verify(events, never()).insert(any());
+    }
+
+    @Test
+    void secondStuckClaimInstanceIsRecoveredAgain() {
+        // Spec §8: a task released from one crashed operator, re-claimed, and stuck again
+        // must be recoverable — the guard is scoped per claim instance (claimed_at), so
+        // the first instance's audit never silences the second.
+        LocalDateTime firstClaimedAt = NOW.minusHours(3);
+        LocalDateTime secondClaimedAt = NOW.minusHours(1);
+        var reclaimed = new MedicalHumanTaskRow("t1", "conv-t1",
+                MedicalHumanTaskRow.ECALL_HOSPITAL_CODE, MedicalHumanTaskRow.ECALL_TOOL_NAME,
+                PAYLOAD.toJson(), MedicalHumanTaskRow.TaskStatus.CLAIMED, "user-1", NOW,
+                MedicalHumanTaskRow.TaskKind.ECALL, 100, NOW.minusSeconds(60), 0, "ops-8",
+                secondClaimedAt, null, null);
+        when(tasks.findClaimedBefore(NOW.minusSeconds(STALE_SECONDS)))
+                .thenReturn(Flux.just(reclaimed));
+        String marker1 = EscalationService.STALE_RELEASED_DETAIL + "@" + firstClaimedAt;
+        String marker2 = EscalationService.STALE_RELEASED_DETAIL + "@" + secondClaimedAt;
+        when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED, marker1))
+                .thenReturn(Mono.just(true));
+        when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED, marker2))
+                .thenReturn(Mono.just(false));
+        when(tasks.releaseClaim("t1", secondClaimedAt)).thenReturn(Mono.just(true));
+        when(events.insert(any())).thenReturn(Mono.empty());
+
+        assertThat(service().recoverStaleClaims().block(Duration.ofSeconds(5))).isEqualTo(1);
+        verify(tasks).releaseClaim("t1", secondClaimedAt);
+        var captor = ArgumentCaptor.forClass(MedicalTaskEventRow.class);
+        verify(events).insert(captor.capture());
+        assertThat(captor.getValue().eventType())
+                .isEqualTo(MedicalTaskEventRow.EventType.ESCALATED);
+        assertThat(captor.getValue().detail()).isEqualTo(marker2);
     }
 
     @Test
@@ -387,7 +422,8 @@ class EscalationServiceTest {
         when(tasks.findClaimedBefore(NOW.minusSeconds(STALE_SECONDS)))
                 .thenReturn(Flux.just(stale));
         when(events.hasEvent("t1", MedicalTaskEventRow.EventType.ESCALATED,
-                EscalationService.STALE_RELEASED_DETAIL)).thenReturn(Mono.just(false));
+                EscalationService.STALE_RELEASED_DETAIL + "@" + stale.claimedAt()))
+                .thenReturn(Mono.just(false));
         when(tasks.releaseClaim("t1", stale.claimedAt())).thenReturn(Mono.just(false));
 
         assertThat(service().recoverStaleClaims().block(Duration.ofSeconds(5))).isZero();
