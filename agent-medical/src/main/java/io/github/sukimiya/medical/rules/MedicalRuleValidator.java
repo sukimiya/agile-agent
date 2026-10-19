@@ -62,8 +62,8 @@ public final class MedicalRuleValidator {
         }
         switch (row.scopeType()) {
             case GLOBAL -> {
-                if (hasText(row.tenantId()) || hasText(row.tenantName()) || hasText(row.orgId())
-                        || hasText(row.orgName()) || hasText(row.hospitalCode())) {
+                if (row.tenantId() != null || row.tenantName() != null || row.orgId() != null
+                        || row.orgName() != null || row.hospitalCode() != null) {
                     violations.add("GLOBAL scope 要求 tenant_id/tenant_name/org_id/org_name/"
                             + "hospital_code 全部为空");
                 }
@@ -72,8 +72,7 @@ public final class MedicalRuleValidator {
                 if (isBlank(row.tenantId()) || isBlank(row.tenantName())) {
                     violations.add("TENANT scope requires tenant_id and tenant_name");
                 }
-                if (hasText(row.orgId()) || hasText(row.orgName())
-                        || hasText(row.hospitalCode())) {
+                if (row.orgId() != null || row.orgName() != null || row.hospitalCode() != null) {
                     violations.add("TENANT scope requires org_id/org_name/hospital_code "
                             + "to be null");
                 }
@@ -84,7 +83,7 @@ public final class MedicalRuleValidator {
                     violations.add("HOSPITAL scope requires tenant_id, tenant_name, and "
                             + "hospital_code");
                 }
-                if (hasText(row.orgId()) || hasText(row.orgName())) {
+                if (row.orgId() != null || row.orgName() != null) {
                     violations.add("HOSPITAL scope requires org_id and org_name to be null");
                 }
             }
@@ -197,10 +196,5 @@ public final class MedicalRuleValidator {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    /** Forbidden-column check: a blank string counts as empty, mirroring isBlank. */
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 }
