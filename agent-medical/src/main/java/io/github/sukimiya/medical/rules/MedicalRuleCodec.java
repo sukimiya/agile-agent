@@ -19,6 +19,11 @@ public final class MedicalRuleCodec {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    /**
+     * Field presence and type validation is the validator's responsibility: this parse binds
+     * shape only, so a document missing numeric fields binds them to primitive defaults and
+     * a document missing condition/action binds them to null.
+     */
     public Optional<MedicalRuleContent> parse(String contentJson) {
         if (contentJson == null || contentJson.isBlank()) {
             return Optional.empty();

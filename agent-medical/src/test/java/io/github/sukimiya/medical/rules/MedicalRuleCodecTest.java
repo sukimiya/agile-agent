@@ -3,8 +3,6 @@ package io.github.sukimiya.medical.rules;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.List;
-
 import org.junit.jupiter.api.Test;
 
 class MedicalRuleCodecTest {
@@ -89,8 +87,5 @@ class MedicalRuleCodecTest {
     void sealedInterfacePermitsExactlyTwoShapes() {
         assertThat(MedicalRuleContent.class.getPermittedSubclasses())
                 .containsExactlyInAnyOrder(EmergencyRuleContent.class, SafetyPatternRuleContent.class);
-        assertThat(List.of(new EmergencyRuleContent(1, "EMERGENCY", null, null),
-                new SafetyPatternRuleContent(1, "SAFETY_PATTERN", null, null)))
-                .allSatisfy(content -> assertThat(content.schemaVersion()).isEqualTo(1));
     }
 }
