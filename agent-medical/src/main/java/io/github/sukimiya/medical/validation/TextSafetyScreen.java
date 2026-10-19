@@ -4,12 +4,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import io.github.sukimiya.medical.rules.SafetyPatternStore;
+
 /**
  * Curated pattern screening over every hospital-supplied text field (spec §7): prompt-injection
  * markers and claims banned by China's medical advertising rules (Advertising Law art. 16 —
  * guarantee-style promises such as 根治/保证有效/无副作用). The pattern lists are deliberately
  * curated and auditable: this screen is a review gate that flags a submission for human eyes,
  * not a parser. At most one violation per pattern family per field keeps GateReport readable.
+ * Since Plan 4 the screen is a composite: the curated constants above are a frozen, non-relaxable
+ * baseline, and an injected {@link io.github.sukimiya.medical.rules.SafetyPatternStore}
+ * contributes approved GLOBAL SAFETY_PATTERN increments (fail-safe: baseline only when the store
+ * is empty or absent).
  */
 public final class TextSafetyScreen {
 
@@ -38,6 +44,18 @@ public final class TextSafetyScreen {
             Pattern.compile("祖传秘方"),
             Pattern.compile("治愈率.{0,8}(第一|最高)"));
 
+    private final SafetyPatternStore dataPatterns;
+
+    /** Baseline-only screen: the frozen curated constants (Plan 3 behavior, unchanged). */
+    public TextSafetyScreen() {
+        this(null);
+    }
+
+    /** Composite screen: frozen baseline + approved GLOBAL SAFETY_PATTERN increment. */
+    public TextSafetyScreen(SafetyPatternStore dataPatterns) {
+        this.dataPatterns = dataPatterns;
+    }
+
     /**
      * Screens one hospital-supplied text field. Returns at most one violation per pattern
      * family; null/blank text yields an empty list.
@@ -52,6 +70,13 @@ public final class TextSafetyScreen {
         }
         if (matchesAny(MEDICAL_CLAIM_PATTERNS, text)) {
             violations.add(fieldLabel + ": 疑似医疗广告法禁用声明");
+        }
+        if (dataPatterns != null) {
+            for (SafetyPatternStore.DataPattern data : dataPatterns.current()) {
+                if (data.pattern().matcher(text).find()) {
+                    violations.add(fieldLabel + ": 命中数据驱动安全模式（" + data.fieldLabel() + "）");
+                }
+            }
         }
         return List.copyOf(violations);
     }
