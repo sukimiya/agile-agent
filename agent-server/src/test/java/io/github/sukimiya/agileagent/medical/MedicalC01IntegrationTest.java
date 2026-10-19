@@ -34,6 +34,12 @@ import io.github.sukimiya.medical.hospital.HospitalToolSpec;
 import io.github.sukimiya.medical.hospital.MedicalHumanTaskRepository;
 import io.github.sukimiya.medical.hospital.TransportBinding;
 import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.EscalationService;
+import io.github.sukimiya.medical.rules.MedicalRuleCodec;
+import io.github.sukimiya.medical.rules.MedicalRuleRepository;
+import io.github.sukimiya.medical.rules.MedicalTaskEventRepository;
+import io.github.sukimiya.medical.rules.RuleEngine;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
 import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
@@ -63,10 +69,17 @@ class MedicalC01IntegrationTest {
         apiServer.start();
         packages = new HospitalPackageRepository(db.databaseClient());
         var tasks = new MedicalHumanTaskRepository(db.databaseClient());
+        var taskEvents = new MedicalTaskEventRepository(db.databaseClient());
+        var ruleRepo = new MedicalRuleRepository(db.databaseClient());
+        var ruleCodec = new MedicalRuleCodec();
+        var escalation = new EscalationService(tasks, taskEvents, Clock.systemDefaultZone(),
+                1800L, true);
         var endpointPolicy = new EndpointScreeningPolicy(Set.of("127.0.0.1", "localhost"));
         provider = new HospitalCapabilityProvider(packages, new HospitalPackageAccessPolicy(), CODEC,
                 List.of(new HttpApiTransportExecutor(WebClient.builder(), endpointPolicy),
                         new HumanTaskTransportExecutor(tasks)),
+                new ConversationGuard(tasks, escalation),
+                new RuleEngine(ruleRepo, ruleCodec, escalation, Clock.systemDefaultZone()),
                 Clock.systemDefaultZone());
     }
 
@@ -122,8 +135,10 @@ class MedicalC01IntegrationTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(10);
+        assertThat(definition.tools()).hasSize(11);
+        assertThat(definition.tools()).extracting(t -> t.name()).contains("submitTriage");
         var suffixesByHospital = definition.tools().stream()
+                .filter(tool -> tool.name().contains("_")) // submitTriage carries no hospital prefix
                 .collect(Collectors.groupingBy(
                         tool -> tool.name().substring(0, tool.name().indexOf('_')),
                         Collectors.mapping(
@@ -205,7 +220,7 @@ class MedicalC01IntegrationTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
         assertThat(definition.systemPrompt()).doesNotContain("mockrev").doesNotContain("mockexp");
 
         for (String code : List.of("mockrev", "mockexp")) {
@@ -224,7 +239,7 @@ class MedicalC01IntegrationTest {
                 HospitalPackageRow.ScopeType.TENANT, "tenant-2");
 
         var outsider = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
-        assertThat(outsider.tools()).isEmpty();
+        assertThat(outsider.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
 
         var refused = provider.execute(new ToolInvocation("mocktn_searchServices", "call-1",
                         JSON.createObjectNode()), context("tenant-1"))
@@ -234,7 +249,7 @@ class MedicalC01IntegrationTest {
         assertThat(apiServer.getRequestCount()).isZero();
 
         var insider = provider.definition(context("tenant-2")).block(Duration.ofSeconds(10));
-        assertThat(insider.tools()).hasSize(5);
+        assertThat(insider.tools()).hasSize(6);
         assertThat(insider.systemPrompt()).contains("mocktn | 租户医院");
     }
 
@@ -245,7 +260,7 @@ class MedicalC01IntegrationTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
         assertThat(definition.systemPrompt()).doesNotContain("mockmail");
 
         var result = provider.execute(new ToolInvocation("mockmail_searchServices", "call-1",

@@ -32,6 +32,9 @@ import io.github.sukimiya.medical.hospital.MedicalHumanTaskRepository;
 import io.github.sukimiya.medical.hospital.MedicalHumanTaskRow;
 import io.github.sukimiya.medical.hospital.TransportBinding;
 import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.ConversationState;
+import io.github.sukimiya.medical.rules.RuleEngine;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
 import okhttp3.mockwebserver.Dispatcher;
@@ -65,11 +68,13 @@ class SimulationGateTest {
                 Mono.just(invocation.getArgument(0, MedicalHumanTaskRow.class)));
         when(tasks.countByConversationId(anyString())).thenReturn(Mono.just(1L));
         when(tasks.deleteByConversationId(anyString())).thenReturn(Mono.just(1L));
+        var guard = mock(ConversationGuard.class);
+        when(guard.state(anyString())).thenReturn(Mono.just(ConversationState.normal()));
         gate = new SimulationGate(new HospitalPackageAccessPolicy(), CODEC,
                 List.of(new HttpApiTransportExecutor(WebClient.builder(),
                                 new EndpointScreeningPolicy(Set.of("127.0.0.1", "localhost"))),
                         new HumanTaskTransportExecutor(tasks)),
-                tasks);
+                tasks, guard, mock(RuleEngine.class));
     }
 
     @AfterEach

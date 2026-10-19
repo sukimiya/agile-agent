@@ -39,6 +39,12 @@ import io.github.sukimiya.medical.hospital.HospitalToolSpec;
 import io.github.sukimiya.medical.hospital.MedicalHumanTaskRepository;
 import io.github.sukimiya.medical.hospital.TransportBinding;
 import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.EscalationService;
+import io.github.sukimiya.medical.rules.MedicalRuleCodec;
+import io.github.sukimiya.medical.rules.MedicalRuleRepository;
+import io.github.sukimiya.medical.rules.MedicalTaskEventRepository;
+import io.github.sukimiya.medical.rules.RuleEngine;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
 import io.github.sukimiya.medical.validation.EndpointScreeningPolicy;
@@ -83,8 +89,9 @@ class MedicalOrchestratorRoutingTest {
 
                 assertThat(llm.routingPrompt).contains("HOSPITAL | 医院服务");
                 assertThat(llm.advertisedTools).containsExactly(
-                        UnifiedToolCatalog.SCHEMA_V1_TOOLS.stream()
-                                .map(name -> "mockapi_" + name).toArray(String[]::new));
+                        "mockapi_searchServices", "mockapi_checkAvailability", "mockapi_requestQuotation",
+                        "mockapi_requestConsultation", "mockapi_submitMedicalRecords",
+                        UnifiedToolCatalog.TRIAGE_TOOL);
                 assertThat(answer).contains(
                         "{\"type\":\"tool_call\",\"content\":\"mockapi_searchServices\"}\n");
                 assertThat(answer).anyMatch(chunk -> chunk.endsWith("已为您查询到心内科服务\n"));
@@ -114,13 +121,20 @@ class MedicalOrchestratorRoutingTest {
     }
 
     private static HospitalCapabilityProvider provider(PostgresTestDatabase db) {
+        var tasks = new MedicalHumanTaskRepository(db.databaseClient());
+        var events = new MedicalTaskEventRepository(db.databaseClient());
+        var ruleRepo = new MedicalRuleRepository(db.databaseClient());
+        var ruleCodec = new MedicalRuleCodec();
+        var escalation = new EscalationService(tasks, events, Clock.systemDefaultZone(), 1800L, true);
         return new HospitalCapabilityProvider(
                 new HospitalPackageRepository(db.databaseClient()),
                 new HospitalPackageAccessPolicy(),
                 new HospitalPackageCodec(),
                 List.of(new HttpApiTransportExecutor(WebClient.builder(),
                                 new EndpointScreeningPolicy(Set.of("127.0.0.1", "localhost"))),
-                        new HumanTaskTransportExecutor(new MedicalHumanTaskRepository(db.databaseClient()))),
+                        new HumanTaskTransportExecutor(tasks)),
+                new ConversationGuard(tasks, escalation),
+                new RuleEngine(ruleRepo, ruleCodec, escalation, Clock.systemDefaultZone()),
                 Clock.systemDefaultZone());
     }
 

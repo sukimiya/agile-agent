@@ -36,6 +36,13 @@ import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
 import io.github.sukimiya.medical.lifecycle.HospitalPackageLifecycleService;
 import io.github.sukimiya.medical.lifecycle.LifecycleOutcome;
 import io.github.sukimiya.medical.lifecycle.SubmissionStatus;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.EscalationService;
+import io.github.sukimiya.medical.rules.MedicalRuleCodec;
+import io.github.sukimiya.medical.rules.MedicalRuleRepository;
+import io.github.sukimiya.medical.rules.MedicalTaskEventRepository;
+import io.github.sukimiya.medical.rules.RuleEngine;
+import io.github.sukimiya.medical.rules.SafetyPatternStore;
 import io.github.sukimiya.medical.transport.HumanTaskTransportExecutor;
 import io.github.sukimiya.medical.transport.HttpApiTransportExecutor;
 import io.github.sukimiya.medical.transport.TransportExecutor;
@@ -93,15 +100,26 @@ class MedicalC02IntegrationTest {
         List<TransportExecutor> executors = List.of(
                 new HttpApiTransportExecutor(WebClient.builder(), endpoints),
                 new HumanTaskTransportExecutor(tasks));
+        var taskEvents = new MedicalTaskEventRepository(db.databaseClient());
+        var ruleRepo = new MedicalRuleRepository(db.databaseClient());
+        var ruleCodec = new MedicalRuleCodec();
+        // Composite baseline+data screen shared by SafetyGate and the runtime (spec ruling 6);
+        // no SAFETY_PATTERN rows exist yet, so behavior equals the frozen code baseline.
+        var screen = new TextSafetyScreen(
+                new SafetyPatternStore(ruleRepo, ruleCodec, Clock.systemDefaultZone()));
+        var escalation = new EscalationService(tasks, taskEvents, Clock.systemDefaultZone(),
+                1800L, true);
+        var guard = new ConversationGuard(tasks, escalation);
+        var ruleEngine = new RuleEngine(ruleRepo, ruleCodec, escalation, Clock.systemDefaultZone());
         provider = new HospitalCapabilityProvider(packages, accessPolicy, CODEC, executors,
-                Clock.systemDefaultZone());
+                guard, ruleEngine, Clock.systemDefaultZone());
         var pipeline = new GatePipeline(List.of(
                 new SchemaGate(new HospitalPackageValidator(CODEC)),
                 new SemanticGate(),
                 new ProvenanceGate(Clock.systemDefaultZone()),
                 new CapabilityGate(endpoints),
-                new SafetyGate(new TextSafetyScreen()),
-                new SimulationGate(accessPolicy, CODEC, executors, tasks)));
+                new SafetyGate(screen),
+                new SimulationGate(accessPolicy, CODEC, executors, tasks, guard, ruleEngine)));
         lifecycle = new HospitalPackageLifecycleService(packages, pipeline, CODEC);
     }
 
@@ -219,7 +237,7 @@ class MedicalC02IntegrationTest {
         packages.updateStatus(state.id(), HospitalPackageRow.Status.APPROVED)
                 .block(Duration.ofSeconds(10));
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
-        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
         var result = provider.execute(new ToolInvocation("c02exp_searchServices", "call-1",
                         JSON.createObjectNode()), context("tenant-1"))
                 .block(Duration.ofSeconds(10));
@@ -276,7 +294,7 @@ class MedicalC02IntegrationTest {
         assertThat((String) audit.get("last_gate_report")).contains("\"passed\":true");
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
-        assertThat(definition.tools()).hasSize(5);
+        assertThat(definition.tools()).hasSize(6);
         assertThat(definition.systemPrompt()).contains("c02green | 绿通医院");
 
         var result = provider.execute(new ToolInvocation("c02green_searchServices", "call-1",
@@ -335,7 +353,7 @@ class MedicalC02IntegrationTest {
         assertThat(row.get("rejection_reason")).isEqualTo("合作终止");
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
-        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
         var result = provider.execute(new ToolInvocation("c02rev_searchServices", "call-1",
                         JSON.createObjectNode()), context("tenant-1"))
                 .block(Duration.ofSeconds(10));

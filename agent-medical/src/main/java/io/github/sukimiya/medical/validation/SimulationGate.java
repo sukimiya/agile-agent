@@ -26,6 +26,8 @@ import io.github.sukimiya.medical.hospital.MedicalHumanTaskRepository;
 import io.github.sukimiya.medical.hospital.TransportBinding;
 import io.github.sukimiya.medical.hospital.TransportType;
 import io.github.sukimiya.medical.hospital.UnifiedToolCatalog;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.RuleEngine;
 import io.github.sukimiya.medical.transport.TransportExecutor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -46,13 +48,18 @@ public final class SimulationGate implements PackageGate {
     private final HospitalPackageCodec codec;
     private final List<TransportExecutor> executors;
     private final MedicalHumanTaskRepository tasks;
+    private final ConversationGuard guard;
+    private final RuleEngine ruleEngine;
 
     public SimulationGate(HospitalPackageAccessPolicy accessPolicy, HospitalPackageCodec codec,
-            List<TransportExecutor> executors, MedicalHumanTaskRepository tasks) {
+            List<TransportExecutor> executors, MedicalHumanTaskRepository tasks,
+            ConversationGuard guard, RuleEngine ruleEngine) {
         this.accessPolicy = accessPolicy;
         this.codec = codec;
         this.executors = List.copyOf(executors);
         this.tasks = tasks;
+        this.guard = guard;
+        this.ruleEngine = ruleEngine;
     }
 
     @Override
@@ -79,7 +86,7 @@ public final class SimulationGate implements PackageGate {
             }
         };
         var provider = new HospitalCapabilityProvider(sandbox, accessPolicy, codec, executors,
-                Clock.systemDefaultZone());
+                guard, ruleEngine, Clock.systemDefaultZone());
         String conversationId = "c02-simulation-" + UUID.randomUUID();
         AgentExecutionContext simContext = new AgentExecutionContext(reviewerIdentity(shadow),
                 conversationId, SimulationGate::forbiddenToken);
@@ -129,13 +136,18 @@ public final class SimulationGate implements PackageGate {
         return provider.definition(simContext).doOnNext(definition -> {
             long expected = expectedAdvertisedCount(content);
             if (expected == 0) {
-                violations.add("无可用传输通道：没有任何工具可广告"
+                violations.add("无可用传输通道：没有任何医院工具可广告"
                         + "（EMAIL/PORTAL 执行器落地前，此类能力包不得发布）");
                 return;
             }
-            if (definition.tools().size() != expected) {
-                violations.add("定义探针：期望广告 " + expected + " 个工具，实际 "
-                        + definition.tools().size());
+            long expectedWithTriage = expected + 1; // the built-in submitTriage always rides along
+            if (definition.tools().size() != expectedWithTriage) {
+                violations.add("定义探针：期望广告 " + expectedWithTriage
+                        + " 个工具（含 submitTriage），实际 " + definition.tools().size());
+            }
+            if (definition.tools().stream()
+                    .noneMatch(tool -> UnifiedToolCatalog.TRIAGE_TOOL.equals(tool.name()))) {
+                violations.add("定义探针：内建分诊工具 submitTriage 未被广告");
             }
             if (!definition.systemPrompt().contains(shadow.hospitalCode())) {
                 violations.add("定义探针：systemPrompt 未包含医院代码 " + shadow.hospitalCode());

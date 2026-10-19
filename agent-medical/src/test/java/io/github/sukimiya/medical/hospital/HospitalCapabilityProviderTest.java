@@ -1,8 +1,11 @@
 package io.github.sukimiya.medical.hospital;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -24,6 +27,10 @@ import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
 import io.github.sukimiya.agileagent.spi.capability.ToolInvocation;
 import io.github.sukimiya.agileagent.spi.capability.ToolResult;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
+import io.github.sukimiya.medical.rules.ConversationGuard;
+import io.github.sukimiya.medical.rules.ConversationState;
+import io.github.sukimiya.medical.rules.EcallPayload;
+import io.github.sukimiya.medical.rules.RuleEngine;
 import io.github.sukimiya.medical.transport.TransportExecutor;
 import io.github.sukimiya.medical.transport.TransportRequest;
 import reactor.core.publisher.Flux;
@@ -45,9 +52,18 @@ class HospitalCapabilityProviderTest {
     private final RecordingExecutor apiExecutor = new RecordingExecutor(TransportType.API);
     private final RecordingExecutor humanExecutor = new RecordingExecutor(TransportType.HUMAN);
     private final AtomicInteger tokenReads = new AtomicInteger();
+    private final ConversationGuard guard = normalGuard();
+    private final RuleEngine ruleEngine = mock(RuleEngine.class);
     private final HospitalCapabilityProvider provider = new HospitalCapabilityProvider(
             packages, new HospitalPackageAccessPolicy(), CODEC,
-            List.of(apiExecutor, humanExecutor), FIXED_CLOCK);
+            List.of(apiExecutor, humanExecutor), guard, ruleEngine, FIXED_CLOCK);
+
+    /** Default: no open E-call on any conversation — the provider runs its normal path. */
+    private static ConversationGuard normalGuard() {
+        var guard = mock(ConversationGuard.class);
+        when(guard.state(anyString())).thenReturn(Mono.just(ConversationState.normal()));
+        return guard;
+    }
 
     private static final class RecordingExecutor implements TransportExecutor {
         private final TransportType type;
@@ -123,13 +139,14 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(10);
+        assertThat(definition.tools()).hasSize(11);
         assertThat(definition.tools()).extracting(t -> t.name())
                 .containsExactlyInAnyOrder(
                         "mockapi_searchServices", "mockapi_checkAvailability", "mockapi_requestQuotation",
                         "mockapi_requestConsultation", "mockapi_submitMedicalRecords",
                         "mockhuman_searchServices", "mockhuman_checkAvailability", "mockhuman_requestQuotation",
-                        "mockhuman_requestConsultation", "mockhuman_submitMedicalRecords");
+                        "mockhuman_requestConsultation", "mockhuman_submitMedicalRecords",
+                        "submitTriage");
         for (String unified : UnifiedToolCatalog.SCHEMA_V1_TOOLS) {
             var apiSchema = definition.tools().stream()
                     .filter(t -> t.name().equals("mockapi_" + unified)).findFirst().orElseThrow()
@@ -155,7 +172,9 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).isEmpty();
+        // The built-in submitTriage is always advertised in the normal state (spec §5),
+        // even with zero advertisable hospital tools.
+        assertThat(definition.tools()).extracting(t -> t.name()).containsExactly("submitTriage");
         assertThat(definition.systemPrompt()).doesNotContain("mockmail");
     }
 
@@ -180,8 +199,10 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(5);
+        assertThat(definition.tools()).hasSize(6);
         assertThat(definition.tools()).extracting(t -> t.name())
+                .contains("submitTriage")
+                .filteredOn(name -> name.contains("_"))
                 .allSatisfy(name -> assertThat(name).startsWith("mockapi_"));
         assertThat(definition.systemPrompt())
                 .doesNotContain("mockpend").doesNotContain("mockrev").doesNotContain("mockexp")
@@ -198,7 +219,7 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(10);
+        assertThat(definition.tools()).hasSize(11);
         assertThat(definition.tools()).extracting(t -> t.name())
                 .anyMatch(name -> name.startsWith("edgea_"))
                 .anyMatch(name -> name.startsWith("edgeb_"));
@@ -213,7 +234,7 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(5);
+        assertThat(definition.tools()).hasSize(6);
         assertThat(definition.systemPrompt()).doesNotContain("mockbad").contains("mockapi");
     }
 
@@ -241,8 +262,9 @@ class HospitalCapabilityProviderTest {
 
         var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
 
-        assertThat(definition.tools()).hasSize(5);
+        assertThat(definition.tools()).hasSize(6);
         assertThat(definition.tools()).extracting(t -> t.name())
+                .filteredOn(name -> name.contains("_"))
                 .allSatisfy(name -> assertThat(name).startsWith("mockapi_"));
         assertThat(definition.systemPrompt()).doesNotContain("mocknull").contains("mockapi");
     }
@@ -344,5 +366,96 @@ class HospitalCapabilityProviderTest {
 
         assertThat(tokenReads).hasValue(0);
         assertThat(apiExecutor.requests).hasSize(1);
+    }
+
+    // ---- Plan 4: restricted-state hard gate (spec §8, ruling 4) ----
+
+    private static EcallPayload payload() {
+        return new EcallPayload("global-emergency-baseline", "EMERGENCY", null, 100, 0,
+                List.of(300, 900, 1800), "等待接管固定话术：请稍候。",
+                "已接管固定话术：仅提供辅助性行政信息。");
+    }
+
+    private static MedicalHumanTaskRow ecallRow() {
+        return MedicalHumanTaskRow.ecall("task-1", "conv-1", "{}", "user-1", 100,
+                NOW.minusSeconds(60));
+    }
+
+    @Test
+    void awaitingTakeoverStateAdvertisesZeroToolsAndTheFixedScriptPrompt() {
+        when(guard.state("conv-1")).thenReturn(Mono.just(
+                ConversationState.awaitingTakeover(ecallRow(), payload())));
+
+        var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
+
+        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.systemPrompt())
+                .contains("等待接管固定话术：请稍候。")
+                .contains("你没有任何可用工具")
+                .doesNotContain("医院索引");
+    }
+
+    @Test
+    void takenOverStateAdvertisesZeroToolsAndTheAuxiliaryPrompt() {
+        when(guard.state("conv-1")).thenReturn(Mono.just(
+                ConversationState.takenOver(ecallRow(), payload())));
+
+        var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
+
+        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.systemPrompt())
+                .contains("已接管固定话术：仅提供辅助性行政信息。")
+                .contains("你没有任何可用工具");
+    }
+
+    @Test
+    void failClosedStateAdvertisesZeroToolsAndTheSafeFallbackPrompt() {
+        when(guard.state("conv-1")).thenReturn(Mono.just(ConversationState.failClosed()));
+
+        var definition = provider.definition(context("tenant-1")).block(Duration.ofSeconds(10));
+
+        assertThat(definition.tools()).isEmpty();
+        assertThat(definition.systemPrompt())
+                .contains("服务暂时不可用，请联系人工客服")
+                .contains("你没有任何可用工具");
+    }
+
+    @Test
+    void restrictedStateRefusesEveryExecutionWithTheFixedScript() {
+        seed(approvedRow("mockapi", "模拟互联网医院", API_BINDING));
+        when(guard.state("conv-1")).thenReturn(Mono.just(
+                ConversationState.awaitingTakeover(ecallRow(), payload())));
+        var context = context("tenant-1");
+
+        // Every shape is refused: a valid hospital tool, the built-in triage (spec §5 —
+        // re-triage in a restricted state would only duplicate the open E-call), and junk.
+        for (String tool : List.of("mockapi_searchServices", "submitTriage", "whatever")) {
+            var result = provider.execute(new ToolInvocation(tool, "call-x", JSON.createObjectNode()),
+                            context)
+                    .block(Duration.ofSeconds(10));
+            assertThat(result.success()).isFalse();
+            assertThat(result.displayResult()).isEqualTo("等待接管固定话术：请稍候。");
+        }
+        assertThat(apiExecutor.requests).isEmpty();
+        assertThat(humanExecutor.requests).isEmpty();
+        assertThat(tokenReads).hasValue(0);
+        verifyNoInteractions(ruleEngine);
+    }
+
+    @Test
+    void normalStateRoutesSubmitTriageToTheRuleEngine() {
+        when(ruleEngine.triage(any(), any()))
+                .thenReturn(Mono.just(new ToolResult(true, "分诊完成")));
+        var arguments = JSON.createObjectNode().put("triageCategory", "ROUTINE");
+
+        var result = provider.execute(
+                        new ToolInvocation("submitTriage", "call-1", arguments), context("tenant-1"))
+                .block(Duration.ofSeconds(10));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.displayResult()).isEqualTo("分诊完成");
+        verify(ruleEngine).triage(any(), any());
+        assertThat(apiExecutor.requests).isEmpty();
+        assertThat(humanExecutor.requests).isEmpty();
     }
 }

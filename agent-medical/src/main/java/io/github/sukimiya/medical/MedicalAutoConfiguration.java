@@ -113,9 +113,10 @@ public class MedicalAutoConfiguration {
     @Bean
     public HospitalCapabilityProvider hospitalCapabilityProvider(
             HospitalPackageRepository packages, HospitalPackageAccessPolicy accessPolicy,
-            HospitalPackageCodec codec, List<TransportExecutor> transportExecutors) {
+            HospitalPackageCodec codec, List<TransportExecutor> transportExecutors,
+            ConversationGuard conversationGuard, RuleEngine ruleEngine) {
         return new HospitalCapabilityProvider(packages, accessPolicy, codec, transportExecutors,
-                Clock.systemDefaultZone());
+                conversationGuard, ruleEngine, Clock.systemDefaultZone());
     }
 
     @Bean
@@ -146,8 +147,10 @@ public class MedicalAutoConfiguration {
     @Bean
     public SimulationGate simulationGate(HospitalPackageAccessPolicy accessPolicy,
             HospitalPackageCodec codec, List<TransportExecutor> transportExecutors,
-            MedicalHumanTaskRepository tasks) {
-        return new SimulationGate(accessPolicy, codec, transportExecutors, tasks);
+            MedicalHumanTaskRepository tasks, ConversationGuard conversationGuard,
+            RuleEngine ruleEngine) {
+        return new SimulationGate(accessPolicy, codec, transportExecutors, tasks,
+                conversationGuard, ruleEngine);
     }
 
     @Bean
