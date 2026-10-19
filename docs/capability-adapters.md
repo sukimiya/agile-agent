@@ -101,3 +101,66 @@ as the escape hatch for local development such as `127.0.0.1,localhost`. Human-c
 tools are idempotent per submission: the executor derives a `submission_key` from the
 conversation, hospital, tool, and arguments, so a retry reports the original task instead
 of creating a duplicate.
+
+## Rule engine, E-call escalation, and takeover state machine
+
+`agent-medical` also carries a deterministic medical rule layer. Rules are knowledge data
+too: rows in `medical_rules` (kinds `EMERGENCY` and `SAFETY_PATTERN`; scopes GLOBAL,
+TENANT, HOSPITAL) move through their own fenced lifecycle in `MedicalRuleLifecycleService`
+— `submit` (replacement by `rule_code`), `review` (persists a `RuleValidationReport`),
+`approve` / `reject` / `revoke` under an `approval_version` CAS — mirroring the package
+lifecycle. The V11 migration seeds one approved GLOBAL emergency baseline rule, so an
+empty database already carries the curated emergency disease list, the fixed takeover
+scripts, and the SLA ladder.
+
+**Triage signal.** `UnifiedToolCatalog.triageToolDefinition()` advertises `submitTriage`
+as a capability-level built-in tool: it belongs to no hospital, has no transport binding,
+and is always offered in the normal state alongside the data-driven hospital tools. The
+rule engine trusts only this structured signal (a curated `triageCategory` enum plus
+symptom→disease pairs); free-text arguments of other tools are never keyword-scanned.
+
+**Deterministic verdicts.** `RuleEngine.triage` loads the visible approved, unexpired
+EMERGENCY rules (GLOBAL is always visible; TENANT/HOSPITAL by the caller's tenant),
+merges rows sharing a `rule_code` strictest-first (category and disease-name unions,
+highest priority, shortest SLA — a lower scope can only tighten the GLOBAL baseline,
+never relax or delete it), and decides by exact match against the curated lists
+(normalization is trim + lowercase only). A hit creates an E-call human task via
+`EscalationService.createEcall` (idempotent per conversation through the partial unique
+index `ux_medical_human_tasks_open_ecall`) and returns the rule's fixed
+awaiting-takeover script; a miss returns a safe "continue the normal flow" result. Any
+engine failure returns a safe fallback script — the engine never fabricates a triage
+conclusion.
+
+**Five-state enforcement.** The conversation state is derived from open E-call rows; no
+state table exists. NORMAL (no open E-call) exposes the data-driven tools plus
+`submitTriage`. While an E-call is PENDING (awaiting takeover) or CLAIMED (taken over),
+`HospitalCapabilityProvider.definition()` returns a fixed-script system prompt and ZERO
+tools — the hard gate on autonomous action — and `execute()` refuses every invocation as
+defense in depth. A guard query or payload failure is treated as restricted
+(fail-closed). Completing the task returns the conversation to NORMAL. Claiming is an
+atomic CAS restricted to the `MEDICAL_OPS` role or a platform admin; completing an E-call
+requires the claim owner (or a platform admin) and a resolution note.
+
+**SLA escalation.** The auto-configured `EscalationPoller` (`Flux.interval`, default 30
+s, switchable) calls `EscalationService.tick()`, which escalates overdue PENDING E-calls:
+CAS `escalation_level + 1`, recompute the deadline from the rule's `escalationLevels`
+ladder, and write an ESCALATED audit event. The level freezes at the top of the ladder
+with a single terminal audit entry. `ConversationGuard.state` also runs the same
+idempotent routine lazily, so correctness never depends on the poller being enabled or
+punctual. A claim stuck in CLAIMED beyond `stale-claim-seconds` is audited and released
+back to PENDING (configurable; not a full lease).
+
+**Data-driven safety patterns.** `TextSafetyScreen` is a composite: the code-level
+curated baseline (a frozen constant — never removable or relaxable by data) plus the
+approved GLOBAL `SAFETY_PATTERN` rules loaded by `SafetyPatternStore`. The six-gate
+`SafetyGate` and runtime screening share one instance. A data-layer load failure degrades
+screening to baseline-only (fail-safe).
+
+Configuration (`MedicalRulesProperties`, prefix `medical.rules`):
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `escalation-poll-interval` | `30s` | SLA poller period |
+| `escalation-poller-enabled` | `true` | Registers and starts the poller bean |
+| `stale-claim-seconds` | `1800` | Age of a CLAIMED task before it counts as stuck |
+| `stale-claim-release-enabled` | `true` | Releases stuck claims back to PENDING |

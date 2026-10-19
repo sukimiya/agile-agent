@@ -4,7 +4,7 @@ Agile Agent is an open-source Maven multi-module project for a general-purpose a
 
 - `agent-spi` contains the public identity and capability contracts used by server-side adapters.
 - `agent-server` contains HTTP APIs, authentication, orchestration, model integration, and the generic `KNOWLEDGE` capability.
-- `agent-medical` contains the data-driven `HOSPITAL` capability adapter built against `agent-spi`, split into two layers: a fixed code layer (provider, six-gate validator, lifecycle service) and a knowledge layer of hospital capability rows — onboarding a new hospital is a lifecycle submission of one package row, with zero Java changes.
+- `agent-medical` contains the data-driven `HOSPITAL` capability adapter built against `agent-spi`, split into two layers: a fixed code layer (provider, six-gate validator, lifecycle services, deterministic rule engine) and a knowledge layer of hospital capability rows and medical rule rows — onboarding a new hospital or rule is a lifecycle submission of one row, with zero Java changes. An emergency triage hit opens an E-call task that hard-gates the conversation to fixed scripts and zero tools until a medical operator claims it, with SLA escalation while unclaimed.
 - `mock-oauth2` is a standalone development identity service for local OAuth2 login flows.
 
 External adapters are regular Spring Boot dependencies built against `agent-spi`; see the [capability adapter guide](docs/capability-adapters.md). For moving an existing deployment, see the [single-module migration guide](docs/spec/migration-from-single-module.md). Configure a production identity provider using the [OAuth2 provider guide](docs/oauth2-provider-integration.md).
