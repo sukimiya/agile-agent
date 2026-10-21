@@ -72,6 +72,7 @@
 ## 1. 固定的阶段行为
 
 - 用户输入成功入库后才能提交 HTTP 200 SSE；缺模型配置继续返回既有 428 JSON；未知/他人资源（会话、附件）返回 404；缺租户返回 403；写库不可用返回 503；检测到实例冲突返回 503 `INSTANCE_CONFLICT`。
+- 单条消息（序列化后的 JSON 文本，含工具记录）按 UTF-8 字节计算，超过 `app.memory.max-message-bytes`（默认 1 MiB，必须小于 MySQL `MEDIUMTEXT` 上限 16 MiB）返回 413 `MESSAGE_TOO_LARGE`，拒绝而不截断；`Idempotency-Key` 不符合格式返回 400 `INVALID_IDEMPOTENCY_KEY`。完整错误码表见 `docs/memory/api.md`。
 - 支持可选 `Idempotency-Key` 请求头，长度 1–128、仅允许 ASCII 字母数字和 `._:-`。承诺范围：在已建立的会话内（请求带已存在且属于当前用户的 conversationId），同一 key 不会被接受两次；相同 key + 相同文本不重复执行，不同文本返回 409 `IDEMPOTENCY_CONFLICT`。未带 conversationId 的首个请求重试不在承诺内（spec 6.4/13）。
 - 重复已完成请求重放已存文本与已观察到的 Usage；重复活跃请求或同会话已有活跃执行时返回 409 `TURN_IN_PROGRESS`，响应体带 `turnId`，前端显示“正在生成”；重复失败/取消/中断请求返回 409 `TURN_TERMINATED`，新执行需新 key。无 key 时生成新请求 ID，不凭相同文本去重。M1 不提供按 turnId 续流或取消的接口。
 - 状态为 ACCEPTED → RUNNING → COMPLETED / FAILED / CANCELLED / INTERRUPTED，终态不能降级或重新执行。终态映射：客户端断开或取消订阅 → CANCELLED；进程退出或失去执行权（租约过期、fence 失效）→ INTERRUPTED；普通执行失败 → FAILED；正常结束且有 Completed → COMPLETED。断开即取消，没有“客户端断开、后端继续运行”。
@@ -179,7 +180,7 @@
 
 现状（已核对代码）：附件存于 `${app.upload.dir}/{sanitize(sessionId)}/{name}`。`FileStorageService.sanitize`（`:80-84`）把 `/`、`\` 和连续 `..` 替换为 `_`（`:73` 用于会话目录），`a/b`、`a..b` 与 `a_b` 落入同一目录；下载用原始 sessionId 拼路径（`UploadController.java:60`）。上传可为任意不存在的 ID 建会话，两个分别授权的会话因此可能共用一个目录，导致跨用户读取或在清理/删除时误删他人文件。上传 `UploadController.java:77-98` 直接使用请求中的 sessionId，不校验会话归属；下载 `:46-75` 只检查路径字符，不校验归属。上传成功响应 `FileStorageService.Ref(name, path, size)` 返回服务器绝对路径（`FileStorageService.java:20,77`）；`STORAGE_ERROR` 响应体返回 `e.getMessage()`（`UploadController.java:96-97`）。本任务保留现有本地存储与清理任务，不引入新的存储架构。
 
-**Files:** 创建生产包下 `memory/ConversationIds.java`；修改 `controller/UploadController.java`、`controller/ChatController.java`（两个入口接入同一校验）、`service/FileStorageService.java`、`service/UploadCleanupTask.java`（跳过不符合规则的目录名，不按 sanitize 后的名称匹配会话）；更新测试包下 `controller/UploadControllerTest.java`、`service/FileStorageServiceTest.java`、`controller/FileStorageServiceTestData.java`、`service/UploadCleanupTaskTest.java`，新增 `memory/ConversationIdsTest.java`，创建 `docs/memory/api.md`。估算 1.5–2 人日（比上一版增加 0.5：统一 ID 规则与碰撞测试）。
+**Files:** 创建生产包下 `memory/ConversationIds.java`；修改 `controller/UploadController.java`、`controller/ChatController.java`（两个入口接入同一校验）、`service/FileStorageService.java`、`service/UploadCleanupTask.java`（跳过不符合规则的目录名，不按 sanitize 后的名称匹配会话）；更新测试包下 `controller/UploadControllerTest.java`、`service/FileStorageServiceTest.java`、`controller/FileStorageServiceTestData.java`、`service/UploadCleanupTaskTest.java`，新增 `memory/ConversationIdsTest.java`，补充 `docs/memory/api.md`（错误码部分已在 Task 1 后创建）。估算 1.5–2 人日（比上一版增加 0.5：统一 ID 规则与碰撞测试）。
 
 **Interfaces:**
 - `ConversationIds.validate(String id): String`：小写规范 UUID 校验，失败抛 `MemoryException(INVALID_CONVERSATION_ID)` → 400；会话目录直接使用校验后的原值，不再对会话 ID 调用 sanitize（sanitize 只保留给文件名）。不采用“先替换再使用”的方式，任何会被改写的值都被拒绝。
