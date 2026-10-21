@@ -285,7 +285,7 @@ class MockOAuth2EndToEndTest {
                 .map((row, metadata) -> row.get(0, Long.class))
                 .one()
                 .block(Duration.ofSeconds(10));
-        assertThat(migratedVersionCount).isEqualTo(8L);
+        assertThat(migratedVersionCount).isEqualTo(9L);
     }
 
     private static String h2JdbcUrl(String database) {

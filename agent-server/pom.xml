@@ -132,6 +132,13 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						Two executions split the suite by tag, so a -Dtest filter naturally matches nothing in one of
+						them; do not fail that execution for it.
+					-->
+					<failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+				</configuration>
 				<executions>
 					<!--
 						BlockHound.install() is JVM-global and cannot be undone. Installed in a shared fork after
@@ -143,7 +150,8 @@
 					<execution>
 						<id>default-test</id>
 						<configuration>
-							<excludedGroups>blockhound</excludedGroups>
+							<!-- mysql-it needs a real MySQL and runs only with -Pmemory-mysql-it. -->
+							<excludedGroups>blockhound,mysql-it</excludedGroups>
 						</configuration>
 					</execution>
 					<execution>
@@ -160,4 +168,40 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Real MySQL 8.4 checks for the memory schema (Flyway, binary identity collation, unique constraints).
+			Requires MEMORY_MYSQL_IT_{HOST,PORT,DATABASE,USER,PASSWORD} for a disposable loopback test database
+			whose name ends in _it (docker/docker-compose.memory-test.yml); missing configuration fails the tests.
+			The database is cleaned and re-migrated, so never point it at a shared or production schema.
+			mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryMySqlIntegrationTest test
+		-->
+		<profile>
+			<id>memory-mysql-it</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>default-test</id>
+								<configuration>
+									<groups>mysql-it</groups>
+									<excludedGroups>blockhound</excludedGroups>
+								</configuration>
+							</execution>
+							<execution>
+								<id>blockhound-isolated</id>
+								<configuration>
+									<skip>true</skip>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>
