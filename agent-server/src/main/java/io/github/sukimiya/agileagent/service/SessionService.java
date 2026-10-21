@@ -70,7 +70,7 @@ public class SessionService {
                 .switchIfEmpty(Mono.error(() -> new MemoryException(MemoryException.ErrorCode.CONVERSATION_NOT_FOUND)));
     }
 
-    static String title(String message) {
+    public static String title(String message) {
         String trimmed = message == null ? "" : message.trim();
         if (trimmed.isEmpty()) return "新对话";
         return trimmed.length() <= TITLE_MAX_LENGTH ? trimmed : trimmed.substring(0, TITLE_MAX_LENGTH) + "…";

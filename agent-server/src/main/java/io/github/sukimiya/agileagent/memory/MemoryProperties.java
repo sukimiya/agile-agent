@@ -9,7 +9,7 @@ import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 
 /**
  * Tunables of the durable memory runtime ({@code app.memory.*}); defaults are the values fixed in the M1 plan.
- * Only the message size limit is consumed in Task 1, the rest are wired by later tasks.
+ * Cache and instance-heartbeat values are wired by later tasks.
  */
 @ConfigurationProperties(prefix = "app.memory")
 public class MemoryProperties {
@@ -24,6 +24,8 @@ public class MemoryProperties {
     private Duration leaseDuration = Duration.ofSeconds(60);
     private Duration leaseRenewInterval = Duration.ofSeconds(15);
     private Duration recoveryScanInterval = Duration.ofSeconds(30);
+    /** Runs the expired-turn recovery scan at startup and every {@link #recoveryScanInterval}. */
+    private boolean recoveryEnabled = true;
     private Duration checkpointInterval = Duration.ofSeconds(5);
     private int checkpointBytes = 8 * 1024;
     private Duration finalizerTimeout = Duration.ofSeconds(5);
@@ -60,6 +62,8 @@ public class MemoryProperties {
     public void setLeaseRenewInterval(Duration v) { this.leaseRenewInterval = v; }
     public Duration getRecoveryScanInterval() { return recoveryScanInterval; }
     public void setRecoveryScanInterval(Duration v) { this.recoveryScanInterval = v; }
+    public boolean isRecoveryEnabled() { return recoveryEnabled; }
+    public void setRecoveryEnabled(boolean v) { this.recoveryEnabled = v; }
     public Duration getCheckpointInterval() { return checkpointInterval; }
     public void setCheckpointInterval(Duration v) { this.checkpointInterval = v; }
     public int getCheckpointBytes() { return checkpointBytes; }

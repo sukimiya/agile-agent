@@ -11,6 +11,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.r2dbc.spi.ConnectionFactories;
+import io.r2dbc.spi.ConnectionFactory;
 import io.r2dbc.spi.ConnectionFactoryOptions;
 import io.r2dbc.spi.Option;
 
@@ -21,15 +22,17 @@ import io.r2dbc.spi.Option;
 public final class MemoryTestFixture {
 
     private final DataSource dataSource;
+    private final ConnectionFactory connectionFactory;
     private final DatabaseClient databaseClient;
 
-    private MemoryTestFixture(DataSource dataSource, DatabaseClient databaseClient) {
+    private MemoryTestFixture(DataSource dataSource, ConnectionFactory connectionFactory) {
         this.dataSource = dataSource;
-        this.databaseClient = databaseClient;
+        this.connectionFactory = connectionFactory;
+        this.databaseClient = DatabaseClient.create(connectionFactory);
     }
 
-    static MemoryTestFixture of(DataSource dataSource, DatabaseClient databaseClient) {
-        return new MemoryTestFixture(dataSource, databaseClient);
+    static MemoryTestFixture of(DataSource dataSource, ConnectionFactory connectionFactory) {
+        return new MemoryTestFixture(dataSource, connectionFactory);
     }
 
     public static MemoryTestFixture h2() {
@@ -46,11 +49,15 @@ public final class MemoryTestFixture {
                 .option(ConnectionFactoryOptions.PASSWORD, "")
                 .option(Option.valueOf("options"), "MODE=MySQL;DB_CLOSE_DELAY=-1")
                 .build();
-        return new MemoryTestFixture(dataSource, DatabaseClient.create(ConnectionFactories.get(options)));
+        return new MemoryTestFixture(dataSource, ConnectionFactories.get(options));
     }
 
     public DataSource dataSource() {
         return dataSource;
+    }
+
+    public ConnectionFactory connectionFactory() {
+        return connectionFactory;
     }
 
     public DatabaseClient databaseClient() {

@@ -5,7 +5,6 @@ import java.util.Set;
 
 import org.flywaydb.core.Flyway;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.r2dbc.core.DatabaseClient;
 
 import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactoryOptions;
@@ -57,7 +56,7 @@ final class MemoryMySqlTestSupport {
                 .option(ConnectionFactoryOptions.PASSWORD, password)
                 .option(ConnectionFactoryOptions.SSL, false)
                 .build();
-        return MemoryTestFixture.of(dataSource, DatabaseClient.create(ConnectionFactories.get(options)));
+        return MemoryTestFixture.of(dataSource, ConnectionFactories.get(options));
     }
 
     private static String required(String name) {
