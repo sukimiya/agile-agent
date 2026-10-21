@@ -169,7 +169,7 @@ class ChatControllerTest {
         asUser1();
         var now = LocalDateTime.now();
         when(sessionService.listForUser("user-1")).thenReturn(
-                Flux.just(new SessionRow("s1", "user-1", "标题一", now, now)));
+                Flux.just(new SessionRow("s1", null, "user-1", "标题一", 0, now, now, null)));
 
         client.get().uri("/api/conversations").header("Authorization", "Bearer test-token")
                 .exchange()
@@ -195,7 +195,7 @@ class ChatControllerTest {
         asUser1();
         var now = LocalDateTime.now();
         when(sessionService.findOwned("s1", "user-1")).thenReturn(
-                Mono.just(new SessionRow("s1", "user-1", "标题", now, now)));
+                Mono.just(new SessionRow("s1", null, "user-1", "标题", 0, now, now, null)));
         when(chatMemory.get("s1")).thenReturn(Mono.just(List.of(
                 LlmClient.Message.system("system prompt"),
                 LlmClient.Message.user("hi"),

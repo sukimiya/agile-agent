@@ -35,7 +35,7 @@ class SessionServiceTest {
     void touchOrCreateTouchesExistingOwnedSession() {
         var repository = mock(SessionRepository.class);
         when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", "user-1", "标题", LocalDateTime.now(), LocalDateTime.now())));
+                new SessionRow("s1", null, "user-1", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
         when(repository.touch("s1")).thenReturn(Mono.empty());
         var service = new SessionService(repository);
 
@@ -50,7 +50,7 @@ class SessionServiceTest {
     void touchOrCreateForbidsAccessToAnotherUsersSession() {
         var repository = mock(SessionRepository.class);
         when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", "user-2", "标题", LocalDateTime.now(), LocalDateTime.now())));
+                new SessionRow("s1", null, "user-2", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
         var service = new SessionService(repository);
 
         var result = service.touchOrCreate("s1", "user-1", "message").block();
@@ -64,7 +64,7 @@ class SessionServiceTest {
     void findOwnedReturnsEmptyWhenSessionBelongsToAnotherUser() {
         var repository = mock(SessionRepository.class);
         when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", "user-2", "标题", LocalDateTime.now(), LocalDateTime.now())));
+                new SessionRow("s1", null, "user-2", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
         var service = new SessionService(repository);
 
         assertThat(service.findOwned("s1", "user-1").blockOptional()).isEmpty();
@@ -73,7 +73,7 @@ class SessionServiceTest {
     @Test
     void listForUserDelegatesToRepository() {
         var repository = mock(SessionRepository.class);
-        var rows = List.of(new SessionRow("s1", "user-1", "标题", LocalDateTime.now(), LocalDateTime.now()));
+        var rows = List.of(new SessionRow("s1", null, "user-1", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null));
         when(repository.findByUserId("user-1")).thenReturn(Flux.fromIterable(rows));
         var service = new SessionService(repository);
 
