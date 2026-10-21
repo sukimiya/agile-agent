@@ -14,10 +14,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
 
+import io.github.sukimiya.agileagent.LocalRedisTestServer;
 import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.TestAuthUsers;
@@ -29,6 +32,14 @@ import io.github.sukimiya.agileagent.TestAuthUsers;
     "app.upload.allowed-content-types=image/png,application/pdf"
 })
 class UploadControllerTest {
+
+    /** Uses the per-JVM loopback test Redis instead of an ambient localhost:6379 server. */
+    @DynamicPropertySource
+    static void redis(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", () -> "127.0.0.1");
+        registry.add("spring.data.redis.port", LocalRedisTestServer::port);
+        registry.add("spring.data.redis.database", () -> 2);
+    }
 
     @Autowired WebTestClient client;
     @Autowired UploadProperties props;

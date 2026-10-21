@@ -129,6 +129,35 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<executions>
+					<!--
+						BlockHound.install() is JVM-global and cannot be undone. Installed in a shared fork after
+						Reactor scheduler threads already exist, it instruments those idle workers mid-park, corrupts
+						their DelayedWorkQueue locks and silently stops Schedulers.parallel() (timeouts, delays and
+						WebTestClient's mock connector), hanging every later test in that JVM. Run BlockHound tests
+						in their own fresh fork only.
+					-->
+					<execution>
+						<id>default-test</id>
+						<configuration>
+							<excludedGroups>blockhound</excludedGroups>
+						</configuration>
+					</execution>
+					<execution>
+						<id>blockhound-isolated</id>
+						<phase>test</phase>
+						<goals>
+							<goal>test</goal>
+						</goals>
+						<configuration>
+							<groups>blockhound</groups>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 </project>

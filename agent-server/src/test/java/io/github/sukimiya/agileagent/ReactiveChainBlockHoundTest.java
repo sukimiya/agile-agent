@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,6 +30,11 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
+/**
+ * Installs BlockHound, which is JVM-global and permanent. Tagged so Maven runs it only in the isolated
+ * {@code blockhound-isolated} Surefire execution (see agent-server/pom.xml), never in the shared fork.
+ */
+@Tag("blockhound")
 class ReactiveChainBlockHoundTest {
 
     @BeforeAll
