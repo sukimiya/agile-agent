@@ -96,12 +96,13 @@ public class ConversationRepository {
                 .bind("turnId", turnId)
                 .map(row -> row.get("payload", String.class))
                 .one()
-                .map(this::content);
+                .map(payload -> deserialize(payload).content());
     }
 
-    private String content(String payload) {
+    /** Parses a stored message payload. */
+    public LlmClient.Message deserialize(String payload) {
         try {
-            return mapper.readValue(payload, LlmClient.Message.class).content();
+            return mapper.readValue(payload, LlmClient.Message.class);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("stored message is not valid JSON", e);
         }
