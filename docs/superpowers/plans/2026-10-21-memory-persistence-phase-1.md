@@ -78,7 +78,8 @@
 - 状态为 ACCEPTED → RUNNING → COMPLETED / FAILED / CANCELLED / INTERRUPTED，终态不能降级或重新执行。终态映射：客户端断开或取消订阅 → CANCELLED；进程退出或失去执行权（租约过期、fence 失效）→ INTERRUPTED；普通执行失败 → FAILED；正常结束且有 Completed → COMPLETED。断开即取消，没有“客户端断开、后端继续运行”。
 - 活跃执行的租约已过期时，同会话的新请求在接受事务内先把它标记为 INTERRUPTED（递增 fence、释放活跃位、递增会话 revision），再接受新执行，不必等待恢复扫描，也不返回 409；租约未过期仍返回 409 `TURN_IN_PROGRESS`。（2026-10-22 与用户确认，Task 2 已实现）
 - 最终回答序列化后超过 `app.memory.max-message-bytes`（默认 1 MiB）时，执行记为 FAILED、`error_code=MESSAGE_TOO_LARGE`，不保存回答正文（不截断保存）；检查点同样受此上限约束。（2026-10-22 与用户确认，Task 2 已实现）
-- 执行中失去执行权（租约过期、fence 失效）时，流式响应以稳定错误码 `TURN_INTERRUPTED` 的 SSE error 事件结束，不发送成功的 done；终态为 INTERRUPTED。错误码映射在 Task 4 实现。
+- 执行中失去执行权（租约过期、fence 失效）时，流式响应发送稳定错误码 `TURN_INTERRUPTED` 的 SSE error 事件，其后的 done 只作协议终止符、不表示成功；终态为 INTERRUPTED。普通执行失败（含超时、缺 Completed）的流内错误码为 `TURN_FAILED`。（Task 4 已实现）
+- 历史分页 `limit` 不在 1–200 内返回 400 `INVALID_ARGUMENT`。（2026-10-22 与用户确认，Task 4 已实现）
 - 终态由 TurnFinalizer 写入：被订阅、有超时上限（建议 5 秒）的响应式完成阶段，带 fence；失败或超时时由恢复扫描在租约过期后标记 INTERRUPTED。禁止在 `doFinally` 中做 fire-and-forget 异步写库。已发出的外部写操作标记 UNCERTAIN，不声称已撤销。
 - 租约 60 秒，每 15 秒续期，恢复扫描 30 秒一次并在启动时执行；租约依据数据库时间。写入携带递增 fence，过期执行不能覆盖新执行。
 - 检查点 5 秒或累计新增 8 KiB UTF-8 文本，先到者触发；正常完成提交完整文本。尾部恢复边界以最后成功检查点为准。
