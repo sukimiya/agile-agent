@@ -20,6 +20,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 import io.github.sukimiya.agileagent.agent.Orchestrator;
 import io.github.sukimiya.agileagent.memory.ConversationHistory;
+import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
 import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
@@ -60,6 +61,7 @@ class ChatControllerTest {
     @MockBean SessionService sessionService;
     @MockBean TurnLifecycle lifecycle;
     @MockBean ConversationHistory history;
+    @MockBean MemoryMaintenance maintenance;
     @MockBean TenantLlmClientResolver llmResolver;
     @MockBean AuthSessionStore sessions;
     @MockBean OAuth2Client oauth2;
@@ -248,6 +250,52 @@ class ChatControllerTest {
                     .expectBody().jsonPath("$.code").isEqualTo("INVALID_CONVERSATION_ID");
         }
         verifyNoInteractions(sessionService, lifecycle, llmResolver, orchestrator);
+    }
+
+    private WebTestClient.ResponseSpec deleteConversation(String id) {
+        return client.delete().uri("/api/conversations/{id}", id)
+                .header("Authorization", "Bearer test-token")
+                .exchange();
+    }
+
+    @Test
+    void deleteConversationReturns204() {
+        asUser1();
+        when(maintenance.deleteConversation(SCOPE, CONV)).thenReturn(Mono.empty());
+
+        deleteConversation(CONV).expectStatus().isNoContent().expectBody().isEmpty();
+
+        verify(maintenance).deleteConversation(SCOPE, CONV);
+    }
+
+    @Test
+    void deleteUnknownOrForeignConversationReturns404() {
+        asUser1();
+        when(maintenance.deleteConversation(SCOPE, CONV))
+                .thenReturn(Mono.error(new MemoryException(ErrorCode.CONVERSATION_NOT_FOUND)));
+
+        deleteConversation(CONV).expectStatus().isNotFound()
+                .expectBody().jsonPath("$.code").isEqualTo("CONVERSATION_NOT_FOUND");
+    }
+
+    @Test
+    void deleteRejectsInvalidConversationIdAndMissingTenant() {
+        asUser1();
+        for (var id : List.of("a_b", "a..b", CONV.toUpperCase())) {
+            deleteConversation(id).expectStatus().isBadRequest()
+                    .expectBody().jsonPath("$.code").isEqualTo("INVALID_CONVERSATION_ID");
+        }
+        asUser(new IdentityContext("user-1", "Test User", null, null, null, null, Set.of("test"), Set.of(),
+                Set.of(), false, false));
+        deleteConversation(CONV).expectStatus().isForbidden()
+                .expectBody().jsonPath("$.code").isEqualTo("TENANT_REQUIRED");
+        verifyNoInteractions(maintenance);
+    }
+
+    @Test
+    void deleteRequiresAuthentication() {
+        client.delete().uri("/api/conversations/{id}", CONV).exchange().expectStatus().isUnauthorized();
+        verifyNoInteractions(maintenance);
     }
 
     @Test

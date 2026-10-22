@@ -43,6 +43,15 @@ public class HotMemoryCache {
             return 1
             """, Long.class);
 
+    /** Revision above any real one: a deleted conversation's entry refuses every later put and matches no get. */
+    static final String DELETED_REVISION = "9007199254740991";
+    private static final RedisScript<Long> TOMBSTONE = RedisScript.of("""
+            redis.call('HDEL', KEYS[1], 'data')
+            redis.call('HSET', KEYS[1], 'rev', ARGV[1])
+            redis.call('PEXPIRE', KEYS[1], ARGV[2])
+            return 1
+            """, Long.class);
+
     /** Serialized cache form; {@code occurredAt} is an ISO-8601 instant so no Jackson time module is needed. */
     record CachedMessage(String id, long sequence, LlmClient.Message payload, SourceType source, TurnStatus status,
             String occurredAt) {}
@@ -97,6 +106,16 @@ public class HotMemoryCache {
             log.warn("memory.cache write skipped: {}", NestedExceptionUtils.getMostSpecificCause(e).toString());
             return Mono.empty();
         });
+    }
+
+    /**
+     * Replaces the entry with a content-free deletion marker so a reader that resolved the session before the
+     * deletion cannot write the window back. Errors propagate: the deletion cleanup retries until it succeeds.
+     */
+    public Mono<Void> tombstone(MemoryScope scope, String conversationId) {
+        return Mono.defer(() -> redis.execute(TOMBSTONE, List.of(key(props.getNamespace(), scope, conversationId)),
+                        List.of(DELETED_REVISION, Long.toString(props.getCacheIdleTtl().toMillis())))
+                .then());
     }
 
     public Mono<Void> evict(MemoryScope scope, String conversationId) {

@@ -104,6 +104,25 @@ public class FileStorageService {
         return java.util.Optional.of(path);
     }
 
+    /**
+     * Removes a conversation's attachment directory (idempotent). The directory is the canonical id itself, so
+     * no other conversation's files can be matched; symbolic links are removed, never followed.
+     */
+    public Mono<Void> deleteConversationFiles(String conversationId) {
+        return Mono.fromCallable(() -> {
+            var dir = conversationDir(conversationId);
+            if (!Files.exists(dir, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return null;
+            }
+            try (var walk = Files.walk(dir)) {
+                for (var path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
     private Path conversationDir(String conversationId) {
         return Path.of(props.getDir(), ConversationIds.validate(conversationId)).normalize();
     }

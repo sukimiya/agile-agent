@@ -32,7 +32,11 @@ import org.springframework.web.reactive.function.BodyInserters;
 
 import io.github.sukimiya.agileagent.LocalRedisTestServer;
 import io.github.sukimiya.agileagent.config.UploadProperties;
+import io.github.sukimiya.agileagent.memory.HotMemoryCache;
+import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.service.FileStorageService;
 import io.github.sukimiya.agileagent.memory.MemoryTestFixture;
 import io.github.sukimiya.agileagent.repository.SessionRepository;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
@@ -62,6 +66,12 @@ class UploadControllerTest {
         SessionService ownershipSessionService() {
             return new SessionService(new SessionRepository(DB.databaseClient()));
         }
+
+        @Bean
+        @Primary
+        MemoryMaintenance ownershipMaintenance(HotMemoryCache cache, FileStorageService files, MemoryProperties props) {
+            return new MemoryMaintenance(DB.connectionFactory(), DB.databaseClient(), cache, files, props);
+        }
     }
 
     /** Uses the per-JVM loopback test Redis instead of an ambient localhost:6379 server. */
@@ -81,6 +91,7 @@ class UploadControllerTest {
     @Autowired AuthSessionStore sessions;
     @Autowired SessionService sessionService;
     @Autowired UploadCleanupTask cleanupTask;
+    @Autowired MemoryMaintenance maintenance;
 
     private final List<String> tokens = new ArrayList<>();
     private String originalDir;
@@ -377,6 +388,48 @@ class UploadControllerTest {
         assertThat(sessionDir(bobConversation)).doesNotExist();
         assertThat(sessionDir(aliceConversation).resolve("a.png")).exists();
         download(alice, aliceConversation, "a.png").expectStatus().isOk();
+    }
+
+    private WebTestClient.ResponseSpec deleteConversation(String token, String conversationId) {
+        return client.delete().uri("/api/conversations/{id}", conversationId)
+                .header("Authorization", "Bearer " + token)
+                .exchange();
+    }
+
+    @Test
+    void deletedConversationAttachmentsAreNotDownloadable() {
+        var alice = login(ALICE);
+        var conversation = NonBlockingIds.uuid();
+        upload(alice, conversation, "a.png").expectStatus().isOk();
+
+        deleteConversation(alice, conversation).expectStatus().isNoContent();
+        deleteConversation(alice, conversation).expectStatus().isNoContent();
+
+        // Hidden immediately, before the cleanup job removed anything.
+        assertThat(sessionDir(conversation).resolve("a.png")).exists();
+        download(alice, conversation, "a.png").expectStatus().isNotFound();
+        upload(alice, conversation, "b.png").expectStatus().isNotFound();
+
+        maintenance.runPending(10).block();
+        assertThat(sessionDir(conversation)).doesNotExist();
+    }
+
+    @Test
+    void deletingOneConversationKeepsOtherUsersFiles() {
+        var alice = login(ALICE);
+        var bob = login(BOB);
+        var aliceConversation = NonBlockingIds.uuid();
+        var bobConversation = NonBlockingIds.uuid();
+        upload(alice, aliceConversation, "a.png").expectStatus().isOk();
+        upload(bob, bobConversation, "a.png").expectStatus().isOk();
+
+        deleteConversation(bob, aliceConversation).expectStatus().isNotFound();
+        deleteConversation(alice, aliceConversation).expectStatus().isNoContent();
+        maintenance.runPending(10).block();
+
+        assertThat(sessionDir(aliceConversation)).doesNotExist();
+        assertThat(sessionDir(bobConversation).resolve("a.png")).exists();
+        download(bob, bobConversation, "a.png").expectStatus().isOk();
     }
 
     @Test

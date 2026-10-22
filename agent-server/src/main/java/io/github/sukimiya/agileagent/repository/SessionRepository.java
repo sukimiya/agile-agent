@@ -28,6 +28,14 @@ public class SessionRepository {
                 .one();
     }
 
+    /** Like {@link #findById} but locks the row for the current transaction (serializes accept vs delete). */
+    public Mono<SessionRow> findByIdForUpdate(String id) {
+        return db.sql("SELECT " + COLUMNS + " FROM sessions WHERE id = :id FOR UPDATE")
+                .bind("id", id)
+                .map(SessionRepository::mapRow)
+                .one();
+    }
+
     public Mono<Void> insert(String id, String userId, String title) {
         var now = LocalDateTime.now();
         return db.sql("INSERT INTO sessions (id, user_id, title, created_at, updated_at) VALUES (:id, :userId, :title, :createdAt, :updatedAt)")

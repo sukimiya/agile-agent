@@ -24,6 +24,7 @@ public class MemoryProperties {
     private Duration leaseDuration = Duration.ofSeconds(60);
     private Duration leaseRenewInterval = Duration.ofSeconds(15);
     private Duration recoveryScanInterval = Duration.ofSeconds(30);
+    private Duration cleanupScanInterval = Duration.ofSeconds(30);
     /** Runs the expired-turn recovery scan at startup and every {@link #recoveryScanInterval}. */
     private boolean recoveryEnabled = true;
     private Duration checkpointInterval = Duration.ofSeconds(5);
@@ -62,6 +63,8 @@ public class MemoryProperties {
     public void setLeaseRenewInterval(Duration v) { this.leaseRenewInterval = v; }
     public Duration getRecoveryScanInterval() { return recoveryScanInterval; }
     public void setRecoveryScanInterval(Duration v) { this.recoveryScanInterval = v; }
+    public Duration getCleanupScanInterval() { return cleanupScanInterval; }
+    public void setCleanupScanInterval(Duration v) { this.cleanupScanInterval = v; }
     public boolean isRecoveryEnabled() { return recoveryEnabled; }
     public void setRecoveryEnabled(boolean v) { this.recoveryEnabled = v; }
     public Duration getCheckpointInterval() { return checkpointInterval; }

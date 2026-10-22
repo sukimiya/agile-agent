@@ -39,7 +39,9 @@ public class ConversationRepository {
      */
     public Mono<Void> ensureOwnedSession(String conversationId, MemoryScope scope, String firstMessage) {
         // One read decides ownership, so a concurrent create by the same owner is never mistaken for a foreign row.
-        return sessions.findById(conversationId)
+        // It locks the session row first, the same order as deletion: an accept racing a delete either sees the
+        // tombstone (404) or commits first and has its turn interrupted by the delete.
+        return sessions.findByIdForUpdate(conversationId)
                 .map(row -> row.ownedBy(scope))
                 .switchIfEmpty(Mono.defer(() -> sessions.insertScoped(conversationId, scope,
                         SessionService.title(firstMessage)).thenReturn(true)))

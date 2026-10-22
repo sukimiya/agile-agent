@@ -29,6 +29,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
 import io.github.sukimiya.agileagent.memory.MemoryModel.HistoryPage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnCommand;
 import io.github.sukimiya.agileagent.memory.ConversationIds;
+import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
@@ -63,15 +64,18 @@ public class ChatController {
     private final TurnLifecycle lifecycle;
     private final ConversationHistory history;
     private final TenantLlmClientResolver llmResolver;
+    private final MemoryMaintenance maintenance;
     private static final ObjectMapper json = new ObjectMapper();
 
     public ChatController(Orchestrator orchestrator, SessionService sessionService, TurnLifecycle lifecycle,
-                          ConversationHistory history, TenantLlmClientResolver llmResolver) {
+                          ConversationHistory history, TenantLlmClientResolver llmResolver,
+                          MemoryMaintenance maintenance) {
         this.orchestrator = orchestrator;
         this.sessionService = sessionService;
         this.lifecycle = lifecycle;
         this.history = history;
         this.llmResolver = llmResolver;
+        this.maintenance = maintenance;
     }
 
     // OpenAI-compatible chat completions endpoint
@@ -234,8 +238,17 @@ public class ChatController {
         return response.body(displayMessages);
     }
 
+    /**
+     * Deletes one of the caller's conversations: 204 (also when already deleted), 400 for a non-canonical id,
+     * 403 without tenant, 404 for an unknown or foreign one. Content is hidden at once; physical cleanup follows.
+     */
     @DeleteMapping("/conversations/{id}")
-    void deleteConversation(@PathVariable String id) {
+    Mono<ResponseEntity<Void>> deleteConversation(@PathVariable String id, @CurrentUser AuthSessionStore.AuthUser user) {
+        return Mono.defer(() -> {
+                    ConversationIds.validate(id);
+                    return maintenance.deleteConversation(MemoryScope.of(user.identity()), id);
+                })
+                .then(Mono.fromSupplier(() -> ResponseEntity.noContent().<Void>build()));
     }
 
     record ChatRequest(String conversationId, String message) {}

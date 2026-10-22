@@ -80,7 +80,7 @@ class TurnStreamingIntegrationTest {
         var orchestrator = new Orchestrator(mock(TaskDispatcher.class), new CapabilityRegistry(List.of()),
                 stack.lifecycle(), stack.history());
         var controller = new ChatController(orchestrator, stack.sessionService(), stack.lifecycle(), stack.history(),
-                resolver);
+                resolver, mock(MemoryMaintenance.class));
         client = WebTestClient.bindToController(controller)
                 .controllerAdvice(new MemoryExceptionHandler(), new AuthExceptionHandler())
                 .argumentResolvers(c -> c.addCustomResolver(new FixedUser()))

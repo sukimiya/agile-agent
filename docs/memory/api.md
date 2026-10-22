@@ -1,6 +1,6 @@
 # Memory 接口说明（M1）
 
-> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）、工具调用记录（Task 5）以及附件上传/下载与会话 ID 规则（Task 6）；删除接口在 Task 7 补充。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
+> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）、工具调用记录（Task 5）、附件上传/下载与会话 ID 规则（Task 6）以及会话删除（Task 7）。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
 
 ## 错误码
 
@@ -23,6 +23,8 @@
 | `INSTANCE_CONFLICT` | 503 | 检测到同一部署命名空间内另一个活跃实例，拒绝接受新执行 |
 
 缺少模型配置仍返回既有的 428 JSON，不属于上表。`TURN_INTERRUPTED`、`TURN_FAILED` 不是 HTTP 状态：响应头已提交，只能以流内错误事件告知。
+
+新版本只读写数据库中的会话与消息，不读取、不迁移旧的 Redis `chatmemory:*` 历史；升级前的对话在新版本中不可见。
 
 HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN_PROGRESS` 额外带 `"turnId"`。
 
@@ -92,7 +94,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 ## 会话 ID 规则
 
-`ConversationIds.validate`：只接受小写规范 UUID 字符串，即 36 个字符的 8-4-4-4-12 格式，只含 `0-9a-f` 与连字符，不限 UUID 版本。原值要么原样使用，要么以 400 `INVALID_CONVERSATION_ID` 拒绝，不做修剪、大小写转换或字符替换，所以两个不同的输入不会指向同一会话或同一附件目录（只用小写也避免了大小写不敏感文件系统上的碰撞）。两个聊天入口、附件上传/下载使用该规则，Task 7 的会话删除也将使用它。历史消息端点 `GET /api/conversations/{id}/messages` 不做格式校验：不合规的 ID 不可能属于当前用户，统一返回 404 `CONVERSATION_NOT_FOUND`。
+`ConversationIds.validate`：只接受小写规范 UUID 字符串，即 36 个字符的 8-4-4-4-12 格式，只含 `0-9a-f` 与连字符，不限 UUID 版本。原值要么原样使用，要么以 400 `INVALID_CONVERSATION_ID` 拒绝，不做修剪、大小写转换或字符替换，所以两个不同的输入不会指向同一会话或同一附件目录（只用小写也避免了大小写不敏感文件系统上的碰撞）。两个聊天入口、附件上传/下载与会话删除使用该规则。历史消息端点 `GET /api/conversations/{id}/messages` 不做格式校验：不合规的 ID 不可能属于当前用户，统一返回 404 `CONVERSATION_NOT_FOUND`。
 
 ## 附件（`POST /api/files/upload`、`GET /api/files/download`）
 
@@ -113,3 +115,23 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - `STORAGE_ERROR`（500）：`{"code":"STORAGE_ERROR","reason":"附件保存失败，请稍后重试"}`，不再包含异常信息。原始异常只写入服务端日志。
 
 **保留期限：** M1 不承诺附件原件可永久恢复。临时附件由现有清理任务在目录最后修改 24 小时后删除（`app.upload.ttl-hours`）。这与会话消息默认永久保留不同：消息正文和其中提到的文件名会保留，附件原件可能已被清理。清理只处理名称符合会话 ID 规则的目录，其他目录不会匹配到任何会话，也不会被删除。归档与 MinIO 见 spec 14.1。
+
+## 会话删除（`DELETE /api/conversations/{id}`）
+
+| 情况 | 响应 |
+| --- | --- |
+| 删除当前用户的会话 | 204（无响应体） |
+| 重复删除自己已删除的会话 | 204（幂等） |
+| `id` 不符合会话 ID 规则 | 400 `INVALID_CONVERSATION_ID` |
+| 服务端身份没有租户 | 403 `TENANT_REQUIRED` |
+| 会话不存在、属于他人（含其他租户的同名 subject）或为旧版本无租户数据 | 404 `CONVERSATION_NOT_FOUND` |
+| 未登录 | 401 `UNAUTHORIZED` |
+| 数据库不可用 | 503 `STORAGE_UNAVAILABLE` |
+
+返回 204 时，以下内容已在同一事务中生效：
+
+- 会话写入删除标记，标题清空，revision 递增。会话列表、历史消息、两个聊天入口、附件上传和下载都立即把它当作不存在，返回 404 `CONVERSATION_NOT_FOUND`。
+- 正在执行的回答立即失去执行权：fence 递增，执行记为 INTERRUPTED，`error_code=CONVERSATION_DELETED`。流式响应在下一次续期或检查点时收到 `TURN_INTERRUPTED` 错误事件，已发出但未返回的工具调用标记为 UNCERTAIN。
+- 登记一个持久清理任务。
+
+物理清理在后台进行，失败会重试：删除消息、工具调用记录和该会话的本地附件目录，并把缓存条目替换为不含内容的删除标记，之后的缓存回填一律被拒绝。附件目录名就是会话 ID，所以不会删到其他会话或其他用户的文件。删除标记（会话 ID、归属、删除时间，不含正文）永久保留，同一 ID 不能再被聊天或上传重新创建，任何后台任务或缓存重建都不会使已删除内容复活。执行记录 `chat_turns` 只含状态、用量与请求 ID，不含正文，作为删除标记的一部分保留。
