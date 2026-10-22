@@ -40,6 +40,18 @@ public final class MemoryTestDoubles {
         return lifecycle;
     }
 
+    /** A tool recorder that accepts every record without storing it. */
+    public static TurnToolRecorder noopToolRecorder() {
+        var recorder = mock(TurnToolRecorder.class);
+        when(recorder.started(any(), any(), any())).thenReturn(Mono.empty());
+        when(recorder.finished(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(Mono.empty());
+        when(recorder.finished(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any()))
+                .thenReturn(Mono.empty());
+        when(recorder.markUncertain(any(), any())).thenReturn(Mono.empty());
+        return recorder;
+    }
+
     public static ConversationHistory fixedHistory(String userInput, List<LlmClient.Message> context) {
         var history = mock(ConversationHistory.class);
         when(history.contextBefore(any())).thenReturn(Mono.just(context));

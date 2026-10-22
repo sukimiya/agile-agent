@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.github.sukimiya.agileagent.memory.MemoryException;
+import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import reactor.core.publisher.Flux;
 
@@ -44,10 +46,16 @@ public class InProcessTaskDispatcher implements TaskDispatcher {
         log.info("dispatch role={} taskId={}", task.roleCode(), task.taskId());
         return domainAgent.run(task, llm)
                 .timeout(taskTimeout)
-                .onErrorResume(e -> {
+                // Lost execution right and memory failures (e.g. a tool outcome that could not be recorded) end
+                // the whole turn; degrading them to one failed domain would let the turn carry on and answer.
+                .onErrorResume(e -> !isTurnFatal(e), e -> {
                     log.warn("domain task failed role={} taskId={} error={}", task.roleCode(), task.taskId(), e.toString());
                     return Flux.just(new AgentEvent.Failed(task.roleCode(), describe(e)));
                 });
+    }
+
+    static boolean isTurnFatal(Throwable e) {
+        return e instanceof TurnLifecycle.ExecutionRightLostException || e instanceof MemoryException;
     }
 
     private static String describe(Throwable e) {

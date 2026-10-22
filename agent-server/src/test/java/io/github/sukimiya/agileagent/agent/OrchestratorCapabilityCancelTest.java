@@ -84,7 +84,8 @@ class OrchestratorCapabilityCancelTest {
     void capabilityBranchDisconnectSkipsNotStartedTools() throws Exception {
         var executions = new AtomicInteger();
         var provider = new SlowCapability(executions);
-        var dispatcher = new InProcessTaskDispatcher(new DomainAgent(new CapabilityRegistry(List.of(provider))));
+        var dispatcher = new InProcessTaskDispatcher(new DomainAgent(new CapabilityRegistry(List.of(provider)),
+                stack.toolRecorder()));
         when(llm.chatStream(any(), any()))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[\"SLOW\"]")))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(

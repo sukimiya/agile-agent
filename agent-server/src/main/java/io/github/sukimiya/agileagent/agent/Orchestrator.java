@@ -230,7 +230,7 @@ public class Orchestrator {
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
         var tasks = capabilityCodes.stream()
                 .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code, userMessage,
-                        accessToken, identity))
+                        accessToken, identity, ticket))
                 .toList();
         var results = new ArrayList<AgentEvent>();
         Flux<String> progress = dispatcher.dispatch(tasks, llm)

@@ -229,9 +229,12 @@ public class TurnLifecycle {
     }
 
     static String sha256(String text) {
+        return HexFormat.of().formatHex(digest(text.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    static byte[] digest(byte[] bytes) {
         try {
-            var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
+            return MessageDigest.getInstance("SHA-256").digest(bytes);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }

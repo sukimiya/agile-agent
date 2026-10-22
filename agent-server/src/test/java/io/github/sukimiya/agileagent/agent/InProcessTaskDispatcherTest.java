@@ -70,6 +70,29 @@ class InProcessTaskDispatcherTest {
     }
 
     @Test
+    void lostExecutionRightOrStorageFailureStopsTheWholeDispatch() {
+        LlmClient llm = mock(LlmClient.class);
+        DomainAgent domainAgent = mock(DomainAgent.class);
+        var lostTask = new DomainTask("t1", "conv-1", "ALPHA", "q1", "tok");
+        var otherTask = new DomainTask("t2", "conv-1", "BETA", "q2", "tok");
+        when(domainAgent.run(lostTask, llm)).thenReturn(
+                Flux.error(new io.github.sukimiya.agileagent.memory.TurnLifecycle.ExecutionRightLostException()));
+        when(domainAgent.run(otherTask, llm)).thenReturn(Flux.never());
+        var dispatcher = new InProcessTaskDispatcher(domainAgent);
+
+        StepVerifier.create(dispatcher.dispatch(List.of(lostTask, otherTask), llm))
+                .expectError(io.github.sukimiya.agileagent.memory.TurnLifecycle.ExecutionRightLostException.class)
+                .verify(Duration.ofSeconds(5));
+
+        var storageTask = new DomainTask("t3", "conv-1", "GAMMA", "q3", "tok");
+        when(domainAgent.run(storageTask, llm)).thenReturn(Flux.error(new io.github.sukimiya.agileagent.memory.MemoryException(
+                io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode.STORAGE_UNAVAILABLE)));
+        StepVerifier.create(dispatcher.dispatch(List.of(storageTask), llm))
+                .expectError(io.github.sukimiya.agileagent.memory.MemoryException.class)
+                .verify(Duration.ofSeconds(5));
+    }
+
+    @Test
     void emptyTaskListYieldsEmptyFlux() {
         DomainAgent domainAgent = mock(DomainAgent.class);
         LlmClient llm = mock(LlmClient.class);

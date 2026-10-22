@@ -17,6 +17,7 @@ import io.github.sukimiya.agileagent.capability.fixture.ExternalFixtureCapabilit
 import io.github.sukimiya.agileagent.memory.ConversationHistory;
 import io.github.sukimiya.agileagent.memory.MemoryTestDoubles;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
+import io.github.sukimiya.agileagent.memory.TurnToolRecorder;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 import reactor.core.publisher.Flux;
@@ -86,6 +87,11 @@ class ExternalCapabilityIntegrationTest {
         }
 
         @Bean
+        TurnToolRecorder turnToolRecorder() {
+            return MemoryTestDoubles.noopToolRecorder();
+        }
+
+        @Bean
         TurnLifecycle turnLifecycle() {
             return MemoryTestDoubles.passThroughLifecycle();
         }
@@ -102,6 +108,11 @@ class ExternalCapabilityIntegrationTest {
         @Bean
         AgentCapabilityProvider invalidExternalCapabilityProvider() {
             return new ExternalFixtureCapabilityProvider(true);
+        }
+
+        @Bean
+        TurnToolRecorder turnToolRecorder() {
+            return MemoryTestDoubles.noopToolRecorder();
         }
 
         @Bean

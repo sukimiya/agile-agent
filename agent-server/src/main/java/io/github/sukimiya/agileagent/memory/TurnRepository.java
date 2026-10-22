@@ -124,7 +124,7 @@ public class TurnRepository {
                 .bind("id", ticket.turnId())
                 .bind("fence", ticket.fence());
         spec = errorCode == null ? spec.bindNull("errorCode", String.class) : spec.bind("errorCode", errorCode);
-        return spec.fetch().rowsUpdated().map(n -> n == 1);
+        return spec.fetch().rowsUpdated().flatMap(n -> closeOpenToolCalls(n, ticket.turnId()));
     }
 
     /**
@@ -137,7 +137,15 @@ public class TurnRepository {
                         + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND fence = :fence AND status IN " + ACTIVE
                         + " AND lease_expires_at <= CURRENT_TIMESTAMP(6)")
                 .bind("id", turnId).bind("fence", fence)
-                .fetch().rowsUpdated().map(n -> n == 1);
+                .fetch().rowsUpdated().flatMap(n -> closeOpenToolCalls(n, turnId));
+    }
+
+    /**
+     * After a terminal transition (n == 1), tool calls of the turn that never recorded an outcome become
+     * UNCERTAIN in the same transaction: they were issued, but whether they took effect is unknown.
+     */
+    private Mono<Boolean> closeOpenToolCalls(long n, String turnId) {
+        return n == 1 ? ToolEventRepository.markOpenUncertain(db, turnId).thenReturn(true) : Mono.just(false);
     }
 
     private Mono<Boolean> update(String sql, TurnTicket ticket) {

@@ -87,7 +87,7 @@ class ReactiveChainBlockHoundTest {
                                 .subscribeOn(Schedulers.parallel()));
 
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
-        var domainAgent = new DomainAgent(capabilities);
+        var domainAgent = new DomainAgent(capabilities, MemoryTestDoubles.noopToolRecorder());
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
         var orchestrator = new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(),
                 MemoryTestDoubles.fixedHistory("stage.set 怎么用", List.of()));

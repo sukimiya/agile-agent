@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.memory;
 import java.time.Duration;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -28,9 +29,14 @@ public final class MemoryTestStack implements AutoCloseable {
     private final LettuceConnectionFactory redisFactory;
     private final ConversationHistory history;
     private final SessionService sessions;
+    private final ToolEventRepository toolEvents;
+    private final TurnToolRecorder toolRecorder;
 
-    private MemoryTestStack(MemoryTestFixture fixture, Consumer<MemoryProperties> tune) {
+    private MemoryTestStack(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
+            UnaryOperator<ToolEventRepository> decorateToolEvents) {
         this.support = TurnTestSupport.create(fixture, tune, t -> t);
+        this.toolEvents = decorateToolEvents.apply(new ToolEventRepository(fixture.databaseClient()));
+        this.toolRecorder = new TurnToolRecorder(toolEvents, support.props);
         this.redisFactory = new LettuceConnectionFactory(LocalRedisTestServer.configuration(REDIS_DB));
         redisFactory.afterPropertiesSet();
         var cache = new HotMemoryCache(new ReactiveStringRedisTemplate(redisFactory), support.mapper, support.props);
@@ -41,15 +47,19 @@ public final class MemoryTestStack implements AutoCloseable {
     }
 
     public static MemoryTestStack h2() {
-        return new MemoryTestStack(MemoryTestFixture.h2(), p -> { });
+        return new MemoryTestStack(MemoryTestFixture.h2(), p -> { }, t -> t);
     }
 
     public static MemoryTestStack of(MemoryTestFixture fixture) {
-        return new MemoryTestStack(fixture, p -> { });
+        return new MemoryTestStack(fixture, p -> { }, t -> t);
+    }
+
+    public static MemoryTestStack of(MemoryTestFixture fixture, UnaryOperator<ToolEventRepository> decorateToolEvents) {
+        return new MemoryTestStack(fixture, p -> { }, decorateToolEvents);
     }
 
     public static MemoryTestStack h2(Consumer<MemoryProperties> tune) {
-        return new MemoryTestStack(MemoryTestFixture.h2(), tune);
+        return new MemoryTestStack(MemoryTestFixture.h2(), tune, t -> t);
     }
 
     public TurnLifecycle lifecycle() {
@@ -58,6 +68,30 @@ public final class MemoryTestStack implements AutoCloseable {
 
     public ConversationHistory history() {
         return history;
+    }
+
+    public TurnToolRecorder toolRecorder() {
+        return toolRecorder;
+    }
+
+    public ToolEventRepository toolEvents() {
+        return toolEvents;
+    }
+
+    /** Stored tool events of a turn as raw rows (column names are case-insensitive). */
+    public java.util.List<Map<String, Object>> toolEventRows(String turnId) {
+        return support.fixture.jdbc().queryForList("SELECT * FROM chat_tool_events WHERE turn_id = ? ORDER BY started_at",
+                turnId);
+    }
+
+    public java.util.List<Map<String, Object>> toolEventRowsOfConversation(String conversationId) {
+        return support.fixture.jdbc().queryForList(
+                "SELECT * FROM chat_tool_events WHERE conversation_id = ? ORDER BY started_at", conversationId);
+    }
+
+    /** Runs one recovery scan (marks turns with expired leases INTERRUPTED). */
+    public int recoverExpired() {
+        return support.recovery.runOnce().block(WAIT);
     }
 
     public SessionService sessionService() {

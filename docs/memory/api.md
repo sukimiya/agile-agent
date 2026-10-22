@@ -76,3 +76,15 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - 取值必须大于 0 且不超过 MySQL `MEDIUMTEXT` 容量（16 MiB − 1 字节），否则启动失败。
 - 用户输入超限返回 413 `MESSAGE_TOO_LARGE`，不截断保存。
 - 模型最终回答超限时，执行记为 FAILED（`error_code=MESSAGE_TOO_LARGE`），不保存回答正文；流式响应发送 `code` 为 `MESSAGE_TOO_LARGE` 的错误事件。该上限只限制单条消息，不截断数据库中已保存的历史，也不替代 M2a 的上下文 Token 预算。
+
+## 工具调用记录（`chat_tool_events`）
+
+不新增 HTTP 接口，也不改变 `tool_call` 事件格式（其参数摘要现在先经脱敏）。每次能力工具调用都按执行（turn）记录：能力、工具名、call id、脱敏后的参数、脱敏后的结果或错误类型、来源类型（`TOOL_RESULT`）以及开始、更新、结束时间。
+
+- 同一执行内重复的 call id 更新同一条记录；不同执行中相同的 call id 是不同记录。
+- 开始记录在工具执行之前写入，并校验执行权（fence、活跃状态、租约）。写入失败时工具不执行：失去执行权报 `TURN_INTERRUPTED`，存储故障报 `STORAGE_UNAVAILABLE`，参数超过 `app.memory.max-message-bytes` 报 `MESSAGE_TOO_LARGE`。
+- 状态：`STARTED` → `SUCCEEDED` / `FAILED`；错误类型为 `TOOL_REPORTED_FAILURE`、`UNKNOWN_TOOL`、`INVALID_ARGUMENTS` 或异常类名，不保存异常信息。
+- 工具已执行但结果记录失败：本次执行以 `STORAGE_UNAVAILABLE` 失败结束，不自动重放该工具。
+- 执行进入任何终态（完成、失败、取消或断开、中断、恢复扫描）时，仍为 `STARTED` 的调用在同一事务内标记为 `UNCERTAIN`：已发出，但是否生效未知。之后补录到的真实结果会覆盖 `UNCERTAIN`。
+- 脱敏会移除敏感字段（token、password、secret、API key、Authorization、Cookie 等，任意嵌套深度），以及文本中的结构化凭据（Bearer、JWT、`sk-`/`ghp_`/`AKIA` 等常见密钥格式、PEM 私钥、`key=value` 形式的密钥）。这是纵深防御，不能把任意内容变为可安全展示。日志不打印原始参数或结果。
+- 工具结果只作为 tool 消息提供给模型，不获得指令权限，也不能扩大允许调用的工具范围。

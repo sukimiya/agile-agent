@@ -90,7 +90,7 @@ class AgentLoggingTest {
                 .thenReturn(Flux.<LlmClient.LlmEvent>just(new LlmClient.LlmEvent.Completed("聚合回答"))); // 4) aggregate
 
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
-        var domainAgent = new DomainAgent(capabilities);
+        var domainAgent = new DomainAgent(capabilities, MemoryTestDoubles.noopToolRecorder());
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
         var orchestrator = new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(),
                 MemoryTestDoubles.fixedHistory("stage.set 怎么用", List.of()));
