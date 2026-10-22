@@ -29,7 +29,9 @@ import io.github.sukimiya.agileagent.TestAuthUsers;
 @AutoConfigureWebTestClient
 @TestPropertySource(properties = {
     "app.upload.dir=${java.io.tmpdir}/upload-test",
-    "app.upload.allowed-content-types=image/png,application/pdf"
+    "app.upload.allowed-content-types=image/png,application/pdf",
+    // R2DBC and Flyway use different embedded H2 databases in this context, so memory tables are absent.
+    "app.memory.recovery-enabled=false"
 })
 class UploadControllerTest {
 

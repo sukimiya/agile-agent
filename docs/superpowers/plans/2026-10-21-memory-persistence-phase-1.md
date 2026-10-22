@@ -76,6 +76,9 @@
 - 支持可选 `Idempotency-Key` 请求头，长度 1–128、仅允许 ASCII 字母数字和 `._:-`。承诺范围：在已建立的会话内（请求带已存在且属于当前用户的 conversationId），同一 key 不会被接受两次；相同 key + 相同文本不重复执行，不同文本返回 409 `IDEMPOTENCY_CONFLICT`。未带 conversationId 的首个请求重试不在承诺内（spec 6.4/13）。
 - 重复已完成请求重放已存文本与已观察到的 Usage；重复活跃请求或同会话已有活跃执行时返回 409 `TURN_IN_PROGRESS`，响应体带 `turnId`，前端显示“正在生成”；重复失败/取消/中断请求返回 409 `TURN_TERMINATED`，新执行需新 key。无 key 时生成新请求 ID，不凭相同文本去重。M1 不提供按 turnId 续流或取消的接口。
 - 状态为 ACCEPTED → RUNNING → COMPLETED / FAILED / CANCELLED / INTERRUPTED，终态不能降级或重新执行。终态映射：客户端断开或取消订阅 → CANCELLED；进程退出或失去执行权（租约过期、fence 失效）→ INTERRUPTED；普通执行失败 → FAILED；正常结束且有 Completed → COMPLETED。断开即取消，没有“客户端断开、后端继续运行”。
+- 活跃执行的租约已过期时，同会话的新请求在接受事务内先把它标记为 INTERRUPTED（递增 fence、释放活跃位、递增会话 revision），再接受新执行，不必等待恢复扫描，也不返回 409；租约未过期仍返回 409 `TURN_IN_PROGRESS`。（2026-10-22 与用户确认，Task 2 已实现）
+- 最终回答序列化后超过 `app.memory.max-message-bytes`（默认 1 MiB）时，执行记为 FAILED、`error_code=MESSAGE_TOO_LARGE`，不保存回答正文（不截断保存）；检查点同样受此上限约束。（2026-10-22 与用户确认，Task 2 已实现）
+- 执行中失去执行权（租约过期、fence 失效）时，流式响应以稳定错误码 `TURN_INTERRUPTED` 的 SSE error 事件结束，不发送成功的 done；终态为 INTERRUPTED。错误码映射在 Task 4 实现。
 - 终态由 TurnFinalizer 写入：被订阅、有超时上限（建议 5 秒）的响应式完成阶段，带 fence；失败或超时时由恢复扫描在租约过期后标记 INTERRUPTED。禁止在 `doFinally` 中做 fire-and-forget 异步写库。已发出的外部写操作标记 UNCERTAIN，不声称已撤销。
 - 租约 60 秒，每 15 秒续期，恢复扫描 30 秒一次并在启动时执行；租约依据数据库时间。写入携带递增 fence，过期执行不能覆盖新执行。
 - 检查点 5 秒或累计新增 8 KiB UTF-8 文本，先到者触发；正常完成提交完整文本。尾部恢复边界以最后成功检查点为准。
@@ -152,7 +155,7 @@
 **Interfaces:**
 - 消费 Task 2 的 TurnRecorder/execute；execute 管理定时检查点、续期和终态收尾，不向 provider SPI 暴露 recorder。
 - `Orchestrator.chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm): Flux<String>`；controller 在返回 200 前先解析身份、只读验证归属、解析模型，再 accept。
-- GET 消息接口消费 Task 3 的 page；两个 POST 接收可选 Idempotency-Key；MemoryExceptionHandler 将稳定错误码映射到第 1 节 HTTP 状态，409 `TURN_IN_PROGRESS` 响应体带 turnId，不输出底层错误/凭证。
+- GET 消息接口消费 Task 3 的 page；两个 POST 接收可选 Idempotency-Key；MemoryExceptionHandler 将稳定错误码映射到第 1 节 HTTP 状态，409 `TURN_IN_PROGRESS` 响应体带 turnId，不输出底层错误/凭证；流式执行中 `TurnLifecycle.ExecutionRightLostException` 映射为 SSE error `TURN_INTERRUPTED`，`IncompleteTurnException` 与收尾写入失败按第 1 节映射为失败错误事件。
 
 - [ ] 能力分支共享订阅：现状 `Orchestrator.answerViaCapabilities`（`:156-171`）使用 `dispatcher.dispatch(tasks, llm).doOnNext(usage::add).cache()`（`:162`），progress 与 results 两次订阅同一 cache。已用 reactor-core 3.7.6 实测，下游取消后 cache 的上游不会收到 cancel，元素继续全部发出；汇总调用因位于 `concatWith(Flux.defer(...))` 后才不会启动。改造为执行持有方可控取消上游：例如不用 cache，改为单次订阅中同时产出 progress 与收集结果（`publish(shared -> ...)` 或 `share()`/`publish().refCount(1)` 使订阅者归零即取消上游），或持有 dispatch 的 `Disposable`，在取消/终态收尾时显式 dispose。选型在实现时以测试为准。
 - [ ] 写失败测试：`userPersistedBeforeSseAccepted`、`missingModelReturnsExact428WithoutTurn`、`bothEndpointsReplayCompletedTurn`、`activeTurnReturns409WithTurnId`、`clientDisconnectStopsModelAndMarksCancelled`、`timeoutAndDatabaseFailureNeverEmitSuccessfulDone`、`usageAfterCompletedIsNotLost`、`missingCompletedIsFailure`、`doubleSubscriptionRunsModelOnce`、`capabilityBranchDisconnectCancelsDispatchUpstream`（断言 dispatch 源收到 cancel）、`capabilityBranchDisconnectSkipsNotStartedTools`（第二个及之后的工具不调用 provider.execute）、`capabilityBranchDisconnectStartsNoAggregateModelCall`（汇总阶段不再调用 `llm.chatStream`）、`capabilityBranchDisconnectMarksCancelled`、`retryWithoutConversationIdCreatesNewTurnOnBothEndpoints`（记录已知问题的现有行为，作为上线门槛修复前的对照，修复后改为断言不重复执行）。至少用 8 KiB 多字节文本验证按 UTF-8 大小触发检查点。
