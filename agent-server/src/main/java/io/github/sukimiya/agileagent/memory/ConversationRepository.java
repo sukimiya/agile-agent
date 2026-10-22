@@ -40,15 +40,11 @@ public class ConversationRepository {
     public Mono<Void> ensureOwnedSession(String conversationId, MemoryScope scope, String firstMessage) {
         // One read decides ownership, so a concurrent create by the same owner is never mistaken for a foreign row.
         return sessions.findById(conversationId)
-                .map(row -> ownedBy(row, scope))
+                .map(row -> row.ownedBy(scope))
                 .switchIfEmpty(Mono.defer(() -> sessions.insertScoped(conversationId, scope,
                         SessionService.title(firstMessage)).thenReturn(true)))
                 .flatMap(owned -> owned ? Mono.<Void>empty()
                         : Mono.<Void>error(new MemoryException(ErrorCode.CONVERSATION_NOT_FOUND)));
-    }
-
-    private static boolean ownedBy(SessionRepository.SessionRow row, MemoryScope scope) {
-        return row.deletedAt() == null && scope.tenantId().equals(row.tenantId()) && scope.subject().equals(row.userId());
     }
 
     public Mono<Void> bumpRevision(String conversationId) {

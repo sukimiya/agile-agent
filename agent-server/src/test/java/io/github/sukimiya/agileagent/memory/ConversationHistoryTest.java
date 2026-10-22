@@ -148,8 +148,11 @@ class ConversationHistoryTest {
         var conversation = newConversationId();
         seed(conversation, 1);
 
-        assertThatThrownBy(() -> page(conversation, null, 0)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> page(conversation, null, 201)).isInstanceOf(IllegalArgumentException.class);
+        for (int invalid : new int[] {0, -1, 201}) {
+            assertThatThrownBy(() -> page(conversation, null, invalid))
+                    .isInstanceOfSatisfying(MemoryException.class,
+                            e -> assertThat(e.code()).isEqualTo(MemoryException.ErrorCode.INVALID_ARGUMENT));
+        }
         assertThat(page(conversation, null, 200).items()).hasSize(1);
     }
 

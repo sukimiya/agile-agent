@@ -7,6 +7,7 @@ package io.github.sukimiya.agileagent.memory;
 public class MemoryException extends RuntimeException {
 
     public enum ErrorCode {
+        INVALID_ARGUMENT(400),
         INVALID_CONVERSATION_ID(400),
         INVALID_IDEMPOTENCY_KEY(400),
         TENANT_REQUIRED(403),

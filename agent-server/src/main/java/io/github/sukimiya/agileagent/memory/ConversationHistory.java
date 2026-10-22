@@ -56,7 +56,7 @@ public class ConversationHistory {
      */
     public Mono<HistoryPage> page(MemoryScope scope, String conversationId, Long beforeSequence, int limit) {
         if (limit < 1 || limit > MAX_PAGE) {
-            return Mono.error(new IllegalArgumentException("limit must be within 1.." + MAX_PAGE));
+            return Mono.error(new MemoryException(ErrorCode.INVALID_ARGUMENT));
         }
         return ownedSession(scope, conversationId).flatMap(session -> beforeSequence != null
                 ? newestBefore(scope, conversationId, beforeSequence, limit).map(rows -> toPage(rows, limit))
@@ -76,6 +76,19 @@ public class ConversationHistory {
                         .map(row -> conversations.deserialize(row.get("payload", String.class)))
                         .all()
                         .collectList());
+    }
+
+    /** The turn's own user message text (the current question), read from durable storage. */
+    public Mono<String> userInput(TurnTicket ticket) {
+        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'user'"
+                        + " AND tenant_id = :tenantId AND subject = :subject")
+                .bind("turnId", ticket.turnId())
+                .bind("tenantId", ticket.scope().tenantId())
+                .bind("subject", ticket.scope().subject())
+                .map(row -> row.get("payload", String.class))
+                .one()
+                .map(payload -> conversations.deserialize(payload).content())
+                .switchIfEmpty(Mono.error(() -> new IllegalStateException("accepted turn has no user message")));
     }
 
     private Mono<SessionRow> ownedSession(MemoryScope scope, String conversationId) {

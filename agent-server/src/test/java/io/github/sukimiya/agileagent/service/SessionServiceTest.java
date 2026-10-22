@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -9,6 +10,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.sukimiya.agileagent.memory.MemoryException;
+import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.repository.SessionRepository;
 import io.github.sukimiya.agileagent.repository.SessionRepository.SessionRow;
 
@@ -17,78 +20,81 @@ import reactor.core.publisher.Mono;
 
 class SessionServiceTest {
 
-    @Test
-    void touchOrCreateInsertsNewSessionWithTruncatedTitle() {
-        var repository = mock(SessionRepository.class);
-        when(repository.findById("s1")).thenReturn(Mono.empty());
-        when(repository.insert(any(), any(), any())).thenReturn(Mono.empty());
-        var service = new SessionService(repository);
+    private static final MemoryScope ALICE = new MemoryScope("tenant-1", "alice");
 
-        var result = service.touchOrCreate("s1", "user-1",
-                "这是一条非常长的用户消息用来测试标题截断逻辑是否按预期工作而不是原样保留全部文字").block();
-
-        assertThat(result).isEqualTo(SessionService.AccessResult.OWNED);
-        verify(repository).insert(eq("s1"), eq("user-1"), argThat(title -> title.endsWith("…") && title.length() == 25));
+    private static SessionRow row(String tenant, String user, LocalDateTime deletedAt) {
+        var now = LocalDateTime.now();
+        return new SessionRow("s1", tenant, user, "标题", 0, now, now, deletedAt);
     }
 
     @Test
-    void touchOrCreateTouchesExistingOwnedSession() {
+    void createOwnedInsertsNewSessionWithTruncatedTitle() {
         var repository = mock(SessionRepository.class);
-        when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", null, "user-1", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
-        when(repository.touch("s1")).thenReturn(Mono.empty());
+        when(repository.findScoped("s1", ALICE)).thenReturn(Mono.empty(), Mono.just(row("tenant-1", "alice", null)));
+        when(repository.insertScoped(any(), any(), any())).thenReturn(Mono.empty());
         var service = new SessionService(repository);
 
-        var result = service.touchOrCreate("s1", "user-1", "second message").block();
+        service.createOwned("s1", ALICE, "这是一条非常长的用户消息用来测试标题截断逻辑是否按预期工作而不是原样保留全部文字").block();
 
-        assertThat(result).isEqualTo(SessionService.AccessResult.OWNED);
-        verify(repository).touch("s1");
-        verify(repository, never()).insert(any(), any(), any());
+        verify(repository).insertScoped(eq("s1"), eq(ALICE), argThat(title -> title.endsWith("…") && title.length() == 25));
     }
 
     @Test
-    void touchOrCreateForbidsAccessToAnotherUsersSession() {
+    void createOwnedRejectsAnIdThatBelongsToSomeoneElse() {
         var repository = mock(SessionRepository.class);
-        when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", null, "user-2", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
+        when(repository.findScoped("s1", ALICE)).thenReturn(Mono.empty());
+        when(repository.insertScoped(any(), any(), any()))
+                .thenReturn(Mono.error(new org.springframework.dao.DuplicateKeyException("dup")));
         var service = new SessionService(repository);
 
-        var result = service.touchOrCreate("s1", "user-1", "message").block();
-
-        assertThat(result).isEqualTo(SessionService.AccessResult.FORBIDDEN);
-        verify(repository, never()).touch(any());
-        verify(repository, never()).insert(any(), any(), any());
+        assertThatThrownBy(() -> service.createOwned("s1", ALICE, "hi").block())
+                .isInstanceOf(MemoryException.class)
+                .extracting(e -> ((MemoryException) e).code())
+                .isEqualTo(MemoryException.ErrorCode.CONVERSATION_NOT_FOUND);
     }
 
     @Test
-    void findOwnedReturnsEmptyWhenSessionBelongsToAnotherUser() {
+    void verifyAccessAllowsUnusedAndOwnedIds() {
         var repository = mock(SessionRepository.class);
-        when(repository.findById("s1")).thenReturn(Mono.just(
-                new SessionRow("s1", null, "user-2", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null)));
+        when(repository.findById("s1")).thenReturn(Mono.empty(), Mono.just(row("tenant-1", "alice", null)));
         var service = new SessionService(repository);
 
-        assertThat(service.findOwned("s1", "user-1").blockOptional()).isEmpty();
+        service.verifyAccess("s1", ALICE).block();
+        service.verifyAccess("s1", ALICE).block();
+
+        verify(repository, never()).insertScoped(any(), any(), any());
     }
 
     @Test
-    void listForUserDelegatesToRepository() {
+    void verifyAccessHidesForeignLegacyAndDeletedSessionsAsNotFound() {
+        for (var existing : List.of(row("tenant-2", "alice", null), row("tenant-1", "Alice", null),
+                row(null, "alice", null), row("tenant-1", "alice", LocalDateTime.now()))) {
+            var repository = mock(SessionRepository.class);
+            when(repository.findById("s1")).thenReturn(Mono.just(existing));
+            var service = new SessionService(repository);
+
+            assertThatThrownBy(() -> service.verifyAccess("s1", ALICE).block())
+                    .isInstanceOf(MemoryException.class)
+                    .extracting(e -> ((MemoryException) e).code())
+                    .isEqualTo(MemoryException.ErrorCode.CONVERSATION_NOT_FOUND);
+        }
+    }
+
+    @Test
+    void findOwnedAndListForUserAreScoped() {
         var repository = mock(SessionRepository.class);
-        var rows = List.of(new SessionRow("s1", null, "user-1", "标题", 0, LocalDateTime.now(), LocalDateTime.now(), null));
-        when(repository.findByUserId("user-1")).thenReturn(Flux.fromIterable(rows));
+        var rows = List.of(row("tenant-1", "alice", null));
+        when(repository.findScoped("s1", ALICE)).thenReturn(Mono.just(rows.getFirst()));
+        when(repository.findByScope(ALICE)).thenReturn(Flux.fromIterable(rows));
         var service = new SessionService(repository);
 
-        assertThat(service.listForUser("user-1").collectList().block()).isEqualTo(rows);
+        assertThat(service.findOwned("s1", ALICE).block()).isEqualTo(rows.getFirst());
+        assertThat(service.listForUser(ALICE).collectList().block()).isEqualTo(rows);
     }
 
     @Test
     void emptyMessageProducesDefaultTitle() {
-        var repository = mock(SessionRepository.class);
-        when(repository.findById("s1")).thenReturn(Mono.empty());
-        when(repository.insert(any(), any(), any())).thenReturn(Mono.empty());
-        var service = new SessionService(repository);
-
-        service.touchOrCreate("s1", "user-1", "   ").block();
-
-        verify(repository).insert("s1", "user-1", "新对话");
+        assertThat(SessionService.title("   ")).isEqualTo("新对话");
+        assertThat(SessionService.title(null)).isEqualTo("新对话");
     }
 }

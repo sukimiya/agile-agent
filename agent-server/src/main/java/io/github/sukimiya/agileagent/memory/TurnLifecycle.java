@@ -83,7 +83,7 @@ public class TurnLifecycle {
      */
     public Mono<AcceptedTurn> accept(TurnCommand command) {
         return Mono.defer(() -> {
-            if (!IDEMPOTENCY_KEY.matcher(command.requestId()).matches()) {
+            if (!isValidRequestId(command.requestId())) {
                 return Mono.error(new MemoryException(ErrorCode.INVALID_IDEMPOTENCY_KEY));
             }
             var payload = conversations.serialize(LlmClient.Message.user(command.text()));
@@ -94,6 +94,11 @@ public class TurnLifecycle {
                     .onErrorMap(e -> !(e instanceof MemoryException),
                             e -> new MemoryException(ErrorCode.STORAGE_UNAVAILABLE, unwrap(e)));
         });
+    }
+
+    /** {@code Idempotency-Key} format: 1–128 ASCII letters, digits or {@code ._:-}. */
+    public static boolean isValidRequestId(String requestId) {
+        return requestId != null && IDEMPOTENCY_KEY.matcher(requestId).matches();
     }
 
     private Mono<AcceptedTurn> acceptOnce(TurnCommand command, String payload, String hash) {
@@ -186,6 +191,12 @@ public class TurnLifecycle {
             return finalizer.finish(ticket, TurnStatus.FAILED, recorder.text(), recorder.usage(), "MISSING_COMPLETED")
                     .doOnNext(written::set)
                     .then(Mono.error(new IncompleteTurnException()));
+        }
+        if (finalizer.exceedsLimit(recorder.text())) {
+            // The answer cannot be stored untruncated: FAILED without the body, and the stream reports it.
+            return finalizer.finish(ticket, TurnStatus.FAILED, null, recorder.usage(), ErrorCode.MESSAGE_TOO_LARGE.name())
+                    .doOnNext(written::set)
+                    .then(Mono.error(new MemoryException(ErrorCode.MESSAGE_TOO_LARGE)));
         }
         return finalizer.finish(ticket, TurnStatus.COMPLETED, recorder.text(), recorder.usage(), null)
                 .doOnNext(written::set)

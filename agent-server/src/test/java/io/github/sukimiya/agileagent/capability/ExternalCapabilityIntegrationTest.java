@@ -1,9 +1,6 @@
 package io.github.sukimiya.agileagent.capability;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,11 +14,12 @@ import io.github.sukimiya.agileagent.agent.DomainAgent;
 import io.github.sukimiya.agileagent.agent.InProcessTaskDispatcher;
 import io.github.sukimiya.agileagent.agent.Orchestrator;
 import io.github.sukimiya.agileagent.capability.fixture.ExternalFixtureCapabilityProvider;
-import io.github.sukimiya.agileagent.service.ChatMemory;
+import io.github.sukimiya.agileagent.memory.ConversationHistory;
+import io.github.sukimiya.agileagent.memory.MemoryTestDoubles;
+import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 class ExternalCapabilityIntegrationTest {
 
@@ -36,7 +34,7 @@ class ExternalCapabilityIntegrationTest {
             assertThat(context.getBean(ExternalFixtureCapabilityProvider.class)).isNotNull();
 
             var answer = context.getBean(Orchestrator.class)
-                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity(), llm)
+                    .chat(MemoryTestDoubles.acceptedTurn("conversation-1"), "test-token", fixtureIdentity(), llm)
                     .collectList().block();
 
             assertThat(answer).containsExactly(
@@ -56,7 +54,7 @@ class ExternalCapabilityIntegrationTest {
 
         try (var context = orchestrationContext(llm, InvalidDefinitionTestConfiguration.class)) {
             context.getBean(Orchestrator.class)
-                    .chat("conversation-1", "test-token", "use the fixture", fixtureIdentity(), llm)
+                    .chat(MemoryTestDoubles.acceptedTurn("conversation-1"), "test-token", fixtureIdentity(), llm)
                     .collectList().block();
 
             assertThat(llm.calls.get()).isEqualTo(2);
@@ -88,8 +86,13 @@ class ExternalCapabilityIntegrationTest {
         }
 
         @Bean
-        ChatMemory chatMemory() {
-            return emptyMemory();
+        TurnLifecycle turnLifecycle() {
+            return MemoryTestDoubles.passThroughLifecycle();
+        }
+
+        @Bean
+        ConversationHistory conversationHistory() {
+            return MemoryTestDoubles.fixedHistory("use the fixture", List.of());
         }
     }
 
@@ -102,16 +105,14 @@ class ExternalCapabilityIntegrationTest {
         }
 
         @Bean
-        ChatMemory chatMemory() {
-            return emptyMemory();
+        TurnLifecycle turnLifecycle() {
+            return MemoryTestDoubles.passThroughLifecycle();
         }
-    }
 
-    private static ChatMemory emptyMemory() {
-        var memory = mock(ChatMemory.class);
-        when(memory.get(anyString())).thenReturn(Mono.just(List.of()));
-        when(memory.append(anyString(), org.mockito.ArgumentMatchers.anyList())).thenReturn(Mono.empty());
-        return memory;
+        @Bean
+        ConversationHistory conversationHistory() {
+            return MemoryTestDoubles.fixedHistory("use the fixture", List.of());
+        }
     }
 
     private static final class ScriptedLlmClient implements LlmClient {

@@ -22,26 +22,15 @@ public class SessionService {
         this.repository = repository;
     }
 
-    public enum AccessResult { OWNED, FORBIDDEN }
-
-    // Legacy String-userId methods below are kept only until Task 4 switches ChatController and its tests to
-    // the MemoryScope methods and deletes them in the same commit. They do not see tenant ownership.
-
-    public Mono<AccessResult> touchOrCreate(String sessionId, String userId, String firstMessage) {
-        return repository.findById(sessionId)
-                .flatMap(existing -> existing.userId().equals(userId)
-                        ? repository.touch(sessionId).thenReturn(AccessResult.OWNED)
-                        : Mono.just(AccessResult.FORBIDDEN))
-                .switchIfEmpty(Mono.defer(() ->
-                        repository.insert(sessionId, userId, title(firstMessage)).thenReturn(AccessResult.OWNED)));
-    }
-
-    public Mono<SessionRow> findOwned(String sessionId, String userId) {
-        return repository.findById(sessionId).filter(s -> s.userId().equals(userId));
-    }
-
-    public Flux<SessionRow> listForUser(String userId) {
-        return repository.findByUserId(userId);
+    /**
+     * Read-only pre-check for a chat request: completes when the id is unused (the turn acceptance will create
+     * it) or names the caller's live session; fails with {@link MemoryException.ErrorCode#CONVERSATION_NOT_FOUND}
+     * when it belongs to anyone else, to a legacy row or to a deleted session. Writes nothing.
+     */
+    public Mono<Void> verifyAccess(String conversationId, MemoryScope scope) {
+        return repository.findById(conversationId)
+                .flatMap(row -> row.ownedBy(scope) ? Mono.<Void>empty()
+                        : Mono.<Void>error(new MemoryException(MemoryException.ErrorCode.CONVERSATION_NOT_FOUND)));
     }
 
     /**

@@ -95,5 +95,11 @@ public class SessionRepository {
      * {@code revision} versions cached history; {@code deletedAt} is the deletion tombstone.
      */
     public record SessionRow(String id, String tenantId, String userId, String title, long revision,
-            LocalDateTime createdAt, LocalDateTime updatedAt, LocalDateTime deletedAt) {}
+            LocalDateTime createdAt, LocalDateTime updatedAt, LocalDateTime deletedAt) {
+
+        /** Live and owned by exactly this tenant and subject (legacy rows without a tenant never match). */
+        public boolean ownedBy(io.github.sukimiya.agileagent.memory.MemoryScope scope) {
+            return deletedAt == null && scope.tenantId().equals(tenantId) && scope.subject().equals(userId);
+        }
+    }
 }

@@ -138,7 +138,8 @@ public class TurnFinalizer implements DisposableBean {
         }
     }
 
-    private boolean exceedsLimit(String text) {
+    /** Whether the serialized assistant message would exceed {@code app.memory.max-message-bytes}. */
+    boolean exceedsLimit(String text) {
         try {
             props.checkMessageSize(conversations.serialize(io.github.sukimiya.agileagent.service.LlmClient.Message
                     .assistantText(text)));

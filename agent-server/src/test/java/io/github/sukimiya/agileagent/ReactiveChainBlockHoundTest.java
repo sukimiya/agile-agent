@@ -21,6 +21,7 @@ import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
+import io.github.sukimiya.agileagent.memory.MemoryTestDoubles;
 import io.github.sukimiya.agileagent.service.*;
 
 import reactor.blockhound.BlockHound;
@@ -69,10 +70,6 @@ class ReactiveChainBlockHoundTest {
         var knowledgeCatalog = new KnowledgeCatalog(knowledgeProps, knowledgeRepository,
                 new io.github.sukimiya.agileagent.knowledge.KnowledgeAccessPolicy());
 
-        ChatMemory memory = mock(ChatMemory.class);
-        when(memory.get(any())).thenReturn(Mono.just(List.of()));
-        when(memory.append(any(), anyList())).thenReturn(Mono.empty());
-
         LlmClient llm = mock(LlmClient.class);
         var toolCall = new LlmClient.ToolCall("c1", "readKnowledgeDoc", "{\"id\":\"" + knowledgeId + "\"}");
         when(llm.chatStream(any(), any())).thenReturn(
@@ -92,9 +89,10 @@ class ReactiveChainBlockHoundTest {
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
         var domainAgent = new DomainAgent(capabilities);
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(dispatcher, capabilities, memory);
+        var orchestrator = new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(),
+                MemoryTestDoubles.fixedHistory("stage.set 怎么用", List.of()));
 
-        StepVerifier.create(orchestrator.chat("conv-1", "sl-tok", "stage.set 怎么用", null, llm)
+        StepVerifier.create(orchestrator.chat(MemoryTestDoubles.acceptedTurn("conv-1"), "sl-tok", null, llm)
                         .subscribeOn(Schedulers.parallel()))
                 .expectNextCount(4) // thinking + tool_call + 聚合回答 + done
                 .verifyComplete();

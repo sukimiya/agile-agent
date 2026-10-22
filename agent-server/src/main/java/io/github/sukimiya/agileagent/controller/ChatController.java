@@ -5,8 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -15,14 +15,22 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.agent.Orchestrator;
+import io.github.sukimiya.agileagent.memory.ConversationHistory;
+import io.github.sukimiya.agileagent.memory.MemoryException;
+import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
+import io.github.sukimiya.agileagent.memory.MemoryModel.HistoryPage;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TurnCommand;
+import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
-import io.github.sukimiya.agileagent.service.ChatMemory;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
@@ -33,56 +41,78 @@ import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+/**
+ * Both chat entry points share one acceptance path: resolve the tenant scope (403), validate the optional
+ * {@code Idempotency-Key} (400), check read-only that the conversation is unused or the caller's (404), resolve
+ * the tenant model (428, before any write), then durably accept the turn (409/413/503 via
+ * {@code MemoryExceptionHandler}). Only after acceptance is the 200 SSE response returned.
+ */
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "*")
-class ChatController {
+@CrossOrigin(origins = "*", exposedHeaders = {ChatController.HAS_MORE, ChatController.NEXT_CURSOR})
+public class ChatController {
+
+    static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+    static final String HAS_MORE = "X-Has-More";
+    static final String NEXT_CURSOR = "X-Next-Cursor";
+    static final int DEFAULT_PAGE = 100;
 
     private final Orchestrator orchestrator;
     private final SessionService sessionService;
-    private final ChatMemory memory;
+    private final TurnLifecycle lifecycle;
+    private final ConversationHistory history;
     private final TenantLlmClientResolver llmResolver;
     private static final ObjectMapper json = new ObjectMapper();
 
-    ChatController(Orchestrator orchestrator, SessionService sessionService, ChatMemory memory,
-                   TenantLlmClientResolver llmResolver) {
+    public ChatController(Orchestrator orchestrator, SessionService sessionService, TurnLifecycle lifecycle,
+                          ConversationHistory history, TenantLlmClientResolver llmResolver) {
         this.orchestrator = orchestrator;
         this.sessionService = sessionService;
-        this.memory = memory;
+        this.lifecycle = lifecycle;
+        this.history = history;
         this.llmResolver = llmResolver;
     }
 
     // OpenAI-compatible chat completions endpoint
     @PostMapping(value = "/chat/completions")
     Mono<ResponseEntity<?>> chatCompletions(@RequestBody Map<String, Object> body,
-                                                  @CurrentUser AuthSessionStore.AuthUser user) {
+                                            @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+                                            @CurrentUser AuthSessionStore.AuthUser user) {
         var messages = getMessages(body);
         var userMsg = messages.isEmpty() ? "" :
                 messages.get(messages.size() - 1).getOrDefault("content", "");
-
-        // Use conversationId from frontend as the owner key for session continuity across requests
-        var ownerId = body.getOrDefault("conversationId", NonBlockingIds.uuid()).toString();
-
+        var conversationId = Optional.ofNullable(body.get("conversationId")).map(Object::toString)
+                .orElseGet(NonBlockingIds::uuid);
         var chunkId = "chatcmpl-" + NonBlockingIds.shortUuid();
-
-        return sessionService.touchOrCreate(ownerId, user.userId(), userMsg)
-                .flatMap(access -> {
-                    if (access == SessionService.AccessResult.FORBIDDEN) {
-                        return Mono.<ResponseEntity<?>>just(ResponseEntity.notFound().build());
-                    }
-                    return llmResolver.resolve(user.identity().tenantId())
-                            .<ResponseEntity<?>>map(llm -> ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
-                                    .body(openAiStream(ownerId, user, userMsg, chunkId, llm)))
-                            .onErrorResume(TenantLlmConfigRequiredException.class,
-                                    e -> Mono.just(configRequired()));
-                });
+        return startTurn(user, conversationId, idempotencyKey, userMsg,
+                (accepted, llm) -> openAiStream(accepted, user, chunkId, llm));
     }
 
-    private Flux<String> openAiStream(String ownerId, AuthSessionStore.AuthUser user, String userMsg,
-                                      String chunkId, LlmClient llm) {
-        return orchestrator.chat(ownerId, user.accessToken(), userMsg, user.identity(), llm)
+    private Flux<String> openAiStream(AcceptedTurn accepted, AuthSessionStore.AuthUser user, String chunkId,
+                                      LlmClient llm) {
+        return orchestrator.chat(accepted, user.accessToken(), user.identity(), llm)
                 .flatMap(line -> toOpenAiChunk(line, chunkId).map(Flux::just).orElseGet(Flux::empty))
                 .concatWithValues("[DONE]");
+    }
+
+    private Mono<ResponseEntity<?>> startTurn(AuthSessionStore.AuthUser user, String conversationId,
+                                              String idempotencyKey, String text,
+                                              BiFunction<AcceptedTurn, LlmClient, Flux<String>> stream) {
+        return Mono.defer(() -> {
+            var scope = MemoryScope.of(user.identity());
+            var requestId = idempotencyKey != null ? idempotencyKey : NonBlockingIds.uuid();
+            if (!TurnLifecycle.isValidRequestId(requestId)) {
+                return Mono.error(new MemoryException(MemoryException.ErrorCode.INVALID_IDEMPOTENCY_KEY));
+            }
+            var command = new TurnCommand(scope, conversationId, requestId, text == null ? "" : text);
+            return sessionService.verifyAccess(conversationId, scope)
+                    .then(Mono.defer(() -> llmResolver.resolve(scope.tenantId())))
+                    .flatMap(llm -> lifecycle.accept(command)
+                            .<ResponseEntity<?>>map(accepted -> ResponseEntity.ok()
+                                    .contentType(MediaType.TEXT_EVENT_STREAM)
+                                    .body(stream.apply(accepted, llm))))
+                    .onErrorResume(TenantLlmConfigRequiredException.class, e -> Mono.just(configRequired()));
+        });
     }
 
     private static ResponseEntity<Map<String, String>> configRequired() {
@@ -149,27 +179,18 @@ class ChatController {
     // Legacy endpoint for custom frontend
     @PostMapping(value = "/chat")
     Mono<ResponseEntity<?>> chat(@RequestBody ChatRequest request,
-                                       @CurrentUser AuthSessionStore.AuthUser user) {
-        var ownerId = request.conversationId() != null
+                                 @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
+                                 @CurrentUser AuthSessionStore.AuthUser user) {
+        var conversationId = request.conversationId() != null
                 ? request.conversationId()
                 : NonBlockingIds.uuid();
-        return sessionService.touchOrCreate(ownerId, user.userId(), request.message())
-                .flatMap(access -> {
-                    if (access == SessionService.AccessResult.FORBIDDEN) {
-                        return Mono.<ResponseEntity<?>>just(ResponseEntity.notFound().build());
-                    }
-                    return llmResolver.resolve(user.identity().tenantId())
-                            .<ResponseEntity<?>>map(llm -> ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
-                                    .body(orchestrator.chat(ownerId,
-                                    user.accessToken(), request.message(), user.identity(), llm)))
-                            .onErrorResume(TenantLlmConfigRequiredException.class,
-                                    e -> Mono.just(configRequired()));
-                });
+        return startTurn(user, conversationId, idempotencyKey, request.message(),
+                (accepted, llm) -> orchestrator.chat(accepted, user.accessToken(), user.identity(), llm));
     }
 
     @GetMapping("/conversations")
     Flux<ConversationSummary> listConversations(@CurrentUser AuthSessionStore.AuthUser user) {
-        return sessionService.listForUser(user.userId())
+        return Flux.defer(() -> sessionService.listForUser(MemoryScope.of(user.identity())))
                 .map(s -> new ConversationSummary(s.id(), s.title(), s.updatedAt()));
     }
 
@@ -178,24 +199,36 @@ class ChatController {
         return null;
     }
 
+    /**
+     * Original messages in ascending sequence: the newest {@code limit} (default 100, 1–200), or those before
+     * {@code beforeSequence}. {@code X-Has-More} says whether older messages exist; {@code X-Next-Cursor} is the
+     * {@code beforeSequence} for the next older page (absent on the oldest page).
+     */
     @GetMapping("/conversations/{id}/messages")
-    Mono<ResponseEntity<List<Map<String, String>>>> getConversationMessages(@PathVariable String id,
-                                                                        @CurrentUser AuthSessionStore.AuthUser user) {
-        return sessionService.findOwned(id, user.userId())
-                .flatMap(owned -> memory.get(id).map(messages -> {
-                    List<Map<String, String>> displayMessages = new ArrayList<>();
-                    int i = 0;
-                    for (var m : messages) {
-                        // Orchestrator now only ever appends user/assistantText turns, so this filter is
-                        // always true for new sessions. Kept for old sessions whose Redis history still
-                        // has tool-call/tool-result messages from the pre-Orchestrator single-agent loop.
-                        boolean displayable = ("user".equals(m.role()) || "assistant".equals(m.role())) && m.content() != null;
-                        if (!displayable) continue;
-                        displayMessages.add(Map.of("id", "msg-" + (i++), "role", m.role(), "content", m.content()));
-                    }
-                    return ResponseEntity.ok(displayMessages);
-                }))
-                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
+    Mono<ResponseEntity<List<Map<String, String>>>> getConversationMessages(
+            @PathVariable String id,
+            @RequestParam(name = "beforeSequence", required = false) Long beforeSequence,
+            @RequestParam(name = "limit", defaultValue = "" + DEFAULT_PAGE) int limit,
+            @CurrentUser AuthSessionStore.AuthUser user) {
+        return Mono.defer(() -> history.page(MemoryScope.of(user.identity()), id, beforeSequence, limit))
+                .map(ChatController::toResponse);
+    }
+
+    private static ResponseEntity<List<Map<String, String>>> toResponse(HistoryPage page) {
+        List<Map<String, String>> displayMessages = new ArrayList<>();
+        for (var m : page.items()) {
+            var payload = m.payload();
+            boolean displayable = ("user".equals(payload.role()) || "assistant".equals(payload.role()))
+                    && payload.content() != null;
+            if (displayable) {
+                displayMessages.add(Map.of("id", m.id(), "role", payload.role(), "content", payload.content()));
+            }
+        }
+        var response = ResponseEntity.ok().header(HAS_MORE, Boolean.toString(page.hasMore()));
+        if (page.nextBeforeSequence() != null) {
+            response = response.header(NEXT_CURSOR, page.nextBeforeSequence().toString());
+        }
+        return response.body(displayMessages);
     }
 
     @DeleteMapping("/conversations/{id}")
