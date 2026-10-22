@@ -53,6 +53,7 @@ import reactor.core.publisher.Mono;
 class ChatControllerTest {
 
     private static final MemoryScope SCOPE = new MemoryScope("tenant-1", "user-1");
+    private static final String CONV = "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
     @Autowired WebTestClient client;
     @MockBean Orchestrator orchestrator;
@@ -116,35 +117,35 @@ class ChatControllerTest {
     @Test
     void chatCompletionsAcceptsTheTurnBeforeStreaming() {
         asUser1();
-        var llm = stubAcceptedTurn("conv-1");
+        var llm = stubAcceptedTurn(CONV);
 
-        postCompletions("conv-1").exchange().expectStatus().isOk();
+        postCompletions(CONV).exchange().expectStatus().isOk();
 
         var order = inOrder(sessionService, llmResolver, lifecycle, orchestrator);
-        order.verify(sessionService).verifyAccess("conv-1", SCOPE);
+        order.verify(sessionService).verifyAccess(CONV, SCOPE);
         order.verify(llmResolver).resolve("tenant-1");
-        order.verify(lifecycle).accept(command("conv-1", "hi"));
-        order.verify(orchestrator).chat(accepted("conv-1"), "sl-tok", user1Identity(), llm);
+        order.verify(lifecycle).accept(command(CONV, "hi"));
+        order.verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm);
     }
 
     @Test
     void legacyChatAcceptsTheTurnBeforeStreaming() {
         asUser1();
-        var llm = stubAcceptedTurn("conv-1");
+        var llm = stubAcceptedTurn(CONV);
 
-        postLegacy("conv-1").exchange().expectStatus().isOk();
+        postLegacy(CONV).exchange().expectStatus().isOk();
 
-        verify(lifecycle).accept(command("conv-1", "hi"));
-        verify(orchestrator).chat(accepted("conv-1"), "sl-tok", user1Identity(), llm);
+        verify(lifecycle).accept(command(CONV, "hi"));
+        verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm);
     }
 
     @Test
     void idempotencyKeyHeaderBecomesTheRequestId() {
         asUser1();
-        stubAcceptedTurn("conv-1");
+        stubAcceptedTurn(CONV);
 
-        postCompletions("conv-1").header("Idempotency-Key", "retry-1").exchange().expectStatus().isOk();
-        postLegacy("conv-1").header("Idempotency-Key", "retry-2").exchange().expectStatus().isOk();
+        postCompletions(CONV).header("Idempotency-Key", "retry-1").exchange().expectStatus().isOk();
+        postLegacy(CONV).header("Idempotency-Key", "retry-2").exchange().expectStatus().isOk();
 
         verify(lifecycle).accept(argThat(c -> c != null && "retry-1".equals(c.requestId())));
         verify(lifecycle).accept(argThat(c -> c != null && "retry-2".equals(c.requestId())));
@@ -154,7 +155,7 @@ class ChatControllerTest {
     void invalidIdempotencyKeyIs400BeforeAnyWork() {
         asUser1();
 
-        postCompletions("conv-1").header("Idempotency-Key", "has space").exchange()
+        postCompletions(CONV).header("Idempotency-Key", "has space").exchange()
                 .expectStatus().isBadRequest()
                 .expectBody().jsonPath("$.code").isEqualTo("INVALID_IDEMPOTENCY_KEY");
 
@@ -164,10 +165,10 @@ class ChatControllerTest {
     @Test
     void chatCompletionsReturns404WhenSessionOwnedByAnotherUser() {
         asUser1();
-        when(sessionService.verifyAccess("conv-1", SCOPE))
+        when(sessionService.verifyAccess(CONV, SCOPE))
                 .thenReturn(Mono.error(new MemoryException(ErrorCode.CONVERSATION_NOT_FOUND)));
 
-        postCompletions("conv-1").exchange()
+        postCompletions(CONV).exchange()
                 .expectStatus().isNotFound()
                 .expectBody().jsonPath("$.code").isEqualTo("CONVERSATION_NOT_FOUND");
 
@@ -179,7 +180,7 @@ class ChatControllerTest {
         asUser(new IdentityContext("user-1", "Test User", null, null, null, null,
                 Set.of(), Set.of(), Set.of(), false, false));
 
-        postLegacy("conv-1").exchange()
+        postLegacy(CONV).exchange()
                 .expectStatus().isForbidden()
                 .expectBody().jsonPath("$.code").isEqualTo("TENANT_REQUIRED");
 
@@ -189,14 +190,14 @@ class ChatControllerTest {
     @Test
     void activeTurnReturns409WithTurnIdOnBothEndpoints() {
         asUser1();
-        when(sessionService.verifyAccess("conv-1", SCOPE)).thenReturn(Mono.empty());
+        when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
         when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
         when(lifecycle.accept(any())).thenReturn(Mono.error(MemoryException.turnInProgress("turn-9")));
 
-        postCompletions("conv-1").exchange()
+        postCompletions(CONV).exchange()
                 .expectStatus().isEqualTo(409)
                 .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\"}");
-        postLegacy("conv-1").exchange()
+        postLegacy(CONV).exchange()
                 .expectStatus().isEqualTo(409)
                 .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\"}");
 
@@ -206,12 +207,12 @@ class ChatControllerTest {
     @Test
     void storageFailureIs503WithoutInternalDetail() {
         asUser1();
-        when(sessionService.verifyAccess("conv-1", SCOPE)).thenReturn(Mono.empty());
+        when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
         when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
         when(lifecycle.accept(any())).thenReturn(Mono.error(new MemoryException(ErrorCode.STORAGE_UNAVAILABLE,
                 new IllegalStateException("jdbc:secret-host"))));
 
-        var body = postLegacy("conv-1").exchange()
+        var body = postLegacy(CONV).exchange()
                 .expectStatus().isEqualTo(503)
                 .expectBody(String.class).returnResult().getResponseBody();
 
@@ -221,14 +222,14 @@ class ChatControllerTest {
     @Test
     void bothChatEndpointsReturnExact428BeforeStartingSseWhenTenantHasNoLlm() {
         asUser1();
-        when(sessionService.verifyAccess("conv-1", SCOPE)).thenReturn(Mono.empty());
+        when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
         when(llmResolver.resolve("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
 
-        postCompletions("conv-1").exchange()
+        postCompletions(CONV).exchange()
                 .expectStatus().isEqualTo(428)
                 .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}", true);
 
-        postLegacy("conv-1").exchange()
+        postLegacy(CONV).exchange()
                 .expectStatus().isEqualTo(428)
                 .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}", true);
 
@@ -236,10 +237,24 @@ class ChatControllerTest {
     }
 
     @Test
+    void bothChatEntriesRejectInvalidConversationId() {
+        asUser1();
+        for (var id : List.of("a/b", "a_b", "..", "a..b", "conv-1", CONV.toUpperCase(), " " + CONV, "")) {
+            postCompletions(id).exchange()
+                    .expectStatus().isBadRequest()
+                    .expectBody().jsonPath("$.code").isEqualTo("INVALID_CONVERSATION_ID");
+            postLegacy(id).exchange()
+                    .expectStatus().isBadRequest()
+                    .expectBody().jsonPath("$.code").isEqualTo("INVALID_CONVERSATION_ID");
+        }
+        verifyNoInteractions(sessionService, lifecycle, llmResolver, orchestrator);
+    }
+
+    @Test
     void chatCompletionsRequiresAuthentication() {
         client.post().uri("/api/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"conv-1\"}")
+                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"" + CONV + "\"}")
                 .exchange()
                 .expectStatus().isUnauthorized()
                 .expectBody().json("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");

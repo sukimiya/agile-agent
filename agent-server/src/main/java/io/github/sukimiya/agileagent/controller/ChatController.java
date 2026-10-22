@@ -28,6 +28,7 @@ import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
 import io.github.sukimiya.agileagent.memory.MemoryModel.HistoryPage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnCommand;
+import io.github.sukimiya.agileagent.memory.ConversationIds;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
@@ -99,6 +100,8 @@ public class ChatController {
                                               String idempotencyKey, String text,
                                               BiFunction<AcceptedTurn, LlmClient, Flux<String>> stream) {
         return Mono.defer(() -> {
+            // A client-supplied id is used exactly as given or rejected (400); generated ids are canonical.
+            ConversationIds.validate(conversationId);
             var scope = MemoryScope.of(user.identity());
             var requestId = idempotencyKey != null ? idempotencyKey : NonBlockingIds.uuid();
             if (!TurnLifecycle.isValidRequestId(requestId)) {

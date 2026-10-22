@@ -1,6 +1,6 @@
 # Memory 接口说明（M1）
 
-> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）；附件与删除接口在 Task 6/7 补充。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
+> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）、工具调用记录（Task 5）以及附件上传/下载与会话 ID 规则（Task 6）；删除接口在 Task 7 补充。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
 
 ## 错误码
 
@@ -9,7 +9,7 @@
 | 错误码 | HTTP | 含义 |
 | --- | --- | --- |
 | `INVALID_ARGUMENT` | 400 | 请求参数不合法，例如历史分页 `limit` 不在 1–200 内 |
-| `INVALID_CONVERSATION_ID` | 400 | 会话 ID 不是小写规范 UUID（36 字符）；不做替换或修剪 |
+| `INVALID_CONVERSATION_ID` | 400 | 会话 ID 不是小写规范 UUID（36 字符）；不做替换或修剪。两个聊天入口与附件上传/下载使用同一规则 |
 | `INVALID_IDEMPOTENCY_KEY` | 400 | `Idempotency-Key` 不符合格式：长度 1–128，仅允许 ASCII 字母数字和 `._:-` |
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
@@ -30,6 +30,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 两个入口共用同一接受流程，顺序固定：
 
+0. 请求带 `conversationId` 时，必须是小写规范 UUID（如 `3f2c8a1e-9b4d-4c7a-8e21-5d6f7a8b9c0d`），否则返回 400 `INVALID_CONVERSATION_ID`；大写、带空白、带括号或无连字符的形式一律拒绝，不做转换。未带时服务端生成同一格式的新 ID。
 1. 从服务端身份解析租户与 subject，缺租户返回 403 `TENANT_REQUIRED`。
 2. 校验可选请求头 `Idempotency-Key`（长度 1–128，仅 ASCII 字母数字和 `._:-`），不合法返回 400 `INVALID_IDEMPOTENCY_KEY`；未带时服务端生成新的请求 ID，不凭相同文本去重。
 3. 只读检查会话：`conversationId` 未被使用（将在接受时创建）或属于当前用户则继续；属于他人、旧版本无租户数据或已删除返回 404 `CONVERSATION_NOT_FOUND`。未带 `conversationId` 时服务端生成新会话。
@@ -88,3 +89,27 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - 执行进入任何终态（完成、失败、取消或断开、中断、恢复扫描）时，仍为 `STARTED` 的调用在同一事务内标记为 `UNCERTAIN`：已发出，但是否生效未知。之后补录到的真实结果会覆盖 `UNCERTAIN`。
 - 脱敏会移除敏感字段（token、password、secret、API key、Authorization、Cookie 等，任意嵌套深度），以及文本中的结构化凭据（Bearer、JWT、`sk-`/`ghp_`/`AKIA` 等常见密钥格式、PEM 私钥、`key=value` 形式的密钥）。这是纵深防御，不能把任意内容变为可安全展示。日志不打印原始参数或结果。
 - 工具结果只作为 tool 消息提供给模型，不获得指令权限，也不能扩大允许调用的工具范围。
+
+## 会话 ID 规则
+
+`ConversationIds.validate`：只接受小写规范 UUID 字符串，即 36 个字符的 8-4-4-4-12 格式，只含 `0-9a-f` 与连字符，不限 UUID 版本。原值要么原样使用，要么以 400 `INVALID_CONVERSATION_ID` 拒绝，不做修剪、大小写转换或字符替换，所以两个不同的输入不会指向同一会话或同一附件目录（只用小写也避免了大小写不敏感文件系统上的碰撞）。两个聊天入口、附件上传/下载使用该规则，Task 7 的会话删除也将使用它。历史消息端点 `GET /api/conversations/{id}/messages` 不做格式校验：不合规的 ID 不可能属于当前用户，统一返回 404 `CONVERSATION_NOT_FOUND`。
+
+## 附件（`POST /api/files/upload`、`GET /api/files/download`）
+
+附件仍保存在本地 `${app.upload.dir}/{conversationId}/{文件名}`。目录名直接使用通过校验的会话 ID，不再对会话 ID 做 sanitize（sanitize 只用于文件名，只影响同一会话目录内的文件）。校验顺序：
+
+1. `sessionId` 不符合会话 ID 规则：400 `INVALID_CONVERSATION_ID`。
+2. 服务端身份没有租户：403 `TENANT_REQUIRED`。
+3. 会话归属：
+   - 上传：会话属于当前用户则写入；ID 尚未使用时先在当前用户名下创建空会话（标题“新对话”）再写入；属于他人、已删除或为旧版本无租户数据时返回 404 `CONVERSATION_NOT_FOUND`，不写任何文件。
+   - 下载：会话不属于当前用户（不存在、他人、其他租户的同名 subject、已删除）或文件不存在，统一返回 404 `{"code":"CONVERSATION_NOT_FOUND","message":"conversation or file not found"}`，不暴露文件是否存在。只有在磁盘上存在目录、但没有对应会话记录的 ID 同样返回 404。
+4. 下载的 `name` 含 `/`、`\`、`..` 或为空：400 `INVALID_PATH`（在归属校验之后）。
+
+**上传响应变化：** 成功时返回数组，元素为 `{"sessionId","name","size"}`。其中 `name` 是去重后实际保存的文件名，如 `photo-1.png`。`sessionId` + `name` 就是下载引用：`GET /api/files/download?sessionId=…&name=…`。响应不再包含 `path`（服务器绝对路径）；依赖 `path` 拼接消息的前端改为使用文件名和下载引用。
+
+**错误体：**
+
+- `FILE_REJECTED`、`MIME_MISMATCH`（400）：`{"code","reason","file"}`。`reason` 只说明数量、大小或类型，`file` 是客户端提交的原文件名，都不包含服务器路径。
+- `STORAGE_ERROR`（500）：`{"code":"STORAGE_ERROR","reason":"附件保存失败，请稍后重试"}`，不再包含异常信息。原始异常只写入服务端日志。
+
+**保留期限：** M1 不承诺附件原件可永久恢复。临时附件由现有清理任务在目录最后修改 24 小时后删除（`app.upload.ttl-hours`）。这与会话消息默认永久保留不同：消息正文和其中提到的文件名会保留，附件原件可能已被清理。清理只处理名称符合会话 ID 规则的目录，其他目录不会匹配到任何会话，也不会被删除。归档与 MinIO 见 spec 14.1。
