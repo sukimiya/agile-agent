@@ -22,12 +22,14 @@ import reactor.core.publisher.Mono;
 public class TurnRepository {
 
     static final String ACTIVE = "('ACCEPTED', 'RUNNING')";
-    private static final String COLUMNS = "id, tenant_id, subject, conversation_id, request_id, request_hash, status,"
+    private static final String COLUMNS = "id, tenant_id, subject, conversation_id, idempotency_key, request_hash, status,"
             + " fence, usage_observed, prompt_tokens, completion_tokens, total_tokens,"
             + " CASE WHEN lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP(6) THEN 1 ELSE 0 END"
             + " AS lease_expired";
     private static final String LEASE_VALID = "lease_expires_at > CURRENT_TIMESTAMP(6)";
     private static final String NEW_LEASE = "TIMESTAMPADD(MICROSECOND, :leaseMicros, CURRENT_TIMESTAMP(6))";
+    /** True when the row was accepted longer ago than the Idempotency-Key retention (database time). */
+    private static final String KEY_EXPIRED_BEFORE = "TIMESTAMPADD(MICROSECOND, -:retentionMicros, CURRENT_TIMESTAMP(6))";
 
     private final DatabaseClient db;
     private final MemoryProperties props;
@@ -38,9 +40,13 @@ public class TurnRepository {
         this.props = props;
     }
 
-    /** One turn row as read by acceptance and recovery. */
-    public record TurnRow(String id, MemoryScope scope, String conversationId, String requestId, String requestHash,
-            TurnStatus status, long fence, boolean leaseExpired, TokenUsage usage) {
+    /**
+     * One turn row as read by acceptance and recovery. {@code requestHash} is the request fingerprint;
+     * {@code keyExpired} is only computed by {@link #findByKey} (false elsewhere).
+     */
+    public record TurnRow(String id, MemoryScope scope, String conversationId, String idempotencyKey,
+            String requestHash, TurnStatus status, long fence, boolean leaseExpired, TokenUsage usage,
+            boolean keyExpired) {
         TurnTicket ticket() {
             return new TurnTicket(scope, conversationId, id, fence);
         }
@@ -51,9 +57,23 @@ public class TurnRepository {
                 .bind("id", turnId).map(TurnRepository::mapRow).one();
     }
 
-    public Mono<TurnRow> findByRequest(String conversationId, String requestId) {
-        return db.sql("SELECT " + COLUMNS + " FROM chat_turns WHERE conversation_id = :c AND request_id = :r")
-                .bind("c", conversationId).bind("r", requestId).map(TurnRepository::mapRow).one();
+    /** The turn holding {@code key} for this user, whether or not its retention has run out. */
+    public Mono<TurnRow> findByKey(MemoryScope scope, String key) {
+        return db.sql("SELECT " + COLUMNS + ", CASE WHEN created_at <= " + KEY_EXPIRED_BEFORE
+                        + " THEN 1 ELSE 0 END AS key_expired FROM chat_turns"
+                        + " WHERE tenant_id = :tenantId AND subject = :subject AND idempotency_key = :key")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("key", key)
+                .bind("retentionMicros", retentionMicros())
+                .map((Readable row) -> toRow(row, number(row.get("key_expired")) == 1)).one();
+    }
+
+    /** Releases the key of one terminal turn whose retention has run out, so the key can be used again. */
+    public Mono<Boolean> releaseExpiredKey(String turnId) {
+        return db.sql("UPDATE chat_turns SET idempotency_key = NULL, updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND idempotency_key IS NOT NULL AND status NOT IN " + ACTIVE
+                        + " AND created_at <= " + KEY_EXPIRED_BEFORE)
+                .bind("id", turnId).bind("retentionMicros", retentionMicros())
+                .fetch().rowsUpdated().map(n -> n == 1);
     }
 
     public Mono<TurnRow> findActive(String conversationId) {
@@ -70,18 +90,19 @@ public class TurnRepository {
 
     /**
      * Inserts an ACCEPTED turn holding the conversation's active slot with fence 1 and a fresh lease. The unique
-     * constraints reject a second active turn and a reused request id.
+     * constraints reject a second active turn and a key already held by the same user.
      */
-    public Mono<TurnTicket> insertAccepted(String turnId, MemoryScope scope, String conversationId, String requestId,
-            String requestHash) {
-        return db.sql("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, request_id, request_hash, status,"
+    public Mono<TurnTicket> insertAccepted(String turnId, MemoryScope scope, String conversationId,
+            String idempotencyKey, String requestHash) {
+        var spec = db.sql("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, idempotency_key, request_hash, status,"
                         + " active_conversation_id, fence, lease_owner, lease_expires_at, created_at, updated_at)"
                         + " VALUES (:id, :tenantId, :subject, :c, :r, :hash, 'ACCEPTED', :c, 1, :owner, " + NEW_LEASE
                         + ", CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))")
                 .bind("id", turnId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
-                .bind("c", conversationId).bind("r", requestId).bind("hash", requestHash)
-                .bind("owner", instanceId).bind("leaseMicros", leaseMicros())
-                .fetch().rowsUpdated()
+                .bind("c", conversationId).bind("hash", requestHash)
+                .bind("owner", instanceId).bind("leaseMicros", leaseMicros());
+        spec = idempotencyKey == null ? spec.bindNull("r", String.class) : spec.bind("r", idempotencyKey);
+        return spec.fetch().rowsUpdated()
                 .thenReturn(new TurnTicket(scope, conversationId, turnId, 1));
     }
 
@@ -155,23 +176,32 @@ public class TurnRepository {
                 .fetch().rowsUpdated().map(n -> n == 1);
     }
 
+    private long retentionMicros() {
+        return Math.max(1, props.getIdempotencyKeyRetention().toNanos() / 1_000);
+    }
+
     private long leaseMicros() {
         Duration lease = props.getLeaseDuration();
         return Math.max(1, lease.toNanos() / 1_000);
     }
 
     private static TurnRow mapRow(Readable row) {
+        return toRow(row, false);
+    }
+
+    private static TurnRow toRow(Readable row, boolean keyExpired) {
         return new TurnRow(
                 row.get("id", String.class),
                 new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
                 row.get("conversation_id", String.class),
-                row.get("request_id", String.class),
+                row.get("idempotency_key", String.class),
                 row.get("request_hash", String.class),
                 TurnStatus.valueOf(row.get("status", String.class)),
                 number(row.get("fence")),
                 number(row.get("lease_expired")) == 1,
                 new TokenUsage(bool(row.get("usage_observed")), number(row.get("prompt_tokens")),
-                        number(row.get("completion_tokens")), number(row.get("total_tokens"))));
+                        number(row.get("completion_tokens")), number(row.get("total_tokens"))),
+                keyExpired);
     }
 
     static long number(Object value) {

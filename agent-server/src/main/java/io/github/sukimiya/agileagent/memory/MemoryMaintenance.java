@@ -207,6 +207,20 @@ public class MemoryMaintenance implements SmartLifecycle {
     }
 
     /** Runs up to {@code limit} due cleanup jobs one after another; emits how many completed. */
+    /**
+     * Idempotency-Key retention: terminal turns accepted longer ago than {@code app.memory.idempotency-key-retention}
+     * (default 24 h, database time) release their key, so it can be used again; the turn and its messages stay.
+     * Acceptance also treats such a key as absent, so the result never depends on when this scan ran.
+     */
+    public Mono<Long> releaseExpiredIdempotencyKeys() {
+        long retentionMicros = Math.max(1, props.getIdempotencyKeyRetention().toNanos() / 1_000);
+        return db.sql("UPDATE chat_turns SET idempotency_key = NULL, updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE idempotency_key IS NOT NULL AND status NOT IN " + TurnRepository.ACTIVE
+                        + " AND created_at <= TIMESTAMPADD(MICROSECOND, -:retentionMicros, CURRENT_TIMESTAMP(6))")
+                .bind("retentionMicros", retentionMicros)
+                .fetch().rowsUpdated();
+    }
+
     public Mono<Integer> runPending(int limit) {
         return db.sql("SELECT id, tenant_id, subject, conversation_id FROM memory_jobs WHERE job_type = '"
                         + DELETE_JOB + "' AND " + DUE + " ORDER BY available_at LIMIT :limit")
@@ -315,11 +329,15 @@ public class MemoryMaintenance implements SmartLifecycle {
         Duration every = props.getCleanupScanInterval();
         schedule = Flux.interval(Duration.ZERO, every)
                 .onBackpressureDrop()
-                .concatMap(tick -> runPending(BATCH).onErrorResume(e -> {
+                .concatMap(tick -> releaseExpiredIdempotencyKeys().onErrorResume(e -> {
+                    log.warn("memory.idempotency key cleanup failed: {}",
+                            NestedExceptionUtils.getMostSpecificCause(e).toString());
+                    return Mono.just(0L);
+                }).then(runPending(BATCH).onErrorResume(e -> {
                     log.warn("memory.delete cleanup scan failed: {}",
                             NestedExceptionUtils.getMostSpecificCause(e).toString());
                     return Mono.just(0);
-                }))
+                })))
                 .subscribe(count -> {
                     if (count > 0) {
                         log.info("memory.delete cleaned up {} deleted conversation(s)", count);

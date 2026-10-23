@@ -81,14 +81,23 @@ public class TurnLifecycle {
     }
 
     /**
-     * In one transaction: verify or create the owned conversation, resolve the request id (replay a completed
-     * turn, 409 for an active/terminated one or different text), take the conversation's single active slot and
-     * append the user message. Concurrent acceptances collide on unique constraints and are re-evaluated, so at
-     * most one is accepted; the others see TURN_IN_PROGRESS with the winner's turnId.
+     * In one transaction:
+     * <ol>
+     * <li>With an {@code Idempotency-Key}, look the key up in the caller's (tenant, subject) scope <em>before</em>
+     * any conversation id is generated. A different fingerprint is 409 {@code IDEMPOTENCY_CONFLICT}. With the
+     * same fingerprint, a completed turn is replayed, an active one is 409 {@code TURN_IN_PROGRESS} with its
+     * turnId, any other terminal turn is 409 {@code TURN_TERMINATED}, and a deleted conversation is 404. A
+     * terminal turn past the retention releases its key and the request is treated as new.</li>
+     * <li>Otherwise: use the given conversation id or generate one, verify or create the owned conversation,
+     * take its single active slot and append the user message.</li>
+     * </ol>
+     * Concurrent acceptances collide on unique constraints (active slot, user key) and are re-evaluated, so at
+     * most one is accepted; the others see TURN_IN_PROGRESS with the winner's turnId and leave nothing behind.
+     * Identical text alone never deduplicates: without a key every request is new.
      */
     public Mono<AcceptedTurn> accept(TurnCommand command) {
         return Mono.defer(() -> {
-            if (!isValidRequestId(command.requestId())) {
+            if (command.idempotencyKey() != null && !isValidRequestId(command.idempotencyKey())) {
                 return Mono.error(new MemoryException(ErrorCode.INVALID_IDEMPOTENCY_KEY));
             }
             // Single-instance deployment: while another live instance shares the namespace, accept nothing.
@@ -97,7 +106,7 @@ public class TurnLifecycle {
             }
             var payload = conversations.serialize(LlmClient.Message.user(command.text()));
             props.checkMessageSize(payload);
-            var hash = sha256(command.text());
+            var hash = fingerprint(command);
             // Set by the attempt that interrupted an expired turn; read only after that attempt committed.
             var interruptedExpired = new AtomicBoolean();
             return transactions.transactional(Mono.defer(() -> {
@@ -123,21 +132,39 @@ public class TurnLifecycle {
 
     private Mono<AcceptedTurn> acceptOnce(TurnCommand command, String payload, String hash,
             AtomicBoolean interruptedExpired) {
-        var conversationId = command.conversationId();
-        return conversations.ensureOwnedSession(conversationId, command.scope(), command.text())
-                .then(turns.findByRequest(conversationId, command.requestId()))
-                .flatMap(existing -> resolveExisting(existing, hash))
-                .switchIfEmpty(Mono.defer(() -> turns.findActive(conversationId)
-                        .flatMap(active -> active.leaseExpired()
-                                ? interruptExpired(active).doOnNext(interruptedExpired::set)
-                                : Mono.<Boolean>error(MemoryException.turnInProgress(active.id())))
-                        .then(Mono.defer(() -> insertTurn(command, payload, hash)))));
+        var fresh = Mono.defer(() -> acceptNew(command, payload, hash, interruptedExpired));
+        if (command.idempotencyKey() == null) {
+            return fresh;
+        }
+        return turns.findByKey(command.scope(), command.idempotencyKey())
+                .flatMap(existing -> existing.keyExpired() && existing.status().terminal()
+                        ? turns.releaseExpiredKey(existing.id()).then(Mono.<AcceptedTurn>empty())
+                        : resolveExisting(command, existing, hash))
+                .switchIfEmpty(fresh);
     }
 
-    private Mono<AcceptedTurn> resolveExisting(TurnRow existing, String hash) {
+    private Mono<AcceptedTurn> acceptNew(TurnCommand command, String payload, String hash,
+            AtomicBoolean interruptedExpired) {
+        // Only reached after the key lookup found nothing: a new conversation id is generated here, never earlier.
+        var conversationId = command.conversationId() != null ? command.conversationId() : NonBlockingIds.uuid();
+        return conversations.ensureOwnedSession(conversationId, command.scope(), command.text())
+                .then(turns.findActive(conversationId))
+                .flatMap(active -> active.leaseExpired()
+                        ? interruptExpired(active).doOnNext(interruptedExpired::set)
+                        : Mono.<Boolean>error(MemoryException.turnInProgress(active.id())))
+                .then(Mono.defer(() -> insertTurn(command, conversationId, payload, hash)));
+    }
+
+    private Mono<AcceptedTurn> resolveExisting(TurnCommand command, TurnRow existing, String hash) {
         if (!existing.requestHash().equals(hash)) {
             return Mono.error(new MemoryException(ErrorCode.IDEMPOTENCY_CONFLICT));
         }
+        // The key's conversation must still be the caller's and not deleted (404, never a replay of deleted text).
+        return conversations.ensureOwnedSession(existing.conversationId(), command.scope(), command.text())
+                .then(Mono.defer(() -> resolveStatus(existing)));
+    }
+
+    private Mono<AcceptedTurn> resolveStatus(TurnRow existing) {
         return switch (existing.status()) {
             case COMPLETED -> conversations.assistantText(existing.id()).defaultIfEmpty("")
                     .map(answer -> new AcceptedTurn(existing.ticket(), true, answer, existing.usage()));
@@ -152,12 +179,12 @@ public class TurnLifecycle {
                         : Mono.error(MemoryException.turnInProgress(active.id())));
     }
 
-    private Mono<AcceptedTurn> insertTurn(TurnCommand command, String payload, String hash) {
+    private Mono<AcceptedTurn> insertTurn(TurnCommand command, String conversationId, String payload, String hash) {
         var turnId = NonBlockingIds.uuid();
-        return turns.insertAccepted(turnId, command.scope(), command.conversationId(), command.requestId(), hash)
-                .flatMap(ticket -> conversations.appendMessage(command.scope(), command.conversationId(), turnId,
+        return turns.insertAccepted(turnId, command.scope(), conversationId, command.idempotencyKey(), hash)
+                .flatMap(ticket -> conversations.appendMessage(command.scope(), conversationId, turnId,
                                 "user", SourceType.USER_INPUT, payload)
-                        .then(conversations.bumpRevision(command.conversationId()))
+                        .then(conversations.bumpRevision(conversationId))
                         .thenReturn(new AcceptedTurn(ticket, false, null, TokenUsage.notObserved())));
     }
 
@@ -255,6 +282,28 @@ public class TurnLifecycle {
 
     private static Throwable unwrap(Throwable e) {
         return e instanceof DataAccessException || e.getCause() == null ? e : e.getCause();
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper FINGERPRINT_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * Request fingerprint: SHA-256 (hex) of a canonical JSON object with the endpoint, the client-supplied
+     * conversationId ({@code null} when absent, never the generated one), the message content and the attachment
+     * ids. The key itself is not part of it.
+     */
+    static String fingerprint(TurnCommand command) {
+        var canonical = new java.util.LinkedHashMap<String, Object>();
+        canonical.put("v", 1);
+        canonical.put("endpoint", command.endpoint());
+        canonical.put("conversationId", command.conversationId());
+        canonical.put("content", command.text());
+        canonical.put("attachmentIds", command.attachmentIds());
+        try {
+            return sha256(FINGERPRINT_JSON.writeValueAsString(canonical));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     static String sha256(String text) {

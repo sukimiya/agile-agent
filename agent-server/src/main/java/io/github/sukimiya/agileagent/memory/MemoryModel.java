@@ -34,13 +34,33 @@ public final class MemoryModel {
         }
     }
 
-    /** A request to accept a new turn; {@code requestId} is the Idempotency-Key or a server-generated id. */
-    public record TurnCommand(MemoryScope scope, String conversationId, String requestId, String text) {
+    /**
+     * A request to accept a new turn.
+     * <ul>
+     * <li>{@code endpoint}: the entry point that received it (part of the fingerprint).</li>
+     * <li>{@code conversationId}: as supplied by the client, or {@code null} to start a new conversation. The new
+     * id is generated only after the key lookup finds nothing.</li>
+     * <li>{@code idempotencyKey}: the optional {@code Idempotency-Key}, unique per (tenant, subject) for the
+     * retention period; {@code null} never deduplicates.</li>
+     * </ul>
+     */
+    public record TurnCommand(MemoryScope scope, String endpoint, String conversationId, String idempotencyKey,
+            String text, List<String> attachmentIds) {
+
+        /** Entry point of callers without an HTTP endpoint (internal and test callers). */
+        public static final String DIRECT = "direct";
+
         public TurnCommand {
             Objects.requireNonNull(scope, "scope");
-            Objects.requireNonNull(conversationId, "conversationId");
-            Objects.requireNonNull(requestId, "requestId");
+            Objects.requireNonNull(endpoint, "endpoint");
             Objects.requireNonNull(text, "text");
+            attachmentIds = attachmentIds == null ? List.of() : List.copyOf(attachmentIds);
+        }
+
+        /** A direct request in an existing or given conversation. */
+        public TurnCommand(MemoryScope scope, String conversationId, String idempotencyKey, String text) {
+            this(scope, DIRECT, Objects.requireNonNull(conversationId, "conversationId"), idempotencyKey, text,
+                    List.of());
         }
     }
 

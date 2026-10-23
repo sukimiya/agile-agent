@@ -142,15 +142,15 @@ class ChatControllerTest {
     }
 
     @Test
-    void idempotencyKeyHeaderBecomesTheRequestId() {
+    void idempotencyKeyHeaderIsPassedAsTheKey() {
         asUser1();
         stubAcceptedTurn(CONV);
 
         postCompletions(CONV).header("Idempotency-Key", "retry-1").exchange().expectStatus().isOk();
         postLegacy(CONV).header("Idempotency-Key", "retry-2").exchange().expectStatus().isOk();
 
-        verify(lifecycle).accept(argThat(c -> c != null && "retry-1".equals(c.requestId())));
-        verify(lifecycle).accept(argThat(c -> c != null && "retry-2".equals(c.requestId())));
+        verify(lifecycle).accept(argThat(c -> c != null && "retry-1".equals(c.idempotencyKey())));
+        verify(lifecycle).accept(argThat(c -> c != null && "retry-2".equals(c.idempotencyKey())));
     }
 
     @Test

@@ -142,20 +142,24 @@ class MemorySchemaTest {
     }
 
     @Test
-    void requestIdIsUniqueWithinAConversation() {
+    void idempotencyKeyIsUniquePerTenantAndSubjectAcrossConversations() {
         insertTurn("turn-1", "c1", "req-1");
-        insertTurn("turn-2", "c2", "req-1");
+        insertTurn("turn-2", "c2", "tenant-1", "bob", "req-1");
+        insertTurn("turn-3", "c3", "tenant-2", "alice", "req-1");
+        // Requests without a key (and released keys) never collide.
+        insertTurn("turn-4", "c1", null);
+        insertTurn("turn-5", "c2", null);
 
-        assertThatThrownBy(() -> insertTurn("turn-3", "c1", "req-1")).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> insertTurn("turn-6", "c2", "req-1")).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
-    void requestIdComparisonIsCaseSensitive() {
+    void idempotencyKeyComparisonIsCaseSensitive() {
         insertTurn("turn-1", "c1", "Req-1");
         insertTurn("turn-2", "c1", "req-1");
 
         assertThat(fixture.jdbc().queryForObject(
-                "SELECT COUNT(*) FROM chat_turns WHERE conversation_id = 'c1' AND request_id = 'req-1'", Integer.class))
+                "SELECT COUNT(*) FROM chat_turns WHERE conversation_id = 'c1' AND idempotency_key = 'req-1'", Integer.class))
                 .isEqualTo(1);
     }
 
@@ -207,11 +211,15 @@ class MemorySchemaTest {
         assertThat(fixture.jdbc().queryForObject("SELECT COUNT(*) FROM service_instances", Integer.class)).isEqualTo(1);
     }
 
-    protected void insertTurn(String id, String conversationId, String requestId) {
+    protected void insertTurn(String id, String conversationId, String idempotencyKey) {
+        insertTurn(id, conversationId, "tenant-1", "alice", idempotencyKey);
+    }
+
+    protected void insertTurn(String id, String conversationId, String tenantId, String subject, String idempotencyKey) {
         var now = LocalDateTime.now();
-        fixture.jdbc().update("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, request_id, request_hash, "
-                + "status, created_at, updated_at) VALUES (?, 'tenant-1', 'alice', ?, ?, ?, 'ACCEPTED', ?, ?)",
-                id, conversationId, requestId, "0".repeat(64), now, now);
+        fixture.jdbc().update("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, idempotency_key, request_hash, "
+                + "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'ACCEPTED', ?, ?)",
+                id, tenantId, subject, conversationId, idempotencyKey, "0".repeat(64), now, now);
     }
 
     protected void insertMessage(String id, String turnId, String conversationId, long sequence, String payload) {

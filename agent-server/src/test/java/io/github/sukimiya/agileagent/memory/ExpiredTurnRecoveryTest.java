@@ -63,7 +63,7 @@ class ExpiredTurnRecoveryTest {
         var live = newConversationId();
         var liveTurn = support.lifecycle.accept(command(live, "k1", "hi")).block(WAIT).ticket().turnId();
         var done = newConversationId();
-        var doneTicket = support.lifecycle.accept(command(done, "k1", "hi")).block(WAIT).ticket();
+        var doneTicket = support.lifecycle.accept(command(done, "k2", "hi")).block(WAIT).ticket();
         support.lifecycle.execute(doneTicket, r -> r.completed("ok", TokenUsage.notObserved()).thenMany(Flux.<String>empty()))
                 .blockLast(WAIT);
         support.expireLease(doneTicket.turnId());

@@ -25,7 +25,7 @@ class MemoryMySqlIntegrationTest extends MemorySchemaTest {
                   AND table_name IN ('sessions', 'chat_turns', 'chat_messages', 'chat_tool_events',
                                      'memory_jobs', 'service_instances')
                   AND column_name IN ('id', 'tenant_id', 'user_id', 'subject', 'conversation_id', 'turn_id',
-                                      'request_id', 'active_conversation_id', 'call_id', 'instance_id', 'namespace')
+                                      'idempotency_key', 'active_conversation_id', 'call_id', 'instance_id', 'namespace')
                   AND (collation_name IS NULL OR collation_name <> 'utf8mb4_bin')
                 """, String.class);
 
