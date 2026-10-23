@@ -86,11 +86,13 @@ class MemoryScopeTest {
 
     @Test
     void turnInProgressCarriesTheActiveTurnId() {
-        var e = MemoryException.turnInProgress("turn-1");
+        var e = MemoryException.turnInProgress("turn-1", "conv-1");
 
         assertThat(e.code()).isEqualTo(ErrorCode.TURN_IN_PROGRESS);
         assertThat(e.turnId()).isEqualTo("turn-1");
+        assertThat(e.conversationId()).isEqualTo("conv-1");
         assertThat(new MemoryException(ErrorCode.STORAGE_UNAVAILABLE).turnId()).isNull();
+        assertThat(new MemoryException(ErrorCode.STORAGE_UNAVAILABLE).conversationId()).isNull();
     }
 
     @Test

@@ -194,14 +194,14 @@ class ChatControllerTest {
         asUser1();
         when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
         when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
-        when(lifecycle.accept(any())).thenReturn(Mono.error(MemoryException.turnInProgress("turn-9")));
+        when(lifecycle.accept(any())).thenReturn(Mono.error(MemoryException.turnInProgress("turn-9", CONV)));
 
         postCompletions(CONV).exchange()
                 .expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\"}");
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\",\"conversationId\":\"" + CONV + "\"}");
         postLegacy(CONV).exchange()
                 .expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\"}");
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\",\"conversationId\":\"" + CONV + "\"}");
 
         verifyNoInteractions(orchestrator);
     }

@@ -14,7 +14,7 @@
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 同一用户的同一 `Idempotency-Key`（保留期内）对应不同请求：入口、`conversationId`、消息内容或附件 ID 不同 |
-| `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId`，前端显示“正在生成” |
+| `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId` 及其 `conversationId`，前端显示“正在生成” |
 | `TURN_TERMINATED` | 409 | 同一 key 的执行已失败/取消/中断；新执行需使用新 key |
 | `TURN_INTERRUPTED` | SSE error 事件 | 流式执行中失去执行权（租约过期或 fence 失效，例如恢复扫描或会话删除）；以该错误事件报告失败（其后的 done 只是协议终止符，不表示成功），执行终态为 INTERRUPTED |
 | `TURN_FAILED` | SSE error 事件 | 流式执行普通失败：模型/工具错误、超时、上游未给出 Completed；执行终态为 FAILED |
@@ -26,7 +26,7 @@
 
 新版本只读写数据库中的会话与消息，不读取、不迁移旧的 Redis `chatmemory:*` 历史；升级前的对话在新版本中不可见。
 
-HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN_PROGRESS` 额外带 `"turnId"`。
+HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN_PROGRESS` 额外带 `"turnId"` 和 `"conversationId"`。
 
 ## 聊天入口（`POST /api/chat`、`POST /api/chat/completions`）
 
@@ -44,7 +44,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - **作用域：** key 在 `(tenant, subject, key)` 范围内唯一，与会话无关。不同用户或不同租户使用同一 key 互不影响。未带 `conversationId` 的首个请求带同一 key 重试时，同样能命中原执行，不会新建会话，也不会再次调用模型。
 - **请求指纹：** 对入口（`POST /api/chat` 或 `POST /api/chat/completions`）、客户端给出的 `conversationId`（未给出时为空，不使用服务端生成的 ID）、消息内容（`/api/chat` 的 `message`；`/api/chat/completions` 的最后一条消息 `content`）和附件 ID 列表计算 SHA-256。当前两个入口的请求体都不携带附件 ID（附件通过上传绑定到会话），所以这一项暂时恒为空列表。
 - 相同 key + 相同指纹，且原执行已完成：不调用模型，重放已存回答，并返回原执行所在会话的内容。`/api/chat` 输出一条 `delta`、已观察到的 `usage` 和 `done`；`/api/chat/completions` 输出一条内容块、usage 块和 `[DONE]`。
-- 相同 key + 相同指纹，原执行仍在进行：409 `TURN_IN_PROGRESS`，带 `turnId`。多个相同 key 的首个请求同时到达时，只有一个被接受，其余返回 409 `TURN_IN_PROGRESS`（带胜出者的 `turnId`），不会留下多余的会话。
+- 相同 key + 相同指纹，原执行仍在进行：409 `TURN_IN_PROGRESS`，带 `turnId` 和 `conversationId`。未带 `conversationId` 重试首个请求的客户端可以由此得知原执行所在的会话。多个相同 key 的首个请求同时到达时，只有一个被接受，其余返回 409 `TURN_IN_PROGRESS`（带胜出者的 `turnId` 与 `conversationId`），不会留下多余的会话。
 - 相同 key + 不同指纹（包括换入口、换或增减 `conversationId`、改文本）：409 `IDEMPOTENCY_CONFLICT`。
 - 相同 key，原执行已失败/取消/中断：409 `TURN_TERMINATED`，需使用新 key。
 - 原执行所在会话已删除：404 `CONVERSATION_NOT_FOUND`，不重放已删除的内容。
@@ -72,7 +72,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 ## 执行冲突与终态补充
 
-- 同会话已有活跃执行且租约未过期：返回 409 `TURN_IN_PROGRESS`，带 `turnId`。
+- 同会话已有活跃执行且租约未过期：返回 409 `TURN_IN_PROGRESS`，带 `turnId` 和 `conversationId`，例如 `{"code":"TURN_IN_PROGRESS","message":"…","turnId":"…","conversationId":"…"}`。其他错误码的响应体不含这两个字段。
 - 活跃执行的租约已过期（例如进程退出后无人续期）：新请求先将其标记为 INTERRUPTED，再正常接受，不返回 409。
 - 用同一 `Idempotency-Key` 重试已中断、失败或取消的请求返回 409 `TURN_TERMINATED`；需使用新 key。
 

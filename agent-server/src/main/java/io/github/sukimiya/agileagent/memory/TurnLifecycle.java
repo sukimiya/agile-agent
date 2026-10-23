@@ -151,7 +151,7 @@ public class TurnLifecycle {
                 .then(turns.findActive(conversationId))
                 .flatMap(active -> active.leaseExpired()
                         ? interruptExpired(active).doOnNext(interruptedExpired::set)
-                        : Mono.<Boolean>error(MemoryException.turnInProgress(active.id())))
+                        : Mono.<Boolean>error(MemoryException.turnInProgress(active.id(), active.conversationId())))
                 .then(Mono.defer(() -> insertTurn(command, conversationId, payload, hash)));
     }
 
@@ -168,7 +168,7 @@ public class TurnLifecycle {
         return switch (existing.status()) {
             case COMPLETED -> conversations.assistantText(existing.id()).defaultIfEmpty("")
                     .map(answer -> new AcceptedTurn(existing.ticket(), true, answer, existing.usage()));
-            case ACCEPTED, RUNNING -> Mono.error(MemoryException.turnInProgress(existing.id()));
+            case ACCEPTED, RUNNING -> Mono.error(MemoryException.turnInProgress(existing.id(), existing.conversationId()));
             default -> Mono.error(new MemoryException(ErrorCode.TURN_TERMINATED));
         };
     }
@@ -176,7 +176,7 @@ public class TurnLifecycle {
     private Mono<Boolean> interruptExpired(TurnRow active) {
         return turns.interruptExpired(active.id(), active.fence())
                 .flatMap(done -> done ? conversations.bumpRevision(active.conversationId()).thenReturn(true)
-                        : Mono.error(MemoryException.turnInProgress(active.id())));
+                        : Mono.error(MemoryException.turnInProgress(active.id(), active.conversationId())));
     }
 
     private Mono<AcceptedTurn> insertTurn(TurnCommand command, String conversationId, String payload, String hash) {
@@ -255,7 +255,7 @@ public class TurnLifecycle {
     private Flux<String> rejectStart(TurnTicket ticket) {
         return turns.findById(ticket.turnId())
                 .flatMapMany(row -> Flux.<String>error(row.status() == TurnStatus.RUNNING
-                        ? MemoryException.turnInProgress(row.id())
+                        ? MemoryException.turnInProgress(row.id(), row.conversationId())
                         : new MemoryException(ErrorCode.TURN_TERMINATED)))
                 .switchIfEmpty(Flux.error(new MemoryException(ErrorCode.TURN_TERMINATED)));
     }

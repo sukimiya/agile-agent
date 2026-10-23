@@ -197,11 +197,14 @@ class TurnStreamingIntegrationTest {
         assertThat(activeTurn).isNotNull();
 
         legacy(conversation, "second", "二").exchange().expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn + "\"}");
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
         legacy(conversation, "first", "一").exchange().expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn + "\"}");
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
         completions(conversation, "other", "一").exchange().expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn + "\"}");
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
         legacy(conversation, "first", "不同的文本").exchange().expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.code").isEqualTo("IDEMPOTENCY_CONFLICT");
         running.getResponseBody().take(1).blockLast(WAIT);
@@ -324,10 +327,14 @@ class TurnStreamingIntegrationTest {
         // The first response is accepted but its stream is not consumed yet, so the turn stays in progress.
         var first = legacy(null, "k-busy", "长问题").exchange().expectStatus().isOk().returnResult(String.class);
         var turnId = keyedTurns("k-busy").getFirst().get("ID").toString();
+        // The client never saw the first response, so the 409 tells it which conversation the key belongs to.
+        var conversation = keyedTurns("k-busy").getFirst().get("CONVERSATION_ID").toString();
+        var expected = "{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + turnId + "\",\"conversationId\":\""
+                + conversation + "\"}";
 
-        legacy(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409).expectBody()
-                .json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + turnId + "\"}");
-        completions(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409);
+        legacy(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409).expectBody().json(expected);
+        completions(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409).expectBody()
+                .jsonPath("$.code").isEqualTo("IDEMPOTENCY_CONFLICT");
 
         first.getResponseBody().collectList().block(WAIT);
         assertThat(answerCalls).hasValue(1);
@@ -359,11 +366,13 @@ class TurnStreamingIntegrationTest {
                 var winners = results.stream().filter(r -> r.getStatus().value() == 200).toList();
                 assertThat(winners).as(endpoint + ": exactly one request is accepted").hasSize(1);
                 var turnId = keyedTurns(key).getFirst().get("ID").toString();
+                var conversation = keyedTurns(key).getFirst().get("CONVERSATION_ID").toString();
                 for (var loser : results) {
                     if (loser.getStatus().value() != 200) {
                         assertThat(loser.getStatus().value()).isEqualTo(409);
                         assertThat(loser.getResponseBody().collectList().block(WAIT)).singleElement().asString()
-                                .contains("\"TURN_IN_PROGRESS\"").contains(turnId);
+                                .contains("\"TURN_IN_PROGRESS\"").contains(turnId)
+                                .contains("\"conversationId\":\"" + conversation + "\"");
                     }
                 }
                 winners.getFirst().getResponseBody().collectList().block(WAIT);
