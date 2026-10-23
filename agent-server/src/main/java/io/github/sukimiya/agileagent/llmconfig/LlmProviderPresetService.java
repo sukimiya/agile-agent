@@ -53,7 +53,8 @@ public class LlmProviderPresetService {
         var normalized = validate(input);
         var now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
         var row = new LlmProviderPresetRow(NonBlockingIds.uuid(), normalized.name(), normalized.baseUrl(),
-                normalized.model(), normalized.balancePath(), identity.subject(), now, now);
+                normalized.model(), normalized.balancePath(), identity.subject(), now, now,
+                normalized.contextWindowTokens(), normalized.maxOutputTokens());
         return repository.insert(row).thenReturn(row);
     }
 
@@ -65,7 +66,8 @@ public class LlmProviderPresetService {
                 .flatMap(existing -> {
                     var updated = new LlmProviderPresetRow(existing.id(), normalized.name(), normalized.baseUrl(),
                             normalized.model(), normalized.balancePath(), existing.createdBySubject(),
-                            existing.createdAt(), LocalDateTime.ofInstant(clock.instant(), clock.getZone()));
+                            existing.createdAt(), LocalDateTime.ofInstant(clock.instant(), clock.getZone()),
+                            normalized.contextWindowTokens(), normalized.maxOutputTokens());
                     return repository.update(updated).flatMap(rows -> rows == 1
                             ? Mono.fromRunnable(resolver::evictAll).thenReturn(updated)
                             : Mono.error(new LlmProviderPresetNotFoundException()));
@@ -112,14 +114,39 @@ public class LlmProviderPresetService {
                 throw new LlmProviderPresetValidationException();
             }
         }
-        return new NormalizedInput(name, baseUrl, model, balancePath);
+        validateWindow(input.contextWindowTokens(), input.maxOutputTokens());
+        return new NormalizedInput(name, baseUrl, model, balancePath, input.contextWindowTokens(),
+                input.maxOutputTokens());
+    }
+
+    /** Smallest context window a preset may declare: anything below cannot hold a prompt plus an answer. */
+    static final int MIN_CONTEXT_WINDOW_TOKENS = 1024;
+
+    /**
+     * Both values are optional (unset means the configured default). A window must be at least
+     * {@value #MIN_CONTEXT_WINDOW_TOKENS}; an output reserve must be positive and, with a window, smaller than it.
+     */
+    private static void validateWindow(Integer contextWindowTokens, Integer maxOutputTokens) {
+        if (contextWindowTokens != null && contextWindowTokens < MIN_CONTEXT_WINDOW_TOKENS) {
+            throw new LlmProviderPresetValidationException();
+        }
+        if (maxOutputTokens != null && (maxOutputTokens < 1
+                || (contextWindowTokens != null && maxOutputTokens >= contextWindowTokens))) {
+            throw new LlmProviderPresetValidationException();
+        }
     }
 
     private static boolean blank(String value) {
         return value == null || value.isBlank();
     }
 
-    public record PresetInput(String name, String baseUrl, String model, String balancePath) { }
+    public record PresetInput(String name, String baseUrl, String model, String balancePath,
+            Integer contextWindowTokens, Integer maxOutputTokens) {
+        public PresetInput(String name, String baseUrl, String model, String balancePath) {
+            this(name, baseUrl, model, balancePath, null, null);
+        }
+    }
 
-    private record NormalizedInput(String name, String baseUrl, String model, String balancePath) { }
+    private record NormalizedInput(String name, String baseUrl, String model, String balancePath,
+            Integer contextWindowTokens, Integer maxOutputTokens) { }
 }

@@ -112,7 +112,7 @@
 | `memory.cache.requests{result=hit\|miss}` | 最新一页历史由缓存提供 / 回源数据库（包括缓存过期或不可用） |
 | `memory.finalizer.failures` | 终态写入失败、超时或队列已满；执行权已失去不算失败 |
 | `memory.instance.conflict` | 实例冲突（0/1），由 Task 8 的 InstanceGuard 注册 |
-| `memory.history.injected.messages` / `.tokens` | 每次执行注入的历史消息条数和估算 Token。这是“历史注入”，与长期记忆召回分开计数 |
+| `memory.history.injected.messages` / `.tokens` | 每次执行注入的历史消息条数和估算 Token。这是“历史注入”，与长期记忆召回分开计数。M2a 起只统计最终回答调用在预算内实际带上的历史（未乘 1.3 系数） |
 | `memory.recall.items` / `memory.recall.latency` | **不适用**：M1 没有 Recall，这两个指标不注册，绝不报告为 0 条或 0ms |
 | `memory.consolidation.backlog` | **功能未启用**：M1 没有整理任务（删除清理任务不属于整理），该指标不注册，绝不报告为 0 积压 |
 | `memory.feature.enabled{feature=recall\|consolidation}` | 显式标记功能未启用（值为 0） |

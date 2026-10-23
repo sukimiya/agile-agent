@@ -170,6 +170,25 @@ class LlmProviderPresetServiceTest {
         verifyNoInteractions(resolver);
     }
 
+    @Test
+    void modelWindowIsOptionalPositiveAndLeavesRoomForInput() {
+        when(repository.insert(any())).thenReturn(Mono.empty());
+        var url = "https://api.example.test/v1";
+
+        var sized = service.create(platformAdmin,
+                new LlmProviderPresetService.PresetInput("P", url, "m", null, 64_000, 8_000)).block();
+        assertThat(sized.contextWindowTokens()).isEqualTo(64_000);
+        assertThat(sized.maxOutputTokens()).isEqualTo(8_000);
+        var unsized = service.create(platformAdmin, new LlmProviderPresetService.PresetInput("P", url, "m", null)).block();
+        assertThat(unsized.contextWindowTokens()).isNull();
+        assertThat(unsized.maxOutputTokens()).isNull();
+
+        assertInvalid(new LlmProviderPresetService.PresetInput("P", url, "m", null, 0, null));
+        assertInvalid(new LlmProviderPresetService.PresetInput("P", url, "m", null, 512, null));
+        assertInvalid(new LlmProviderPresetService.PresetInput("P", url, "m", null, null, 0));
+        assertInvalid(new LlmProviderPresetService.PresetInput("P", url, "m", null, 8_000, 8_000));
+    }
+
     private void assertInvalid(LlmProviderPresetService.PresetInput input) {
         assertThatThrownBy(() -> service.create(platformAdmin, input).block())
                 .isInstanceOf(LlmProviderPresetValidationException.class);

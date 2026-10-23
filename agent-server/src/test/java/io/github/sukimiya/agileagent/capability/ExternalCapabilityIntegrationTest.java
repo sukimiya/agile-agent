@@ -67,6 +67,13 @@ class ExternalCapabilityIntegrationTest {
             ScriptedLlmClient llm, Class<?> providerConfiguration) {
         var context = new AnnotationConfigApplicationContext();
         context.scan("io.github.sukimiya.agileagent.config");
+        context.registerBean(io.github.sukimiya.agileagent.memory.context.ContextBudget.class,
+                () -> new io.github.sukimiya.agileagent.memory.context.ContextBudget(
+                        new io.github.sukimiya.agileagent.memory.MemoryProperties()));
+        context.registerBean(io.github.sukimiya.agileagent.memory.MemoryMetrics.class,
+                () -> new io.github.sukimiya.agileagent.memory.MemoryMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+        context.register(io.github.sukimiya.agileagent.memory.context.ContextAssembler.class);
         context.register(providerConfiguration, DomainAgent.class,
                 InProcessTaskDispatcher.class, Orchestrator.class);
         context.refresh();

@@ -50,6 +50,26 @@ class LlmProviderPresetRepositoryTest {
     }
 
     @Test
+    void modelWindowColumnsRoundTripAndDefaultToNull() {
+        repository.insert(row("plain", null)).block();
+        var now = LocalDateTime.of(2026, 10, 1, 2, 3, 4);
+        repository.insert(new LlmProviderPresetRepository.LlmProviderPresetRow("sized", "Sized",
+                "https://api.example.test/v1", "model-a", null, "subject-1", now, now, 128_000, 8_192)).block();
+
+        assertThat(repository.findById("plain").block().contextWindowTokens()).isNull();
+        assertThat(repository.findById("plain").block().maxOutputTokens()).isNull();
+        var sized = repository.findById("sized").block();
+        assertThat(sized.contextWindowTokens()).isEqualTo(128_000);
+        assertThat(sized.maxOutputTokens()).isEqualTo(8_192);
+
+        repository.update(new LlmProviderPresetRepository.LlmProviderPresetRow("sized", "Sized",
+                "https://api.example.test/v1", "model-a", null, "subject-1", now, now, null, 4_096)).block();
+        assertThat(repository.findById("sized").block().contextWindowTokens()).isNull();
+        assertThat(repository.findAll().collectList().block()).extracting(r -> r.maxOutputTokens())
+                .containsExactlyInAnyOrder(null, 4_096);
+    }
+
+    @Test
     void unknownPresetLookupIsEmpty() {
         assertThat(repository.findById("missing").blockOptional()).isEmpty();
     }

@@ -21,8 +21,10 @@ public class LlmProviderPresetRepository {
     public Mono<Void> insert(LlmProviderPresetRow row) {
         var spec = db.sql("""
                 INSERT INTO llm_provider_preset
-                    (id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at)
-                VALUES (:id, :name, :baseUrl, :model, :balancePath, :createdBySubject, :createdAt, :updatedAt)
+                    (id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at,
+                     context_window_tokens, max_output_tokens)
+                VALUES (:id, :name, :baseUrl, :model, :balancePath, :createdBySubject, :createdAt, :updatedAt,
+                        :contextWindowTokens, :maxOutputTokens)
                 """)
                 .bind("id", row.id())
                 .bind("name", row.name())
@@ -31,15 +33,16 @@ public class LlmProviderPresetRepository {
                 .bind("createdBySubject", row.createdBySubject())
                 .bind("createdAt", row.createdAt())
                 .bind("updatedAt", row.updatedAt());
-        var bound = row.balancePath() == null
+        var bound = bindWindow(row.balancePath() == null
                 ? spec.bindNull("balancePath", String.class)
-                : spec.bind("balancePath", row.balancePath());
+                : spec.bind("balancePath", row.balancePath()), row);
         return bound.fetch().rowsUpdated().then();
     }
 
     public Mono<LlmProviderPresetRow> findById(String id) {
         return db.sql("""
-                SELECT id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at
+                SELECT id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at,
+                    context_window_tokens, max_output_tokens
                 FROM llm_provider_preset WHERE id = :id
                 """)
                 .bind("id", id)
@@ -49,7 +52,8 @@ public class LlmProviderPresetRepository {
 
     public Flux<LlmProviderPresetRow> findAll() {
         return db.sql("""
-                SELECT id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at
+                SELECT id, name, base_url, model, balance_path, created_by_subject, created_at, updated_at,
+                    context_window_tokens, max_output_tokens
                 FROM llm_provider_preset ORDER BY name, id
                 """)
                 .map(LlmProviderPresetRepository::mapRow)
@@ -60,7 +64,8 @@ public class LlmProviderPresetRepository {
         var spec = db.sql("""
                 UPDATE llm_provider_preset
                 SET name = :name, base_url = :baseUrl, model = :model, balance_path = :balancePath,
-                    created_by_subject = :createdBySubject, updated_at = :updatedAt
+                    created_by_subject = :createdBySubject, updated_at = :updatedAt,
+                    context_window_tokens = :contextWindowTokens, max_output_tokens = :maxOutputTokens
                 WHERE id = :id
                 """)
                 .bind("name", row.name())
@@ -69,9 +74,9 @@ public class LlmProviderPresetRepository {
                 .bind("createdBySubject", row.createdBySubject())
                 .bind("updatedAt", row.updatedAt())
                 .bind("id", row.id());
-        var bound = row.balancePath() == null
+        var bound = bindWindow(row.balancePath() == null
                 ? spec.bindNull("balancePath", String.class)
-                : spec.bind("balancePath", row.balancePath());
+                : spec.bind("balancePath", row.balancePath()), row);
         return bound.fetch().rowsUpdated();
     }
 
@@ -79,6 +84,14 @@ public class LlmProviderPresetRepository {
         return db.sql("DELETE FROM llm_provider_preset WHERE id = :id")
                 .bind("id", id)
                 .fetch().rowsUpdated();
+    }
+
+    private static DatabaseClient.GenericExecuteSpec bindWindow(DatabaseClient.GenericExecuteSpec spec,
+            LlmProviderPresetRow row) {
+        spec = row.contextWindowTokens() == null ? spec.bindNull("contextWindowTokens", Integer.class)
+                : spec.bind("contextWindowTokens", row.contextWindowTokens());
+        return row.maxOutputTokens() == null ? spec.bindNull("maxOutputTokens", Integer.class)
+                : spec.bind("maxOutputTokens", row.maxOutputTokens());
     }
 
     private static LlmProviderPresetRow mapRow(Readable row) {
@@ -90,7 +103,9 @@ public class LlmProviderPresetRepository {
                 row.get("balance_path", String.class),
                 row.get("created_by_subject", String.class),
                 row.get("created_at", LocalDateTime.class),
-                row.get("updated_at", LocalDateTime.class));
+                row.get("updated_at", LocalDateTime.class),
+                row.get("context_window_tokens", Integer.class),
+                row.get("max_output_tokens", Integer.class));
     }
 
     public record LlmProviderPresetRow(
@@ -101,6 +116,13 @@ public class LlmProviderPresetRepository {
             String balancePath,
             String createdBySubject,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {
+            LocalDateTime updatedAt,
+            Integer contextWindowTokens,
+            Integer maxOutputTokens) {
+
+        public LlmProviderPresetRow(String id, String name, String baseUrl, String model, String balancePath,
+                String createdBySubject, LocalDateTime createdAt, LocalDateTime updatedAt) {
+            this(id, name, baseUrl, model, balancePath, createdBySubject, createdAt, updatedAt, null, null);
+        }
     }
 }

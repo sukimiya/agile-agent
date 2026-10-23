@@ -50,6 +50,14 @@
 - 为什么冲突时拒绝而不只是告警：多实例下取消信号、执行权和清理任务的可靠性都没有保证，只告警不拒绝仍属于不受支持的部署。
 - `app.memory.instance-guard-enabled=false` 会关闭心跳（仅用于没有 memory 表的测试），生产环境保持默认值 `true`。
 
+## 上下文预算（M2a 起）
+
+- 配置：`app.memory.context.enabled`（默认 `true`）、`default-context-window-tokens`（默认 32768）、`default-max-output-tokens`（默认 4096）、`estimate-factor`（默认 1.3，必须 ≥ 1，否则启动失败）。按模型的窗口在模型预设上设置（`contextWindowTokens`、`maxOutputTokens`，可空）。
+- 输出预留不小于窗口时（例如预设只填了很小的窗口、输出预留用默认值，或两个默认值配反了），预算改用窗口的 1/4 作为输出预留，并在每次计算时记一条 WARN 日志。
+- 历史被截断时记一行 INFO 日志 `memory.context history truncated purpose=… keptTurns=… droppedTurns=… budgetTokens=…`（不含内容）。
+- 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
+- `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。
+
 ## 基础指标与评测
 
 - 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。

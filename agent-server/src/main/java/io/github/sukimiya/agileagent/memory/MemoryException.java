@@ -16,6 +16,7 @@ public class MemoryException extends RuntimeException {
         TURN_IN_PROGRESS(409),
         TURN_TERMINATED(409),
         MESSAGE_TOO_LARGE(413),
+        CONTEXT_BUDGET_EXCEEDED(413),
         STORAGE_UNAVAILABLE(503),
         INSTANCE_CONFLICT(503);
 

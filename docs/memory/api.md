@@ -19,6 +19,7 @@
 | `TURN_INTERRUPTED` | SSE error 事件 | 流式执行中失去执行权（租约过期或 fence 失效，例如恢复扫描或会话删除）；以该错误事件报告失败（其后的 done 只是协议终止符，不表示成功），执行终态为 INTERRUPTED |
 | `TURN_FAILED` | SSE error 事件 | 流式执行普通失败：模型/工具错误、超时、上游未给出 Completed；执行终态为 FAILED |
 | `MESSAGE_TOO_LARGE` | 413 | 单条消息（序列化后的 JSON 文本，含工具记录）按 UTF-8 字节超过 `app.memory.max-message-bytes`，拒绝而不截断 |
+| `CONTEXT_BUDGET_EXCEEDED` | 413 | （M2a 起）当前问题加上固定提示词，即使不带任何历史也超过模型的输入预算（窗口减输出预留，按估算 × 1.3）。在接受之前判定，不建会话、不写消息、不建执行；见“上下文预算” |
 | `STORAGE_UNAVAILABLE` | 503 | 数据库不可用，无法可靠保存；不会静默降级为仅内存会话 |
 | `INSTANCE_CONFLICT` | 503 | 检测到同一部署命名空间内另一个活跃实例，拒绝接受新执行（包括相同 key 的重放）；已在运行的执行正常结束。同时 `/actuator/health` 为 `OUT_OF_SERVICE`（503），见运维说明“单实例保护” |
 
@@ -37,6 +38,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 2. 校验可选请求头 `Idempotency-Key`（长度 1–128，仅 ASCII 字母数字和 `._:-`），不合法返回 400 `INVALID_IDEMPOTENCY_KEY`；未带 key 的请求都是新请求，不凭相同文本去重。
 3. 只读检查会话（仅当请求带 `conversationId`）：未被使用（将在接受时创建）或属于当前用户则继续；属于他人、旧版本无租户数据或已删除返回 404 `CONVERSATION_NOT_FOUND`。
 4. 解析租户模型配置；缺失返回 428 `LLM_CONFIG_REQUIRED`，此时不写入任何会话、执行或消息。
+   M2a 起随后检查当前问题能否放进该模型的输入预算，放不下返回 413 `CONTEXT_BUDGET_EXCEEDED`，同样不写入任何数据。这一步在查找 key 之前，所以模型窗口改小后，同一 key 的超大请求也返回 413，不再重放。
 5. 在一个事务内：带 key 时先在当前用户范围内查找 key（见下文）；没有命中才确定会话 ID（请求给出的或新生成的），保存用户消息与 ACCEPTED 执行，然后才返回 200 SSE。冲突返回 409（见下文），超限 413，写库失败 503。
 
 `Idempotency-Key` 作用域与保留期：
@@ -82,6 +84,14 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - 取值必须大于 0 且不超过 MySQL `MEDIUMTEXT` 容量（16 MiB − 1 字节），否则启动失败。
 - 用户输入超限返回 413 `MESSAGE_TOO_LARGE`，不截断保存。
 - 模型最终回答超限时，执行记为 FAILED（`error_code=MESSAGE_TOO_LARGE`），不保存回答正文；流式响应发送 `code` 为 `MESSAGE_TOO_LARGE` 的错误事件。该上限只限制单条消息，不截断数据库中已保存的历史，也不替代 M2a 的上下文 Token 预算。
+
+## 上下文预算（M2a 起）
+
+- 每次模型调用（路由、能力、直接回答、汇总）都按模型窗口单独组装：可用输入 = 窗口 − 输出预留。估算沿用 M1 口径（中日韩 1 字 1 Token，其余 4 字符 1 Token）再乘 `app.memory.context.estimate-factor`（默认 1.3）。
+- 窗口来自租户使用的模型预设：`GET/POST/PUT /api/llm-providers` 的请求和响应新增可选字段 `contextWindowTokens`、`maxOutputTokens`。未填写时用 `app.memory.context.default-context-window-tokens`（默认 32768）和 `default-max-output-tokens`（默认 4096）。校验：窗口 ≥ 1024；输出预留 ≥ 1，且两者都填写时输出预留必须小于窗口；不合法返回既有的预设校验错误。输出预留只用于计算预算，不作为 `max_tokens` 发给服务商。
+- 先扣固定部分（系统提示词、当前问题、能力结果），再从最新到最旧按整轮加入已完成的历史，直到下一轮放不下为止。一轮不会被拆开，工具调用与工具结果始终成对出现。放不下的旧轮次在 M2a Task 4（分段摘要）之前不会进入提示词，只记指标与日志；数据库中的历史不受影响。
+- 工具结果或能力结果放不下时，模型看到的是一条占位说明（大小和引用 ID，不含原文），完整结果仍写入 `chat_tool_events`。每轮工具调用后重新检查。
+- `app.memory.context.enabled=false` 恢复 M1 行为：每次调用带全部历史，不做以上检查。
 
 ## 工具调用记录（`chat_tool_events`）
 

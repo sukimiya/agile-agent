@@ -69,6 +69,18 @@ public final class TenantLlmClientResolver {
         return resolved(tenantId).map(ResolvedClient::client);
     }
 
+    /** The tenant's client together with its preset's model window; a window value left unset is {@code null}. */
+    public Mono<ResolvedModel> resolveModel(String tenantId) {
+        return resolved(tenantId).map(value -> new ResolvedModel(value.client(),
+                value.preset().contextWindowTokens(), value.preset().maxOutputTokens()));
+    }
+
+    /**
+     * A resolved client and its model window. {@code null} window values fall back to the configured defaults
+     * ({@code app.memory.context.default-*}) when the context budget is computed.
+     */
+    public record ResolvedModel(LlmClient client, Integer contextWindowTokens, Integer maxOutputTokens) {}
+
     public Mono<PresetAndKey> resolvePresetAndKey(String tenantId) {
         return resolved(tenantId).map(value -> new PresetAndKey(value.preset(), value.apiKey()));
     }

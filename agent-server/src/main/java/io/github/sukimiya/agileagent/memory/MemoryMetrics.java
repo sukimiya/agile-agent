@@ -30,7 +30,12 @@ import io.micrometer.core.instrument.Timer;
  * <li>{@code memory.instance.conflict}: registered by {@link InstanceGuard} (0/1).</li>
  * <li>{@code memory.history.injected.messages} / {@code memory.history.injected.tokens}: earlier messages (and
  * their estimated tokens) injected as prompt history per executed turn. This is history injection, not long-term
- * memory recall, which M1 does not implement.</li>
+ * memory recall, which M1 does not implement. From M2a only the history that fits the answer call's budget is
+ * counted, once per turn.</li>
+ * <li>{@code memory.context.history.truncated{purpose}}: model calls whose budgeted context left out older
+ * completed turns.</li>
+ * <li>{@code memory.context.estimate.ratio{purpose}}: provider {@code prompt_tokens} over the raw heuristic estimate
+ * of the same call, for tuning {@code app.memory.context.estimate-factor}.</li>
  * </ul>
  * Not implemented in M1, so never reported as a number: Recall ({@code memory.recall.*}: not applicable, never
  * 0 ms or 0 items) and consolidation ({@code memory.consolidation.backlog}: feature disabled, never a backlog of 0).
@@ -136,6 +141,20 @@ public class MemoryMetrics {
         injectedTokens.record(estimateTokens(history));
     }
 
+    /** A model call whose context left out older completed turns (M2a budget; summaries arrive in Task 4). */
+    public void historyTruncated(String purpose) {
+        Counter.builder("memory.context.history.truncated").tag("purpose", purpose)
+                .description("Model calls whose budgeted context left out older completed turns")
+                .register(meters).increment();
+    }
+
+    /** Provider {@code prompt_tokens} divided by the raw (unscaled) estimate of the same call. */
+    public void estimateRatio(String purpose, double ratio) {
+        DistributionSummary.builder("memory.context.estimate.ratio").tag("purpose", purpose)
+                .description("Provider prompt tokens over the heuristic estimate, per model call")
+                .register(meters).record(ratio);
+    }
+
     /** Recall is not implemented in M1: not applicable, never 0 ms. */
     public Reading recallLatency() {
         return new Reading("memory.recall.latency", Availability.NOT_APPLICABLE, null, "Recall 在 M2a 实现");
@@ -189,40 +208,12 @@ public class MemoryMetrics {
      * Rough token estimate (not a tokenizer): one token per CJK character, one per four other non-space
      * characters. Used only to describe prompt size in metrics and eval baselines.
      */
+    /** The M1 heuristic; implemented by {@link io.github.sukimiya.agileagent.memory.context.TokenEstimator}. */
     public static long estimateTokens(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        long cjk = 0;
-        long other = 0;
-        for (int i = 0; i < text.length(); ) {
-            int cp = text.codePointAt(i);
-            i += Character.charCount(cp);
-            if (Character.isWhitespace(cp)) {
-                continue;
-            }
-            var script = Character.UnicodeScript.of(cp);
-            if (script == Character.UnicodeScript.HAN || script == Character.UnicodeScript.HIRAGANA
-                    || script == Character.UnicodeScript.KATAKANA || script == Character.UnicodeScript.HANGUL
-                    || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0xFF00 && cp <= 0xFFEF)) {
-                cjk++;
-            } else {
-                other++;
-            }
-        }
-        return cjk + (other + 3) / 4;
+        return io.github.sukimiya.agileagent.memory.context.TokenEstimator.estimate(text);
     }
 
     public static long estimateTokens(List<LlmClient.Message> messages) {
-        long total = 0;
-        for (var message : messages) {
-            total += estimateTokens(message.content());
-            if (message.toolCalls() != null) {
-                for (var call : message.toolCalls()) {
-                    total += estimateTokens(call.name()) + estimateTokens(call.argumentsJson());
-                }
-            }
-        }
-        return total;
+        return io.github.sukimiya.agileagent.memory.context.TokenEstimator.estimate(messages);
     }
 }

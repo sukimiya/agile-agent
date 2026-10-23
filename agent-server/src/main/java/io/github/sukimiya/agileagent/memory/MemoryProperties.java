@@ -38,6 +38,45 @@ public class MemoryProperties {
     private Duration instanceHeartbeatInterval = Duration.ofSeconds(10);
     private Duration instanceStaleAfter = Duration.ofSeconds(30);
     private boolean instanceGuardEnabled = true;
+    private final Context context = new Context();
+
+    public Context getContext() { return context; }
+
+    /** {@code app.memory.context.*}: per-call context budget (M2a). */
+    public static class Context {
+        /** Budget enforcement; off means every call gets the full history (M1 behaviour). */
+        private boolean enabled = true;
+        /** Window used when the provider preset leaves it unset (D2). */
+        private int defaultContextWindowTokens = 32_768;
+        /** Output reserve used when the provider preset leaves it unset (D2). */
+        private int defaultMaxOutputTokens = 4_096;
+        /** Safety factor on the heuristic token estimate (D3). */
+        private double estimateFactor = 1.3;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getDefaultContextWindowTokens() { return defaultContextWindowTokens; }
+        public void setDefaultContextWindowTokens(int v) {
+            if (v <= 1) {
+                throw new IllegalArgumentException("app.memory.context.default-context-window-tokens must be > 1");
+            }
+            this.defaultContextWindowTokens = v;
+        }
+        public int getDefaultMaxOutputTokens() { return defaultMaxOutputTokens; }
+        public void setDefaultMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.context.default-max-output-tokens must be > 0");
+            }
+            this.defaultMaxOutputTokens = v;
+        }
+        public double getEstimateFactor() { return estimateFactor; }
+        public void setEstimateFactor(double v) {
+            if (!(v >= 1.0)) {
+                throw new IllegalArgumentException("app.memory.context.estimate-factor must be >= 1");
+            }
+            this.estimateFactor = v;
+        }
+    }
 
     /** Rejects a serialized message over {@link #getMaxMessageBytes()} with {@link ErrorCode#MESSAGE_TOO_LARGE}. */
     public void checkMessageSize(String serialized) {
