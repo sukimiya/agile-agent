@@ -11,11 +11,19 @@
 
 ## 会话删除清理
 
-- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `DELETE_CONVERSATION` 任务。物理清理由 `MemoryMaintenance` 执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
+- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`；V10 之前叫 `DELETE_CONVERSATION`，升级时未完成的任务由迁移改名后继续执行）。物理清理由 `MemoryMaintenance` 注册给 `MemoryJobWorker` 的处理器执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
 - 清理内容：`chat_messages`、`chat_tool_events`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
-- 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.delete cleanup failed`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
-- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
+- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
 - 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+
+### 后台任务（M2a 起）
+
+- `memory_jobs.job_type` 取值见 `JobType`：`CONVERSATION_CLEANUP`、`INDEX_CHUNKS`、`SUMMARIZE`。同一 `(job_type, dedupe_key)` 只登记一次；`payload` 是任务参数 JSON。
+- 每个 COMPLETED 的轮次在写入终态的同一事务内登记一个 `INDEX_CHUNKS` 任务（`dedupe_key` 为 turnId）。终态写入回滚时任务也不存在。
+- 没有注册处理器的类型不会被领取，保持 PENDING、`attempts = 0`。M2a Task 1 之后 `INDEX_CHUNKS` 任务会累积，等切块处理器上线后再处理，这是预期行为。
+- 排查：`SELECT job_type, status, COUNT(*) FROM memory_jobs GROUP BY job_type, status`。
 
 ### 删除审计日志（受保护的删除清单）
 
@@ -66,7 +74,7 @@
 
 **恢复对象。**
 
-- MySQL：`sessions`（含删除标记）、`chat_turns`、`chat_messages`、`chat_tool_events`、`memory_jobs`、`service_instances`，以及 `tenant_llm_config` 等原有业务表。这是唯一的权威数据。
+- MySQL：`sessions`（含删除标记）、`chat_turns`、`chat_messages`、`chat_tool_events`、`memory_jobs`、`service_instances`、M2a 的 `memory_summaries`、`memory_chunks`、`memory_index_progress`、`user_memory_settings`，以及 `tenant_llm_config` 等原有业务表。这是唯一的权威数据。
 - 密钥：`LLM_CONFIG_SECRET`。`tenant_llm_config` 中的租户 API key 用它加密，缺少对应版本的密钥就无法解密，只能让租户重新录入。
 - Redis 只是可重建缓存，不备份，也不从生产复制。
 - 附件原件（`${app.upload.dir}`）**不在 M1 恢复范围内**，不保证长期可恢复。恢复后消息中的文件名仍在，原件可能不存在。
@@ -76,7 +84,7 @@
 - 全量备份与连续 binlog 归档（`binlog_format=ROW`，建议开启 GTID）存放在**与数据库不同的故障域**（不同主机、可用区或账号）。只放在数据库同一台机器或同一磁盘上的备份不算数。
 - 日志交付延迟必须给 15 分钟 RPO 留出余量：binlog 至少每 5 分钟轮转或流式上传一次，并对“最新已归档 binlog 的时间距现在超过 10 分钟”告警。全量备份周期由 RTO 决定：全量恢复加 binlog 回放的实测时间必须远小于 4 小时。
 - `LLM_CONFIG_SECRET` 保存在密钥管理系统中，与数据库备份分属不同故障域，并保留历史版本；记录每个版本的生效时间段，以便确定恢复点对应哪个版本。
-- 删除清单：删除标记（`sessions.deleted_at`）和 `DELETE_CONVERSATION` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
+- 删除清单：删除标记（`sessions.deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
 
 ### 2. 准备隔离环境
 
@@ -93,7 +101,7 @@
 
 ### 4. 核对删除记录（开放访问前）
 
-- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `DELETE_CONVERSATION` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
+- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
 - 如果 binlog 一直回放到故障时刻（Tlast 等于故障时间），就没有遗漏的删除。
 - 如果 Tlast 早于故障时间，(Tlast, 故障时间] 之间的删除不在数据库中，需要在**服务启动前**（服务停止、隔离环境、不开放访问）按删除审计日志人工复放：
   1. **确认日志覆盖范围。** 在日志存储中确认这个部署所有实例的日志都已经接收到故障时间。删除并不频繁，没有删除日志不能证明期间没有删除，所以只能以日志管道的接收时间为准。如果覆盖范围早于故障时间，那么从覆盖终点到故障时间这段无法核实，按第 4 条处理。
@@ -107,9 +115,9 @@
        ```sql
        UPDATE sessions SET deleted_at = '<deletedAt>', title = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
         WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND deleted_at IS NULL;
-       INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, available_at, created_at, updated_at)
-       VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'DELETE_CONVERSATION', 'PENDING', 0,
-               CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
+       INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, dedupe_key, available_at, created_at, updated_at)
+       VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'CONVERSATION_CLEANUP', 'PENDING', 0,
+               CONCAT('cleanup:', '<conversationId>'), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
        ```
 
        服务启动后，清理任务会删除消息、工具记录、缓存和附件目录。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。

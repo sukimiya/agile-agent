@@ -15,6 +15,8 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnStatus;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
+import io.github.sukimiya.agileagent.memory.jobs.JobType;
+import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
@@ -40,6 +42,7 @@ public class TurnFinalizer implements DisposableBean {
     private final ConversationRepository conversations;
     private final MemoryProperties props;
     private final MemoryMetrics metrics;
+    private final MemoryJobQueue jobs;
     private final TransactionalOperator transactions;
     private final Sinks.Many<Request> queue = Sinks.many().unicast()
             .onBackpressureBuffer(Queues.<Request>get(QUEUE_CAPACITY).get());
@@ -49,7 +52,9 @@ public class TurnFinalizer implements DisposableBean {
     private final AtomicLong failed = new AtomicLong();
 
     public TurnFinalizer(ConnectionFactory connectionFactory, TurnRepository turns,
-            ConversationRepository conversations, MemoryProperties props, MemoryMetrics metrics) {
+            ConversationRepository conversations, MemoryProperties props, MemoryMetrics metrics,
+            MemoryJobQueue jobs) {
+        this.jobs = jobs;
         this.metrics = metrics;
         this.turns = turns;
         this.conversations = conversations;
@@ -86,7 +91,9 @@ public class TurnFinalizer implements DisposableBean {
             var writtenStatus = finalStatus;
             var write = turns.markTerminal(ticket, finalStatus, usage, finalCode)
                     .flatMap(owned -> !owned ? Mono.just(false)
-                            : (textToSave == null ? Mono.<Void>empty() : conversations.saveAssistantText(ticket, textToSave))
+                            : (writtenStatus == TurnStatus.COMPLETED ? enqueueIndexing(ticket) : Mono.<Void>empty())
+                                    .then(textToSave == null ? Mono.<Void>empty()
+                                            : conversations.saveAssistantText(ticket, textToSave))
                                     .then(conversations.bumpRevision(ticket.conversationId()))
                                     .thenReturn(true));
             return transactions.transactional(write).doOnNext(written -> {
@@ -103,6 +110,15 @@ public class TurnFinalizer implements DisposableBean {
                     return Mono.just(false);
                 })
                 .doOnNext(written -> (written ? succeeded : failed).incrementAndGet());
+    }
+
+    /**
+     * Registers the turn's {@link JobType#INDEX_CHUNKS} job inside the terminal transaction, so a committed
+     * COMPLETED turn always has one and a rolled-back write leaves none. Keyed by turn id (one job per turn).
+     */
+    private Mono<Void> enqueueIndexing(TurnTicket ticket) {
+        return jobs.enqueue(ticket.scope(), ticket.conversationId(), JobType.INDEX_CHUNKS, ticket.turnId(),
+                "{\"turnId\":\"" + ticket.turnId() + "\"}").then();
     }
 
     /** Queues a terminal write from a cancellation path; false (and counted as failed) when the queue is full. */

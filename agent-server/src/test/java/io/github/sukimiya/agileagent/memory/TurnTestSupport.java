@@ -41,7 +41,8 @@ final class TurnTestSupport implements AutoCloseable {
         var cf = fixture.connectionFactory();
         this.turns = decorateTurns.apply(new TurnRepository(fixture.databaseClient(), props));
         this.conversations = new ConversationRepository(fixture.databaseClient(), mapper);
-        this.finalizer = new TurnFinalizer(cf, turns, conversations, props, metrics);
+        this.finalizer = new TurnFinalizer(cf, turns, conversations, props, metrics,
+                new io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue(fixture.databaseClient()));
         // Never started here: conflict() stays false unless a test drives heartbeat() itself.
         this.guard = new InstanceGuard(fixture.databaseClient(), props, meters);
         this.lifecycle = new TurnLifecycle(cf, turns, conversations, finalizer, props, guard, metrics);

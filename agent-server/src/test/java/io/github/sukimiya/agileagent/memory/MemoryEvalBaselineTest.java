@@ -216,7 +216,7 @@ class MemoryEvalBaselineTest {
     void consolidationBacklogShowsDisabledWithoutJobs() {
         // A pending deletion job is maintenance work, not consolidation backlog.
         stack.sql("INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts,"
-                + " available_at, created_at, updated_at) VALUES ('job-1', 'tenant-1', 'alice', ?, 'DELETE_CONVERSATION',"
+                + " available_at, created_at, updated_at) VALUES ('job-1', 'tenant-1', 'alice', ?, 'CONVERSATION_CLEANUP',"
                 + " 'PENDING', 0, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))",
                 MemoryTestStack.newConversationId());
 

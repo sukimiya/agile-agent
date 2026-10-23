@@ -26,7 +26,7 @@ class LlmProviderPresetRepositoryTest {
         dataSource.setDriverClassName("org.h2.Driver");
         Flyway.configure().dataSource(dataSource)
                 .table(historyTable())
-                .locations("classpath:db/migration").load().migrate();
+                .locations("classpath:db/migration", "classpath:db/vendor/h2").load().migrate();
         var options = ConnectionFactoryOptions.builder()
                 .option(ConnectionFactoryOptions.DRIVER, "h2")
                 .option(ConnectionFactoryOptions.PROTOCOL, "mem")
