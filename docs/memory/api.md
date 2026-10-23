@@ -13,8 +13,8 @@
 | `INVALID_IDEMPOTENCY_KEY` | 400 | `Idempotency-Key` 不符合格式：长度 1–128，仅允许 ASCII 字母数字和 `._:-` |
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
-| `IDEMPOTENCY_CONFLICT` | 409 | 同一会话内同一 `Idempotency-Key` 对应不同输入 |
-| `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行；响应体带活跃 `turnId`，前端显示“正在生成” |
+| `IDEMPOTENCY_CONFLICT` | 409 | 同一用户的同一 `Idempotency-Key`（保留期内）对应不同请求：入口、`conversationId`、消息内容或附件 ID 不同 |
+| `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId`，前端显示“正在生成” |
 | `TURN_TERMINATED` | 409 | 同一 key 的执行已失败/取消/中断；新执行需使用新 key |
 | `TURN_INTERRUPTED` | SSE error 事件 | 流式执行中失去执行权（租约过期或 fence 失效，例如恢复扫描或会话删除）；以该错误事件报告失败（其后的 done 只是协议终止符，不表示成功），执行终态为 INTERRUPTED |
 | `TURN_FAILED` | SSE error 事件 | 流式执行普通失败：模型/工具错误、超时、上游未给出 Completed；执行终态为 FAILED |
@@ -32,20 +32,23 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 两个入口共用同一接受流程，顺序固定：
 
-0. 请求带 `conversationId` 时，必须是小写规范 UUID（如 `3f2c8a1e-9b4d-4c7a-8e21-5d6f7a8b9c0d`），否则返回 400 `INVALID_CONVERSATION_ID`；大写、带空白、带括号或无连字符的形式一律拒绝，不做转换。未带时服务端生成同一格式的新 ID。
+0. 请求带 `conversationId` 时，必须是小写规范 UUID（如 `3f2c8a1e-9b4d-4c7a-8e21-5d6f7a8b9c0d`），否则返回 400 `INVALID_CONVERSATION_ID`；大写、带空白、带括号或无连字符的形式一律拒绝，不做转换。未带时，在第 5 步查找 key 之后（且只在没有命中时）才由服务端生成同一格式的新 ID。
 1. 从服务端身份解析租户与 subject，缺租户返回 403 `TENANT_REQUIRED`。
-2. 校验可选请求头 `Idempotency-Key`（长度 1–128，仅 ASCII 字母数字和 `._:-`），不合法返回 400 `INVALID_IDEMPOTENCY_KEY`；未带时服务端生成新的请求 ID，不凭相同文本去重。
-3. 只读检查会话：`conversationId` 未被使用（将在接受时创建）或属于当前用户则继续；属于他人、旧版本无租户数据或已删除返回 404 `CONVERSATION_NOT_FOUND`。未带 `conversationId` 时服务端生成新会话。
+2. 校验可选请求头 `Idempotency-Key`（长度 1–128，仅 ASCII 字母数字和 `._:-`），不合法返回 400 `INVALID_IDEMPOTENCY_KEY`；未带 key 的请求都是新请求，不凭相同文本去重。
+3. 只读检查会话（仅当请求带 `conversationId`）：未被使用（将在接受时创建）或属于当前用户则继续；属于他人、旧版本无租户数据或已删除返回 404 `CONVERSATION_NOT_FOUND`。
 4. 解析租户模型配置；缺失返回 428 `LLM_CONFIG_REQUIRED`，此时不写入任何会话、执行或消息。
-5. 在一个事务内保存用户消息与 ACCEPTED 执行，然后才返回 200 SSE。冲突返回 409（见下文），超限 413，写库失败 503。
+5. 在一个事务内：带 key 时先在当前用户范围内查找 key（见下文）；没有命中才确定会话 ID（请求给出的或新生成的），保存用户消息与 ACCEPTED 执行，然后才返回 200 SSE。冲突返回 409（见下文），超限 413，写库失败 503。
 
-`Idempotency-Key` 承诺范围：在已建立的会话内（请求带已存在且属于当前用户的 `conversationId`），同一 key 不会被接受两次：
+`Idempotency-Key` 作用域与保留期：
 
-- 相同 key + 相同文本，且原执行已完成：不调用模型，重放已存回答——`/api/chat` 输出一条 `delta`、已观察到的 `usage` 和 `done`；`/api/chat/completions` 输出一条内容块、usage 块和 `[DONE]`。
-- 相同 key + 相同文本，原执行仍在进行：409 `TURN_IN_PROGRESS`，带 `turnId`。
-- 相同 key + 不同文本：409 `IDEMPOTENCY_CONFLICT`。
-- 相同 key，原执行已失败/取消/中断：409 `TURN_TERMINATED`。
-- 未带 `conversationId` 的首个请求重试会进入新会话并再次执行（已知问题，生产上线门槛，见 spec 第 13 节）。
+- **作用域：** key 在 `(tenant, subject, key)` 范围内唯一，与会话无关。不同用户或不同租户使用同一 key 互不影响。未带 `conversationId` 的首个请求带同一 key 重试时，同样能命中原执行，不会新建会话，也不会再次调用模型。
+- **请求指纹：** 对入口（`POST /api/chat` 或 `POST /api/chat/completions`）、客户端给出的 `conversationId`（未给出时为空，不使用服务端生成的 ID）、消息内容（`/api/chat` 的 `message`；`/api/chat/completions` 的最后一条消息 `content`）和附件 ID 列表计算 SHA-256。当前两个入口的请求体都不携带附件 ID（附件通过上传绑定到会话），所以这一项暂时恒为空列表。
+- 相同 key + 相同指纹，且原执行已完成：不调用模型，重放已存回答，并返回原执行所在会话的内容。`/api/chat` 输出一条 `delta`、已观察到的 `usage` 和 `done`；`/api/chat/completions` 输出一条内容块、usage 块和 `[DONE]`。
+- 相同 key + 相同指纹，原执行仍在进行：409 `TURN_IN_PROGRESS`，带 `turnId`。多个相同 key 的首个请求同时到达时，只有一个被接受，其余返回 409 `TURN_IN_PROGRESS`（带胜出者的 `turnId`），不会留下多余的会话。
+- 相同 key + 不同指纹（包括换入口、换或增减 `conversationId`、改文本）：409 `IDEMPOTENCY_CONFLICT`。
+- 相同 key，原执行已失败/取消/中断：409 `TURN_TERMINATED`，需使用新 key。
+- 原执行所在会话已删除：404 `CONVERSATION_NOT_FOUND`，不重放已删除的内容。
+- **保留期：** `app.memory.idempotency-key-retention`，默认 24 小时，从原请求被接受时算起，使用数据库时间。超过保留期后，同一 key 视为新请求，会重新执行。清理扫描（与删除清理同周期，`app.memory.cleanup-scan-interval`，默认 30 秒）只释放已结束执行的 key，执行记录和消息本身保留。客户端应在保留期内完成重试。
 
 ### 流式事件
 

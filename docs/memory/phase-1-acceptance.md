@@ -50,7 +50,7 @@ H2 测试和构建成功都不能算作 MySQL 迁移或并发验收。并发与�
 | --- | --- | --- | --- |
 | 1 | Redis 清空、损坏或不可用时从 MySQL 分页读取；跨用户和租户隔离 | 满足 | `ConversationHistoryTest`、`MemoryFailureTest`、`MemoryScopeTest` 及 MySQL 变体 |
 | 2 | 终态映射：正常结束、断开（两个分支）、超时、模型异常、进程退出、失去 fence、数据库失败；收尾器失败由恢复扫描兜底；外部写操作标记为不确定 | 满足 | `TurnLifecycleTest`/`TurnConcurrencyIntegrationTest`、`TurnStreamingIntegrationTest`、`TurnFinalizerTest`、`TurnToolRecorderTest`、`MemoryFailureTest` |
-| 3 | 会话内幂等；不同输入复用 key 返回冲突；同会话并发；活跃冲突返回 409 并带 turnId | 满足（仅限已建立的会话，见第 5 节上线门槛） | Task 2 测试及 MySQL 并发测试 |
+| 3 | 会话内幂等；不同输入复用 key 返回冲突；同会话并发；活跃冲突返回 409 并带 turnId | 满足；M1 之后已扩展到未带 conversationId 的首个请求（V9，见第 5 节） | Task 2 测试及 MySQL 并发测试 |
 | 4 | 两个聊天入口回归，流式事件格式和 capability 契约不变 | 满足 | `ChatControllerTest`、`TurnStreamingIntegrationTest` |
 | 5 | 附件归属、ID 规则、404、不泄露路径、24 小时清理，并写明附件原件不保证永久可恢复 | 满足 | `FileStorageServiceTest`、`UploadCleanupTaskTest`、`ChatControllerTest`、`operations.md` |
 | 6 | 部署配置声明 replicas=1；第二个实例产生告警并拒绝新执行 | 满足 | `InstanceGuardTest` 等（Task 8） |
@@ -72,7 +72,7 @@ H2 测试和构建成功都不能算作 MySQL 迁移或并发验收。并发与�
 - **单实例。** 只支持 `replicas=1`。出现第二个实例时，所有实例都会拒绝新执行（503 `INSTANCE_CONFLICT`）。
 - **附件。** 附件原件不保证长期可恢复，24 小时后会被清理，也不在数据库恢复范围内。
 
-**上线门槛（spec 第 13 节）：重复执行和重复计费。** 未携带 conversationId 的首个请求被重试时，`POST /api/chat/completions`（`ChatController.java:64`）和 `POST /api/chat`（`ChatController.java:153-155`）都会生成新的会话 ID，`Idempotency-Key` 无法命中，可能导致重复调用模型和重复计费。这不是 M1 的功能承诺，但**正式生产上线前，两个入口都必须修复并通过验证**。问题说明见 [PR #1](https://github.com/sukimiya/agile-agent/pull/1)，尚未合入 main。
+**上线门槛（spec 第 13 节）：重复执行和重复计费：已修复（M1 之后）。** M1 验收时，未携带 conversationId 的首个请求重试会在两个入口重复执行和重复计费。修复见 [5ac08b3](https://github.com/sukimiya/agile-agent/commit/5ac08b3)（分支 `codex/idempotency-user-scope`，V9 迁移）：key 按 `(tenant, subject, key)` 唯一，并带 24 小时保留期和请求指纹；两个入口都先查找 key 再生成会话 ID。两个入口在 H2 和 MySQL 上的重试回归测试（含并发的同 key 首个请求）均已通过。问题说明 `docs/known-issues/2026-10-21-idempotency-duplicate-billing.md` 已标记为已修复。
 
 ## 6. mcp-tool
 

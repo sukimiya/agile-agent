@@ -28,7 +28,7 @@
 - 生产恢复目标为 RPO ≤ 15 分钟、RTO ≤ 4 小时；尚未通过真实演练时不能标记为已达标。
 - 不记录访问令牌、API key 或模型内部推理链；工具记录只保存脱敏后的必要内容；消息与材料标注来源类型。
 - 两个聊天入口的流式事件格式保持不变；新增分页、请求幂等、409 turnId 和附件接口变化需写入接口说明。
-- 重复计费（未带 conversationId 的首个请求重试）不是 M1 承诺，但是生产上线门槛，见 spec 第 13 节。
+- 重复计费（未带 conversationId 的首个请求重试）不是 M1 承诺，但是生产上线门槛，见 spec 第 13 节（M1 之后已修复：V9，key 按用户唯一）。
 
 ## Review Focus
 
@@ -73,7 +73,7 @@
 
 - 用户输入成功入库后才能提交 HTTP 200 SSE；缺模型配置继续返回既有 428 JSON；未知/他人资源（会话、附件）返回 404；缺租户返回 403；写库不可用返回 503；检测到实例冲突返回 503 `INSTANCE_CONFLICT`。
 - 单条消息（序列化后的 JSON 文本，含工具记录）按 UTF-8 字节计算，超过 `app.memory.max-message-bytes`（默认 1 MiB，必须小于 MySQL `MEDIUMTEXT` 上限 16 MiB）返回 413 `MESSAGE_TOO_LARGE`，拒绝而不截断；`Idempotency-Key` 不符合格式返回 400 `INVALID_IDEMPOTENCY_KEY`。完整错误码表见 `docs/memory/api.md`。
-- 支持可选 `Idempotency-Key` 请求头，长度 1–128、仅允许 ASCII 字母数字和 `._:-`。承诺范围：在已建立的会话内（请求带已存在且属于当前用户的 conversationId），同一 key 不会被接受两次；相同 key + 相同文本不重复执行，不同文本返回 409 `IDEMPOTENCY_CONFLICT`。未带 conversationId 的首个请求重试不在承诺内（spec 6.4/13）。
+- 支持可选 `Idempotency-Key` 请求头，长度 1–128、仅允许 ASCII 字母数字和 `._:-`。承诺范围：在已建立的会话内（请求带已存在且属于当前用户的 conversationId），同一 key 不会被接受两次；相同 key + 相同文本不重复执行，不同文本返回 409 `IDEMPOTENCY_CONFLICT`。未带 conversationId 的首个请求重试不在承诺内（spec 6.4/13）。M1 之后的修复（V9）将 key 改为按 `(tenant, subject, key)` 唯一，见 spec 6.4 与 `docs/memory/api.md`。
 - 重复已完成请求重放已存文本与已观察到的 Usage；重复活跃请求或同会话已有活跃执行时返回 409 `TURN_IN_PROGRESS`，响应体带 `turnId`，前端显示“正在生成”；重复失败/取消/中断请求返回 409 `TURN_TERMINATED`，新执行需新 key。无 key 时生成新请求 ID，不凭相同文本去重。M1 不提供按 turnId 续流或取消的接口。
 - 状态为 ACCEPTED → RUNNING → COMPLETED / FAILED / CANCELLED / INTERRUPTED，终态不能降级或重新执行。终态映射：客户端断开或取消订阅 → CANCELLED；进程退出或失去执行权（租约过期、fence 失效）→ INTERRUPTED；普通执行失败 → FAILED；正常结束且有 Completed → COMPLETED。断开即取消，没有“客户端断开、后端继续运行”。
 - 活跃执行的租约已过期时，同会话的新请求在接受事务内先把它标记为 INTERRUPTED（递增 fence、释放活跃位、递增会话 revision），再接受新执行，不必等待恢复扫描，也不返回 409；租约未过期仍返回 409 `TURN_IN_PROGRESS`。（2026-10-22 与用户确认，Task 2 已实现）
