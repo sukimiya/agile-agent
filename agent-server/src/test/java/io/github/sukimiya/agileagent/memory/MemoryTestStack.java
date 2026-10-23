@@ -32,14 +32,22 @@ public final class MemoryTestStack implements AutoCloseable {
     private final ToolEventRepository toolEvents;
     private final TurnToolRecorder toolRecorder;
 
+    private final HotMemoryCache cache;
+
     private MemoryTestStack(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
             UnaryOperator<ToolEventRepository> decorateToolEvents) {
-        this.support = TurnTestSupport.create(fixture, tune, t -> t);
+        this(fixture, tune, t -> t, decorateToolEvents, LocalRedisTestServer.configuration(REDIS_DB));
+    }
+
+    private MemoryTestStack(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
+            UnaryOperator<TurnRepository> decorateTurns, UnaryOperator<ToolEventRepository> decorateToolEvents,
+            org.springframework.data.redis.connection.RedisStandaloneConfiguration redis) {
+        this.support = TurnTestSupport.create(fixture, tune, decorateTurns);
         this.toolEvents = decorateToolEvents.apply(new ToolEventRepository(fixture.databaseClient()));
         this.toolRecorder = new TurnToolRecorder(toolEvents, support.props);
-        this.redisFactory = new LettuceConnectionFactory(LocalRedisTestServer.configuration(REDIS_DB));
+        this.redisFactory = new LettuceConnectionFactory(redis);
         redisFactory.afterPropertiesSet();
-        var cache = new HotMemoryCache(new ReactiveStringRedisTemplate(redisFactory), support.mapper, support.props);
+        this.cache = new HotMemoryCache(new ReactiveStringRedisTemplate(redisFactory), support.mapper, support.props);
         var sessionRepository = new SessionRepository(fixture.databaseClient());
         this.history = new ConversationHistory(fixture.databaseClient(), sessionRepository, support.conversations,
                 cache, support.props, support.metrics);
@@ -56,6 +64,28 @@ public final class MemoryTestStack implements AutoCloseable {
 
     public static MemoryTestStack of(MemoryTestFixture fixture, UnaryOperator<ToolEventRepository> decorateToolEvents) {
         return new MemoryTestStack(fixture, p -> { }, decorateToolEvents);
+    }
+
+    /**
+     * A stack with tuned properties, a decorated turn repository (fault injection) and a chosen Redis. Several
+     * stacks on one fixture behave like successive server processes sharing the database.
+     */
+    public static MemoryTestStack create(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
+            UnaryOperator<TurnRepository> decorateTurns,
+            org.springframework.data.redis.connection.RedisStandaloneConfiguration redis) {
+        return new MemoryTestStack(fixture, tune, decorateTurns, t -> t, redis);
+    }
+
+    public static org.springframework.data.redis.connection.RedisStandaloneConfiguration testRedis() {
+        return LocalRedisTestServer.configuration(REDIS_DB);
+    }
+
+    public MemoryTestFixture fixture() {
+        return support.fixture;
+    }
+
+    public HotMemoryCache cache() {
+        return cache;
     }
 
     public static MemoryTestStack h2(Consumer<MemoryProperties> tune) {

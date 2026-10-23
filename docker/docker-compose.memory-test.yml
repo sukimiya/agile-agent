@@ -6,9 +6,14 @@
 #          MEMORY_MYSQL_IT_DATABASE=agile_agent_memory_it MEMORY_MYSQL_IT_USER=memory_it \
 #          MEMORY_MYSQL_IT_PASSWORD=memory-it-password
 #   mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryMySqlIntegrationTest test
+#   # failure acceptance (M1 Task 10) and concurrency on real MySQL:
+#   mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest test
+#   # every mysql-it test:
+#   mvn -Pmemory-mysql-it -pl agent-server -am test
 #   docker compose -f docker/docker-compose.memory-test.yml down -v
 #
-# The tests clean and re-migrate this database on every run. The credentials below are throwaway test values.
+# The tests clean and re-migrate only the configured loopback database whose name ends in _it; nothing here is a
+# production database or a recovery target. The credentials below are throwaway test values.
 name: agile-agent-memory-test
 
 services:

@@ -21,11 +21,15 @@ mvn -pl agent-server,mock-oauth2 -am -DskipTests package
 
 From `agent-server/`, the equivalent server test command is `mvn -f ../pom.xml -pl agent-server -am test`.
 
+Memory persistence (M1) has opt-in checks beyond the default suite. Real-MySQL integration tests run against the loopback test database from `docker/docker-compose.memory-test.yml`: `mvn -Pmemory-mysql-it -pl agent-server -am test`. The failure-acceptance subset is `-Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest`. H2 runs and successful builds do not count as MySQL concurrency acceptance. The real-model evaluation (`-Pmemory-eval-live`) runs only by hand in an isolated environment. Results, open items and the recovery drill record are in the [M1 acceptance record](docs/memory/phase-1-acceptance.md).
+
 ## Deployment limits
 
 部署限制：单实例（replicas=1），多实例不受支持。
 
 Run exactly one server instance per deployment (`app.memory.namespace`, default `default`). The Compose services pin `deploy.replicas: 1`. If a second live instance registers in the same namespace, both instances log `INSTANCE_CONFLICT` at ERROR, report `/actuator/health` as `OUT_OF_SERVICE` (HTTP 503), and refuse new turns with 503 `INSTANCE_CONFLICT` until only one remains; turns already running finish normally. Do not use the health status as a liveness probe that restarts the container. See the [memory operations notes](docs/memory/operations.md#单实例保护).
+
+Other M1 limits: the production recovery objectives (RPO ≤ 15 min, RTO ≤ 4 h) have not been verified by a recovery drill. Attachment originals are not guaranteed to be recoverable long-term. Retrying a first chat request without a `conversationId` can still run, and bill, the request twice on both chat entry points. This must be fixed before a production launch (see the acceptance record). The recovery runbook is in the [memory operations notes](docs/memory/operations.md#恢复手册仅限隔离环境演练).
 
 ## Local OAuth2 development
 
