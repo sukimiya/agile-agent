@@ -1,6 +1,6 @@
 # Memory 接口说明（M1）
 
-> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）、工具调用记录（Task 5）、附件上传/下载与会话 ID 规则（Task 6）以及会话删除（Task 7）。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
+> 本文随 M1 各任务逐步补充。当前包含稳定错误码、两个聊天入口（`Idempotency-Key`、409 turnId、流内错误事件、重放）与历史消息分页（Task 4）、工具调用记录（Task 5）、附件上传/下载与会话 ID 规则（Task 6）、会话删除（Task 7）以及单实例保护（Task 8）。设计依据见 `docs/superpowers/specs/2026-10-21-memory-runtime-design.md`，执行计划见 `docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md`。
 
 ## 错误码
 
@@ -20,7 +20,7 @@
 | `TURN_FAILED` | SSE error 事件 | 流式执行普通失败：模型/工具错误、超时、上游未给出 Completed；执行终态为 FAILED |
 | `MESSAGE_TOO_LARGE` | 413 | 单条消息（序列化后的 JSON 文本，含工具记录）按 UTF-8 字节超过 `app.memory.max-message-bytes`，拒绝而不截断 |
 | `STORAGE_UNAVAILABLE` | 503 | 数据库不可用，无法可靠保存；不会静默降级为仅内存会话 |
-| `INSTANCE_CONFLICT` | 503 | 检测到同一部署命名空间内另一个活跃实例，拒绝接受新执行 |
+| `INSTANCE_CONFLICT` | 503 | 检测到同一部署命名空间内另一个活跃实例，拒绝接受新执行（包括相同 key 的重放）；已在运行的执行正常结束。同时 `/actuator/health` 为 `OUT_OF_SERVICE`（503），见运维说明“单实例保护” |
 
 缺少模型配置仍返回既有的 428 JSON，不属于上表。`TURN_INTERRUPTED`、`TURN_FAILED` 不是 HTTP 状态：响应头已提交，只能以流内错误事件告知。
 

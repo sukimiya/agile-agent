@@ -35,6 +35,7 @@ public class MemoryProperties {
     private Duration cacheIdleTtl = Duration.ofDays(7);
     private Duration instanceHeartbeatInterval = Duration.ofSeconds(10);
     private Duration instanceStaleAfter = Duration.ofSeconds(30);
+    private boolean instanceGuardEnabled = true;
 
     /** Rejects a serialized message over {@link #getMaxMessageBytes()} with {@link ErrorCode#MESSAGE_TOO_LARGE}. */
     public void checkMessageSize(String serialized) {
@@ -82,5 +83,8 @@ public class MemoryProperties {
     public Duration getInstanceHeartbeatInterval() { return instanceHeartbeatInterval; }
     public void setInstanceHeartbeatInterval(Duration v) { this.instanceHeartbeatInterval = v; }
     public Duration getInstanceStaleAfter() { return instanceStaleAfter; }
+    /** Turns the heartbeat schedule off (tests without memory tables); production keeps it on. */
+    public boolean isInstanceGuardEnabled() { return instanceGuardEnabled; }
+    public void setInstanceGuardEnabled(boolean v) { this.instanceGuardEnabled = v; }
     public void setInstanceStaleAfter(Duration v) { this.instanceStaleAfter = v; }
 }

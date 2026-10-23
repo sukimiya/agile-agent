@@ -1,5 +1,8 @@
 package io.github.sukimiya.agileagent.memory;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 import java.time.Duration;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
@@ -23,9 +26,10 @@ final class TurnTestSupport implements AutoCloseable {
     final TurnFinalizer finalizer;
     final TurnLifecycle lifecycle;
     final ExpiredTurnRecovery recovery;
+    final InstanceGuard guard;
 
     private TurnTestSupport(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
-            UnaryOperator<TurnRepository> decorateTurns) {
+            UnaryOperator<TurnRepository> decorateTurns, MeterRegistry meters) {
         this.fixture = fixture;
         this.props = new MemoryProperties();
         props.setFinalizerTimeout(Duration.ofSeconds(5));
@@ -34,17 +38,24 @@ final class TurnTestSupport implements AutoCloseable {
         this.turns = decorateTurns.apply(new TurnRepository(fixture.databaseClient(), props));
         this.conversations = new ConversationRepository(fixture.databaseClient(), mapper);
         this.finalizer = new TurnFinalizer(cf, turns, conversations, props);
-        this.lifecycle = new TurnLifecycle(cf, turns, conversations, finalizer, props);
+        // Never started here: conflict() stays false unless a test drives heartbeat() itself.
+        this.guard = new InstanceGuard(fixture.databaseClient(), props, meters);
+        this.lifecycle = new TurnLifecycle(cf, turns, conversations, finalizer, props, guard);
         this.recovery = new ExpiredTurnRecovery(cf, turns, conversations, props);
     }
 
     static TurnTestSupport create(MemoryTestFixture fixture) {
-        return new TurnTestSupport(fixture, p -> { }, t -> t);
+        return new TurnTestSupport(fixture, p -> { }, t -> t, new SimpleMeterRegistry());
     }
 
     static TurnTestSupport create(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
             UnaryOperator<TurnRepository> decorateTurns) {
-        return new TurnTestSupport(fixture, tune, decorateTurns);
+        return new TurnTestSupport(fixture, tune, decorateTurns, new SimpleMeterRegistry());
+    }
+
+    static TurnTestSupport create(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
+            UnaryOperator<TurnRepository> decorateTurns, MeterRegistry meters) {
+        return new TurnTestSupport(fixture, tune, decorateTurns, meters);
     }
 
     static String newConversationId() {
@@ -95,6 +106,7 @@ final class TurnTestSupport implements AutoCloseable {
 
     @Override
     public void close() {
+        guard.stop();
         finalizer.destroy();
     }
 }

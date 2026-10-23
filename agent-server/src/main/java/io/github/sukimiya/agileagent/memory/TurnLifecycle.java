@@ -65,9 +65,12 @@ public class TurnLifecycle {
     private final TurnFinalizer finalizer;
     private final MemoryProperties props;
     private final TransactionalOperator transactions;
+    private final InstanceGuard instanceGuard;
 
     public TurnLifecycle(ConnectionFactory connectionFactory, TurnRepository turns,
-            ConversationRepository conversations, TurnFinalizer finalizer, MemoryProperties props) {
+            ConversationRepository conversations, TurnFinalizer finalizer, MemoryProperties props,
+            InstanceGuard instanceGuard) {
+        this.instanceGuard = instanceGuard;
         this.turns = turns;
         this.conversations = conversations;
         this.finalizer = finalizer;
@@ -85,6 +88,10 @@ public class TurnLifecycle {
         return Mono.defer(() -> {
             if (!isValidRequestId(command.requestId())) {
                 return Mono.error(new MemoryException(ErrorCode.INVALID_IDEMPOTENCY_KEY));
+            }
+            // Single-instance deployment: while another live instance shares the namespace, accept nothing.
+            if (instanceGuard.conflict()) {
+                return Mono.error(new MemoryException(ErrorCode.INSTANCE_CONFLICT));
             }
             var payload = conversations.serialize(LlmClient.Message.user(command.text()));
             props.checkMessageSize(payload);

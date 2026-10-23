@@ -52,7 +52,8 @@ import io.github.sukimiya.agileagent.util.NonBlockingIds;
     "app.upload.allowed-content-types=image/png,application/pdf",
     // R2DBC and Flyway use different embedded H2 databases in this context, so memory tables are absent;
     // session ownership is checked against the migrated fixture database below.
-    "app.memory.recovery-enabled=false"
+    "app.memory.recovery-enabled=false",
+    "app.memory.instance-guard-enabled=false"
 })
 class UploadControllerTest {
 

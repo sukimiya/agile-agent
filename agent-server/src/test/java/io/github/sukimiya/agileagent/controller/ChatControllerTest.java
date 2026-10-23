@@ -299,6 +299,20 @@ class ChatControllerTest {
     }
 
     @Test
+    void instanceConflictReturns503OnBothEntries() {
+        asUser1();
+        when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
+        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
+        when(lifecycle.accept(any())).thenReturn(Mono.error(new MemoryException(ErrorCode.INSTANCE_CONFLICT)));
+
+        postCompletions(CONV).exchange().expectStatus().isEqualTo(503)
+                .expectBody().jsonPath("$.code").isEqualTo("INSTANCE_CONFLICT");
+        postLegacy(CONV).exchange().expectStatus().isEqualTo(503)
+                .expectBody().jsonPath("$.code").isEqualTo("INSTANCE_CONFLICT");
+        verifyNoInteractions(orchestrator);
+    }
+
+    @Test
     void chatCompletionsRequiresAuthentication() {
         client.post().uri("/api/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -21,6 +21,12 @@ mvn -pl agent-server,mock-oauth2 -am -DskipTests package
 
 From `agent-server/`, the equivalent server test command is `mvn -f ../pom.xml -pl agent-server -am test`.
 
+## Deployment limits
+
+部署限制：单实例（replicas=1），多实例不受支持。
+
+Run exactly one server instance per deployment (`app.memory.namespace`, default `default`). The Compose services pin `deploy.replicas: 1`. If a second live instance registers in the same namespace, both instances log `INSTANCE_CONFLICT` at ERROR, report `/actuator/health` as `OUT_OF_SERVICE` (HTTP 503), and refuse new turns with 503 `INSTANCE_CONFLICT` until only one remains; turns already running finish normally. Do not use the health status as a liveness probe that restarts the container. See the [memory operations notes](docs/memory/operations.md#单实例保护).
+
 ## Local OAuth2 development
 
 The server encrypts tenant LLM API keys with `LLM_CONFIG_SECRET`. Generate a Base64-encoded 32-byte key and provide it through the shell or your secret manager. Compose has no fallback value for this secret:
@@ -29,7 +35,7 @@ The server encrypts tenant LLM API keys with `LLM_CONFIG_SECRET`. Generate a Bas
 export LLM_CONFIG_SECRET="$(openssl rand -base64 32)"
 ```
 
-Keep `LLM_CONFIG_SECRET` stable while encrypted tenant keys need to be read, and use the same value on every server instance sharing that configuration; never commit it. The server's other production OAuth settings include `OAUTH2_AUTHORIZATION_URI`, `OAUTH2_TOKEN_URI`, `OAUTH2_USERINFO_URI`, optional `OAUTH2_REVOCATION_URI`, `OAUTH2_CLIENT_ID`, and `OAUTH2_CLIENT_SECRET`. Configure the claim mappings such as `OAUTH2_CLAIM_SUBJECT`, `OAUTH2_CLAIM_DISPLAY_NAME`, `OAUTH2_CLAIM_ROLES`, `OAUTH2_CLAIM_MANAGEABLE_ORG_IDS`, and `OAUTH2_CLAIM_READABLE_ORG_IDS` for your provider's user-info response. See the OAuth2 guide for the complete variable list and HTTPS requirements.
+Keep `LLM_CONFIG_SECRET` stable while encrypted tenant keys need to be read, including across restarts, redeployments, and restores of the same database; never commit it. The server's other production OAuth settings include `OAUTH2_AUTHORIZATION_URI`, `OAUTH2_TOKEN_URI`, `OAUTH2_USERINFO_URI`, optional `OAUTH2_REVOCATION_URI`, `OAUTH2_CLIENT_ID`, and `OAUTH2_CLIENT_SECRET`. Configure the claim mappings such as `OAUTH2_CLAIM_SUBJECT`, `OAUTH2_CLAIM_DISPLAY_NAME`, `OAUTH2_CLAIM_ROLES`, `OAUTH2_CLAIM_MANAGEABLE_ORG_IDS`, and `OAUTH2_CLAIM_READABLE_ORG_IDS` for your provider's user-info response. See the OAuth2 guide for the complete variable list and HTTPS requirements.
 
 The default Compose service is the server image and does not enable or depend on the mock OAuth2 provider. The opt-in `local-mock` profile starts an isolated server, the mock identity provider, MySQL, and Redis with separate local data volumes. Package the server and mock applications first so Compose can mount the mock provider JAR:
 

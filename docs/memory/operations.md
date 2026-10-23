@@ -16,3 +16,14 @@
 - 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.delete cleanup failed`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
 - 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
 - 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+
+## 单实例保护
+
+- M1 只支持单实例部署（`replicas=1`），多实例不受支持。`InstanceGuard` 在启动时于 `service_instances` 登记本实例，此后每隔 `app.memory.instance-heartbeat-interval`（默认 10 秒）续期。心跳与判定都使用数据库时间。
+- 判定规则：同一 `app.memory.namespace`（默认 `default`）中存在另一实例，且其心跳在 `app.memory.instance-stale-after`（默认 30 秒）以内，即为冲突。不同命名空间互不影响；超过 30 秒未续期的记录（例如崩溃的旧进程）不算冲突，超过 1 天的此类记录会被自动删除。
+- 冲突期间：每次心跳都以 ERROR 级别记录 `memory.instance INSTANCE_CONFLICT`；指标 `memory.instance.conflict` 为 1（否则为 0）；`/actuator/health` 返回 `OUT_OF_SERVICE`（HTTP 503）；新执行请求（`POST /api/chat`、`POST /api/chat/stream`）返回 503 `INSTANCE_CONFLICT`，包括相同 `X-Request-Id` 的重放。已在运行的执行不受影响，会正常结束。所有实例都会拒绝新执行，直到只剩一个实例。
+- 恢复：停掉多余实例。正常停止会删除自己的登记记录，剩余实例在下一次心跳（最多 10 秒）时恢复，日志出现 `conflict cleared`；被强制终止的实例要等其心跳超过 30 秒才不再计入。
+- 心跳失败（数据库不可用）时记录 WARN `memory.instance heartbeat failed`，并保持上一次的判定结果，不会因此误判冲突或解除冲突。
+- 健康检查只暴露 `/actuator/health`，默认不显示组件与详情；`/actuator/health/memoryInstance` 等子路径也不可访问。不要把它配置成会重启容器的存活探针（liveness），否则冲突时两个实例会被反复重启；用作就绪探针或告警即可。
+- 为什么冲突时拒绝而不只是告警：多实例下取消信号、执行权和清理任务的可靠性都没有保证，只告警不拒绝仍属于不受支持的部署。
+- `app.memory.instance-guard-enabled=false` 会关闭心跳（仅用于没有 memory 表的测试），生产环境保持默认值 `true`。
