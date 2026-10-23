@@ -74,7 +74,7 @@ class ConversationHistoryTest {
                 .createOwned(conversation, ALICE, "seed").block(WAIT);
         for (int i = 1; i <= count; i++) {
             var turnId = NonBlockingIds.uuid();
-            support.fixture.jdbc().update("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, request_id,"
+            support.fixture.jdbc().update("INSERT INTO chat_turns (id, tenant_id, subject, conversation_id, idempotency_key,"
                     + " request_hash, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'COMPLETED', ?, ?)",
                     turnId, ALICE.tenantId(), ALICE.subject(), conversation, "seed-" + i, "0".repeat(64),
                     LocalDateTime.now(), LocalDateTime.now());

@@ -171,11 +171,14 @@ class TurnStreamingIntegrationTest {
         assertThat(first).anySatisfy(l -> assertThat(l).contains("\"type\":\"done\""));
 
         var legacyReplay = stream(legacy(conversation, "same-key", "问题"));
-        var openAiReplay = stream(completions(conversation, "same-key", "问题"));
+        // The endpoint is part of the fingerprint: the same key on the other endpoint is a different request.
+        expectError(completions(conversation, "same-key", "问题"), 409, "IDEMPOTENCY_CONFLICT");
+        stream(completions(conversation, "openai-key", "问题"));
+        var openAiReplay = stream(completions(conversation, "openai-key", "问题"));
 
-        assertThat(answerCalls).hasValue(1);
-        assertThat(stack.turnCount(conversation)).isEqualTo(1);
-        assertThat(stack.messageCount(conversation, "user")).isEqualTo(1);
+        assertThat(answerCalls).hasValue(2);
+        assertThat(stack.turnCount(conversation)).isEqualTo(2);
+        assertThat(stack.messageCount(conversation, "user")).isEqualTo(2);
         assertThat(legacyReplay).containsExactly(
                 "{\"type\":\"delta\",\"content\":\"你好\"}",
                 "{\"type\":\"usage\",\"prompt_tokens\":2,\"completion_tokens\":3,\"total_tokens\":5}",
@@ -194,10 +197,15 @@ class TurnStreamingIntegrationTest {
         assertThat(activeTurn).isNotNull();
 
         legacy(conversation, "second", "二").exchange().expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn + "\"}");
-        completions(conversation, "first", "一").exchange().expectStatus().isEqualTo(409)
-                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn + "\"}");
-        completions(conversation, "first", "不同的文本").exchange().expectStatus().isEqualTo(409)
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
+        legacy(conversation, "first", "一").exchange().expectStatus().isEqualTo(409)
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
+        completions(conversation, "other", "一").exchange().expectStatus().isEqualTo(409)
+                .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + activeTurn
+                        + "\",\"conversationId\":\"" + conversation + "\"}");
+        legacy(conversation, "first", "不同的文本").exchange().expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.code").isEqualTo("IDEMPOTENCY_CONFLICT");
         running.getResponseBody().take(1).blockLast(WAIT);
     }
@@ -265,14 +273,187 @@ class TurnStreamingIntegrationTest {
                 "{\"type\":\"done\"}");
     }
 
+    // --- Idempotency-Key scoped to (tenant, subject, key): the duplicate-billing release gate (spec 13) ------
+
+    private List<java.util.Map<String, Object>> keyedTurns(String key) {
+        return stack.rows("SELECT id, conversation_id, status FROM chat_turns WHERE tenant_id = ? AND subject = ?"
+                + " AND idempotency_key = ?", identity.tenantId(), identity.subject(), key);
+    }
+
+    private int sessionsOf(MemoryScope scope) {
+        return stack.rows("SELECT id FROM sessions WHERE tenant_id = ? AND user_id = ?", scope.tenantId(),
+                scope.subject()).size();
+    }
+
+    private static void expectError(WebTestClient.RequestHeadersSpec<?> request, int status, String code) {
+        request.exchange().expectStatus().isEqualTo(status).expectBody().jsonPath("$.code").isEqualTo(code);
+    }
+
     @Test
-    void retryWithoutConversationIdCreatesNewTurnOnBothEndpoints() {
-        // Known gap (spec 13): without a conversationId the key is scoped to a fresh conversation, so a retry
-        // of the first request runs the model again. Production gate; flip this assertion once fixed.
-        stream(legacy(null, "retry-key", "第一句"));
-        stream(legacy(null, "retry-key", "第一句"));
-        stream(completions(null, "retry-key", "第一句"));
-        stream(completions(null, "retry-key", "第一句"));
+    void retryWithoutConversationIdReplaysInsteadOfReExecutingOnBothEndpoints() {
+        var firstLegacy = stream(legacy(null, "retry-legacy", "第一句"));
+        var retryLegacy = stream(legacy(null, "retry-legacy", "第一句"));
+        var firstOpenAi = stream(completions(null, "retry-openai", "第一句"));
+        var retryOpenAi = stream(completions(null, "retry-openai", "第一句"));
+
+        assertThat(answerCalls).as("each first request runs the model once; retries replay").hasValue(2);
+        assertThat(firstLegacy).contains("{\"type\":\"delta\",\"content\":\"你好\"}");
+        assertThat(retryLegacy).anyMatch(line -> line.contains("你好")).last().isEqualTo("{\"type\":\"done\"}");
+        assertThat(firstOpenAi).anyMatch(line -> line.contains("你好"));
+        assertThat(retryOpenAi).anyMatch(line -> line.contains("你好")).last().isEqualTo("[DONE]");
+        assertThat(sessionsOf(TurnTestSupport.ALICE)).as("no duplicate conversations").isEqualTo(2);
+        assertThat(keyedTurns("retry-legacy")).singleElement()
+                .satisfies(row -> assertThat(row.get("STATUS")).isEqualTo("COMPLETED"));
+        assertThat(keyedTurns("retry-openai")).hasSize(1);
+        assertThat(stack.rows("SELECT id FROM chat_turns")).hasSize(2);
+    }
+
+    @Test
+    void sameKeyWithADifferentRequestIsAConflict() {
+        stream(legacy(null, "k-1", "一"));
+
+        expectError(legacy(null, "k-1", "二"), 409, "IDEMPOTENCY_CONFLICT");
+        expectError(completions(null, "k-1", "一"), 409, "IDEMPOTENCY_CONFLICT");
+        var conversation = keyedTurns("k-1").getFirst().get("CONVERSATION_ID").toString();
+        expectError(legacy(conversation, "k-1", "一"), 409, "IDEMPOTENCY_CONFLICT");
+        expectError(legacy(MemoryTestStack.newConversationId(), "k-1", "一"), 409, "IDEMPOTENCY_CONFLICT");
+
+        assertThat(answerCalls).hasValue(1);
+        assertThat(sessionsOf(TurnTestSupport.ALICE)).isEqualTo(1);
+    }
+
+    @Test
+    void retryWhileTheFirstRequestIsStillRunningIs409WithItsTurnId() {
+        // The first response is accepted but its stream is not consumed yet, so the turn stays in progress.
+        var first = legacy(null, "k-busy", "长问题").exchange().expectStatus().isOk().returnResult(String.class);
+        var turnId = keyedTurns("k-busy").getFirst().get("ID").toString();
+        // The client never saw the first response, so the 409 tells it which conversation the key belongs to.
+        var conversation = keyedTurns("k-busy").getFirst().get("CONVERSATION_ID").toString();
+        var expected = "{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"" + turnId + "\",\"conversationId\":\""
+                + conversation + "\"}";
+
+        legacy(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409).expectBody().json(expected);
+        completions(null, "k-busy", "长问题").exchange().expectStatus().isEqualTo(409).expectBody()
+                .jsonPath("$.code").isEqualTo("IDEMPOTENCY_CONFLICT");
+
+        first.getResponseBody().collectList().block(WAIT);
+        assertThat(answerCalls).hasValue(1);
+        assertThat(sessionsOf(TurnTestSupport.ALICE)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentFirstRequestsWithTheSameKeyExecuteOnceOnBothEndpoints() throws Exception {
+        for (var endpoint : List.of("legacy", "openai")) {
+            var key = "k-race-" + endpoint;
+            Function<String, WebTestClient.RequestHeadersSpec<?>> request = text -> endpoint.equals("legacy")
+                    ? legacy(null, key, text) : completions(null, key, text);
+            int racers = 4;
+            var barrier = new java.util.concurrent.CyclicBarrier(racers);
+            var pool = java.util.concurrent.Executors.newFixedThreadPool(racers);
+            try {
+                var futures = new java.util.ArrayList<java.util.concurrent.Future<
+                        org.springframework.test.web.reactive.server.FluxExchangeResult<String>>>();
+                for (int i = 0; i < racers; i++) {
+                    futures.add(pool.submit(() -> {
+                        barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                        return request.apply("同时发出").exchange().returnResult(String.class);
+                    }));
+                }
+                var results = new java.util.ArrayList<org.springframework.test.web.reactive.server.FluxExchangeResult<String>>();
+                for (var f : futures) {
+                    results.add(f.get(30, java.util.concurrent.TimeUnit.SECONDS));
+                }
+                var winners = results.stream().filter(r -> r.getStatus().value() == 200).toList();
+                assertThat(winners).as(endpoint + ": exactly one request is accepted").hasSize(1);
+                var turnId = keyedTurns(key).getFirst().get("ID").toString();
+                var conversation = keyedTurns(key).getFirst().get("CONVERSATION_ID").toString();
+                for (var loser : results) {
+                    if (loser.getStatus().value() != 200) {
+                        assertThat(loser.getStatus().value()).isEqualTo(409);
+                        assertThat(loser.getResponseBody().collectList().block(WAIT)).singleElement().asString()
+                                .contains("\"TURN_IN_PROGRESS\"").contains(turnId)
+                                .contains("\"conversationId\":\"" + conversation + "\"");
+                    }
+                }
+                winners.getFirst().getResponseBody().collectList().block(WAIT);
+            } finally {
+                pool.shutdownNow();
+            }
+            assertThat(keyedTurns(key)).hasSize(1);
+        }
+        assertThat(answerCalls).hasValue(2);
+        assertThat(sessionsOf(TurnTestSupport.ALICE)).as("losers leave no conversation behind").isEqualTo(2);
+        // A retry after completion replays.
+        stream(legacy(null, "k-race-legacy", "同时发出"));
+        assertThat(answerCalls).hasValue(2);
+    }
+
+    @Test
+    void keysAreScopedPerTenantAndSubject() {
+        when(resolver.resolve(any())).thenReturn(Mono.just(llm));
+        stream(legacy(null, "shared-key", "一"));
+        identity = identity(new MemoryScope("tenant-1", "bob"));
+        stream(legacy(null, "shared-key", "一"));
+        identity = identity(TurnTestSupport.ALICE_OTHER_TENANT);
+        stream(legacy(null, "shared-key", "一"));
+
+        assertThat(answerCalls).hasValue(3);
+        assertThat(stack.rows("SELECT id FROM chat_turns WHERE idempotency_key = ?", "shared-key")).hasSize(3);
+    }
+
+    @Test
+    void retryForADeletedConversationIsNotFoundNotReplayed() {
+        stream(legacy(null, "k-deleted", "一"));
+        var conversation = keyedTurns("k-deleted").getFirst().get("CONVERSATION_ID").toString();
+        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), title = '' WHERE id = ?", conversation);
+
+        expectError(legacy(null, "k-deleted", "一"), 404, "CONVERSATION_NOT_FOUND");
+        assertThat(answerCalls).hasValue(1);
+    }
+
+    @Test
+    void aKeyOlderThanTheRetentionStartsANewTurn() {
+        stream(legacy(null, "k-old", "一"));
+        stack.sql("UPDATE chat_turns SET created_at = TIMESTAMPADD(HOUR, -25, created_at) WHERE idempotency_key = ?",
+                "k-old");
+
+        stream(legacy(null, "k-old", "一"));
+
+        assertThat(answerCalls).hasValue(2);
+        assertThat(keyedTurns("k-old")).as("the expired key moved to the new turn").hasSize(1);
+        assertThat(sessionsOf(TurnTestSupport.ALICE)).isEqualTo(2);
+    }
+
+    @Test
+    void retentionCleanupReleasesOnlyExpiredKeysOfFinishedTurns(@org.junit.jupiter.api.io.TempDir java.nio.file.Path uploads) {
+        stream(legacy(null, "k-expired", "一"));
+        stream(legacy(null, "k-recent", "二"));
+        var running = legacy(null, "k-running", "三").exchange().expectStatus().isOk().returnResult(String.class);
+        stack.sql("UPDATE chat_turns SET created_at = TIMESTAMPADD(HOUR, -25, created_at)"
+                + " WHERE idempotency_key IN ('k-expired', 'k-running')");
+        var expiredTurn = keyedTurns("k-expired").getFirst().get("ID").toString();
+        var uploadProps = new io.github.sukimiya.agileagent.config.UploadProperties();
+        uploadProps.setDir(uploads.toString());
+        var maintenance = new MemoryMaintenance(stack.fixture().connectionFactory(), stack.fixture().databaseClient(),
+                stack.cache(), new io.github.sukimiya.agileagent.service.FileStorageService(uploadProps), stack.props(),
+                stack.metrics());
+
+        assertThat(maintenance.releaseExpiredIdempotencyKeys().block(WAIT)).isEqualTo(1L);
+
+        assertThat(keyedTurns("k-expired")).isEmpty();
+        assertThat(keyedTurns("k-recent")).hasSize(1);
+        assertThat(keyedTurns("k-running")).as("an active turn keeps its key").hasSize(1);
+        assertThat(stack.status(expiredTurn)).as("the turn itself is kept").isEqualTo("COMPLETED");
+        running.getResponseBody().collectList().block(WAIT);
+    }
+
+    @Test
+    void withoutAKeyIdenticalTextIsNeverDeduplicated() {
+        stream(legacy(null, null, "同一句"));
+        stream(legacy(null, null, "同一句"));
+        var conversation = MemoryTestStack.newConversationId();
+        stream(legacy(conversation, null, "同一句"));
+        stream(legacy(conversation, null, "同一句"));
 
         assertThat(answerCalls).hasValue(4);
     }

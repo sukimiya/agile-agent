@@ -45,9 +45,11 @@ import reactor.core.publisher.Mono;
 
 /**
  * Both chat entry points share one acceptance path: resolve the tenant scope (403), validate the optional
- * {@code Idempotency-Key} (400), check read-only that the conversation is unused or the caller's (404), resolve
- * the tenant model (428, before any write), then durably accept the turn (409/413/503 via
- * {@code MemoryExceptionHandler}). Only after acceptance is the 200 SSE response returned.
+ * {@code Idempotency-Key} (400), check read-only that a client-supplied conversation is unused or the caller's
+ * (404), resolve the tenant model (428, before any write), then durably accept the turn (409/413/503 via
+ * {@code MemoryExceptionHandler}). Only after acceptance is the 200 SSE response returned. Without a
+ * {@code conversationId} no id is generated here: {@link TurnLifecycle#accept} looks the key up in the caller's
+ * scope first and creates a conversation only for a new request, so a retried first request is replayed.
  */
 @RestController
 @RequestMapping("/api")
@@ -55,6 +57,8 @@ import reactor.core.publisher.Mono;
 public class ChatController {
 
     static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+    static final String COMPLETIONS_ENDPOINT = "POST /api/chat/completions";
+    static final String CHAT_ENDPOINT = "POST /api/chat";
     static final String HAS_MORE = "X-Has-More";
     static final String NEXT_CURSOR = "X-Next-Cursor";
     static final int DEFAULT_PAGE = 100;
@@ -86,10 +90,9 @@ public class ChatController {
         var messages = getMessages(body);
         var userMsg = messages.isEmpty() ? "" :
                 messages.get(messages.size() - 1).getOrDefault("content", "");
-        var conversationId = Optional.ofNullable(body.get("conversationId")).map(Object::toString)
-                .orElseGet(NonBlockingIds::uuid);
+        var conversationId = Optional.ofNullable(body.get("conversationId")).map(Object::toString).orElse(null);
         var chunkId = "chatcmpl-" + NonBlockingIds.shortUuid();
-        return startTurn(user, conversationId, idempotencyKey, userMsg,
+        return startTurn(user, COMPLETIONS_ENDPOINT, conversationId, idempotencyKey, userMsg,
                 (accepted, llm) -> openAiStream(accepted, user, chunkId, llm));
     }
 
@@ -100,19 +103,23 @@ public class ChatController {
                 .concatWithValues("[DONE]");
     }
 
-    private Mono<ResponseEntity<?>> startTurn(AuthSessionStore.AuthUser user, String conversationId,
+    private Mono<ResponseEntity<?>> startTurn(AuthSessionStore.AuthUser user, String endpoint, String conversationId,
                                               String idempotencyKey, String text,
                                               BiFunction<AcceptedTurn, LlmClient, Flux<String>> stream) {
         return Mono.defer(() -> {
-            // A client-supplied id is used exactly as given or rejected (400); generated ids are canonical.
-            ConversationIds.validate(conversationId);
+            // A client-supplied id is used exactly as given or rejected (400); null means "new conversation".
+            if (conversationId != null) {
+                ConversationIds.validate(conversationId);
+            }
             var scope = MemoryScope.of(user.identity());
-            var requestId = idempotencyKey != null ? idempotencyKey : NonBlockingIds.uuid();
-            if (!TurnLifecycle.isValidRequestId(requestId)) {
+            if (idempotencyKey != null && !TurnLifecycle.isValidRequestId(idempotencyKey)) {
                 return Mono.error(new MemoryException(MemoryException.ErrorCode.INVALID_IDEMPOTENCY_KEY));
             }
-            var command = new TurnCommand(scope, conversationId, requestId, text == null ? "" : text);
-            return sessionService.verifyAccess(conversationId, scope)
+            // The request has no attachment ids today; attachments are bound to the conversation by upload.
+            var command = new TurnCommand(scope, endpoint, conversationId, idempotencyKey, text == null ? "" : text,
+                    List.of());
+            var access = conversationId == null ? Mono.<Void>empty() : sessionService.verifyAccess(conversationId, scope);
+            return access
                     .then(Mono.defer(() -> llmResolver.resolve(scope.tenantId())))
                     .flatMap(llm -> lifecycle.accept(command)
                             .<ResponseEntity<?>>map(accepted -> ResponseEntity.ok()
@@ -188,10 +195,7 @@ public class ChatController {
     Mono<ResponseEntity<?>> chat(@RequestBody ChatRequest request,
                                  @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
                                  @CurrentUser AuthSessionStore.AuthUser user) {
-        var conversationId = request.conversationId() != null
-                ? request.conversationId()
-                : NonBlockingIds.uuid();
-        return startTurn(user, conversationId, idempotencyKey, request.message(),
+        return startTurn(user, CHAT_ENDPOINT, request.conversationId(), idempotencyKey, request.message(),
                 (accepted, llm) -> orchestrator.chat(accepted, user.accessToken(), user.identity(), llm));
     }
 

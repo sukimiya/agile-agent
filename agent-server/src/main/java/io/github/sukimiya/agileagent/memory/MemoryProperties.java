@@ -25,6 +25,8 @@ public class MemoryProperties {
     private Duration leaseRenewInterval = Duration.ofSeconds(15);
     private Duration recoveryScanInterval = Duration.ofSeconds(30);
     private Duration cleanupScanInterval = Duration.ofSeconds(30);
+    /** How long an Idempotency-Key stays bound to its turn (counted from acceptance); then it is released. */
+    private Duration idempotencyKeyRetention = Duration.ofHours(24);
     /** Runs the expired-turn recovery scan at startup and every {@link #recoveryScanInterval}. */
     private boolean recoveryEnabled = true;
     private Duration checkpointInterval = Duration.ofSeconds(5);
@@ -66,6 +68,8 @@ public class MemoryProperties {
     public void setRecoveryScanInterval(Duration v) { this.recoveryScanInterval = v; }
     public Duration getCleanupScanInterval() { return cleanupScanInterval; }
     public void setCleanupScanInterval(Duration v) { this.cleanupScanInterval = v; }
+    public Duration getIdempotencyKeyRetention() { return idempotencyKeyRetention; }
+    public void setIdempotencyKeyRetention(Duration v) { this.idempotencyKeyRetention = v; }
     public boolean isRecoveryEnabled() { return recoveryEnabled; }
     public void setRecoveryEnabled(boolean v) { this.recoveryEnabled = v; }
     public Duration getCheckpointInterval() { return checkpointInterval; }

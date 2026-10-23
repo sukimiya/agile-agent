@@ -32,24 +32,29 @@ public class MemoryException extends RuntimeException {
 
     private final ErrorCode code;
     private final String turnId;
+    private final String conversationId;
 
     public MemoryException(ErrorCode code) {
-        this(code, null, null);
+        this(code, null, null, null);
     }
 
     public MemoryException(ErrorCode code, Throwable cause) {
-        this(code, null, cause);
+        this(code, null, null, cause);
     }
 
-    private MemoryException(ErrorCode code, String turnId, Throwable cause) {
+    private MemoryException(ErrorCode code, String turnId, String conversationId, Throwable cause) {
         super(code.name(), cause);
         this.code = code;
         this.turnId = turnId;
+        this.conversationId = conversationId;
     }
 
-    /** An active turn already owns the conversation; the 409 response carries its id. */
-    public static MemoryException turnInProgress(String turnId) {
-        return new MemoryException(ErrorCode.TURN_IN_PROGRESS, turnId, null);
+    /**
+     * An active turn already owns the conversation, or the same key's request is still running; the 409 response
+     * carries the turn id and its conversation id (a client retrying a first request may not know the latter).
+     */
+    public static MemoryException turnInProgress(String turnId, String conversationId) {
+        return new MemoryException(ErrorCode.TURN_IN_PROGRESS, turnId, conversationId, null);
     }
 
     public ErrorCode code() {
@@ -59,5 +64,10 @@ public class MemoryException extends RuntimeException {
     /** Active turn id for {@link ErrorCode#TURN_IN_PROGRESS}; {@code null} otherwise. */
     public String turnId() {
         return turnId;
+    }
+
+    /** Conversation of the active turn for {@link ErrorCode#TURN_IN_PROGRESS}; {@code null} otherwise. */
+    public String conversationId() {
+        return conversationId;
     }
 }

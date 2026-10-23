@@ -13,9 +13,9 @@ import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 
 /**
- * Maps {@link MemoryException} to its stable HTTP status and body {@code {code, message[, turnId]}}. The body
- * never carries the underlying cause, SQL, paths or credentials; {@code turnId} appears only for
- * {@code TURN_IN_PROGRESS}. Errors after the SSE response is committed are reported in-stream by the
+ * Maps {@link MemoryException} to its stable HTTP status and body {@code {code, message[, turnId, conversationId]}}.
+ * The body never carries the underlying cause, SQL, paths or credentials; {@code turnId} and {@code conversationId}
+ * appear only for {@code TURN_IN_PROGRESS}. Errors after the SSE response is committed are reported in-stream by the
  * orchestrator instead.
  */
 @RestControllerAdvice
@@ -24,7 +24,7 @@ public class MemoryExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(MemoryExceptionHandler.class);
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record MemoryError(String code, String message, String turnId) {}
+    public record MemoryError(String code, String message, String turnId, String conversationId) {}
 
     @ExceptionHandler(MemoryException.class)
     ResponseEntity<MemoryError> handle(MemoryException exception) {
@@ -34,7 +34,7 @@ public class MemoryExceptionHandler {
                     NestedExceptionUtils.getMostSpecificCause(exception).toString());
         }
         return ResponseEntity.status(code.httpStatus())
-                .body(new MemoryError(code.name(), message(code), exception.turnId()));
+                .body(new MemoryError(code.name(), message(code), exception.turnId(), exception.conversationId()));
     }
 
     static String message(ErrorCode code) {

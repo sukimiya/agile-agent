@@ -150,9 +150,12 @@ M1 中客户端断开连接等同于取消：执行的生命周期跟随 SSE 订
 
 ### 6.4 幂等承诺与上线门槛
 
-- M1 保证：在已建立的会话内（请求携带已存在且属于当前用户的 conversationId），同一 `Idempotency-Key` 不会被接受两次；相同 key、相同输入重放已有结果或返回 409，相同 key、不同输入返回 409 `IDEMPOTENCY_CONFLICT`。
-- M1 不保证：未携带 conversationId 的首个请求被重试时不重复执行。两个聊天入口在这种情况下都会生成新的会话 ID（`ChatController.java:64` 与 `:153-155`），key 无法命中，可能重复执行和重复计费。
-- 该承诺与上线门槛分开管理：正式生产上线前，两个入口都必须修复并通过验证，见第 13 节。
+- 保证（V9 起）：`Idempotency-Key` 在 `(tenant, subject, key)` 范围内唯一，不依赖 conversationId，保留 24 小时。请求指纹是 SHA-256(入口、客户端给出的 conversationId、消息内容、附件 ID)。
+  - 相同 key、相同指纹：已完成则重放，进行中返回 409 `TURN_IN_PROGRESS` 并带 turnId。
+  - 相同 key、不同指纹：返回 409 `IDEMPOTENCY_CONFLICT`。
+  - 两个入口都在查找 key 之后才生成新的会话 ID，所以未携带 conversationId 的首个请求重试时不会重复执行。
+- 未带 key 的请求仍视为独立请求，不凭文本去重。
+- 原 M1 只在已建立的会话内生效的限制已由第 13 节的修复取代。
 
 ## 7. 上下文与关键记忆
 
@@ -296,7 +299,7 @@ M1：
 
 1. Redis 清空、损坏或不可用后，仍能通过 MySQL 分页读取已提交历史；不同用户和租户不能读到彼此消息。
 2. 覆盖正常结束、客户端断开（直接回答分支和能力分支都要测：断开后上游收到 cancel、未开始的工具不执行、汇总模型调用不启动）、超时、模型异常、进程退出、失去 fence 和数据库失败；终态符合 6.2 的映射，最后成功检查点可解释；收尾器失败时由恢复扫描标记 INTERRUPTED；已发出的外部写操作标记为不确定。
-3. 在已建立的会话内，同一幂等请求不重复入库；不同输入复用同一 ID 返回冲突；同会话并发不覆盖已接受消息；活跃执行冲突返回 409 并带 turnId。
+3. 同一用户的同一幂等请求不重复入库（V9 起不依赖会话，含未带 conversationId 的首个请求）；不同输入复用同一 ID 返回冲突；同会话并发不覆盖已接受消息；活跃执行冲突返回 409 并带 turnId。
 4. 两个聊天入口均回归，现有流式事件格式和 capability provider 契约保持不变。
 5. 附件：不符合会话 ID 统一规则的值在所有入口返回 400，`a/b`、`a..b`、`a_b`、大小写变体等不会映射到同一目录；他人或其他租户的上传和下载均返回 404，删除一个会话不会删除其他会话的附件；上传响应和所有错误响应体都不包含服务器路径；临时附件 24 小时清理照常执行，并在 API 说明中写明附件原件不保证永久可恢复。
 6. 单实例：部署配置声明 replicas=1；同一数据库命名空间出现第二个活跃实例时产生告警，并拒绝接受新执行。
@@ -339,8 +342,14 @@ M2b：
 
 ## 13. 已知问题与上线门槛
 
-- 重复执行/重复计费：`Idempotency-Key` 在 M1 只在已建立的会话内生效。两个聊天入口在请求未携带 conversationId 时都会生成新的会话 ID：OpenAI 兼容入口 `POST /api/chat/completions`（`ChatController.java:64`）和 `POST /api/chat`（`ChatController.java:153-155`）。客户端对首个请求重试时，即使带同一个 key 也会被当作新请求，导致重复执行、重复调用模型和重复计费。
-- 处理方式：M1 只记录该问题和现有行为，不作为 M1 的功能承诺；但这是生产上线门槛：正式生产上线前，两个入口都必须修复并通过验证（重试不重复调用模型、不重复计费）。建议修复方向：幂等键按 `(tenant, subject)` 唯一并保存请求指纹，或带 key 时必须带 conversationId；重复请求返回已有结果或 409。独立的问题说明尚未合入 main，见 [PR #1](https://github.com/sukimiya/agile-agent/pull/1)。
+- 重复执行/重复计费（**已修复**，[5ac08b3](https://github.com/sukimiya/agile-agent/commit/5ac08b3)，分支 `codex/idempotency-user-scope`）：原 M1 的 `Idempotency-Key` 只在已建立的会话内生效。两个聊天入口在请求未携带 conversationId 时都会先生成新的会话 ID，所以首个请求重试会重复执行和重复计费。
+- 修复采用问题说明中的方案 1（用户于 2026-10-23 批准）：
+  - V9 迁移把 key 改为按 `(tenant_id, subject, idempotency_key)` 唯一，并保存请求指纹。
+  - 两个入口都先查找 key，再生成会话 ID。
+  - 相同指纹：已完成则重放，进行中返回 409 `TURN_IN_PROGRESS` 带 turnId；不同指纹返回 409 `IDEMPOTENCY_CONFLICT`。
+  - key 保留 24 小时后由清理扫描释放。
+  - 不凭文本去重。
+- 验证：两个入口在 H2 和 MySQL 上的重试回归测试都已通过（`TurnStreamingIntegrationTest` 及其 MySQL 变体），覆盖同一 key 的并发首个请求。上线门槛的修复条件已满足。问题说明见 `docs/known-issues/2026-10-21-idempotency-duplicate-billing.md`。
 
 ## 14. 后置设计（不在本期承诺）
 
