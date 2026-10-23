@@ -40,9 +40,11 @@ public class ConversationHistory {
     private final ConversationRepository conversations;
     private final HotMemoryCache cache;
     private final MemoryProperties props;
+    private final MemoryMetrics metrics;
 
     public ConversationHistory(DatabaseClient db, SessionRepository sessions, ConversationRepository conversations,
-            HotMemoryCache cache, MemoryProperties props) {
+            HotMemoryCache cache, MemoryProperties props, MemoryMetrics metrics) {
+        this.metrics = metrics;
         this.db = db;
         this.sessions = sessions;
         this.conversations = conversations;
@@ -75,7 +77,8 @@ public class ConversationHistory {
                         .bind("turnId", ticket.turnId())
                         .map(row -> conversations.deserialize(row.get("payload", String.class)))
                         .all()
-                        .collectList());
+                        .collectList())
+                .doOnNext(metrics::historyInjected);
     }
 
     /** The turn's own user message text (the current question), read from durable storage. */
@@ -100,8 +103,12 @@ public class ConversationHistory {
         var conversationId = session.id();
         return cache.get(scope, conversationId, session.revision())
                 .filter(window -> window.items().size() >= limit || !window.hasMore())
-                .map(window -> fromWindow(window, limit))
+                .map(window -> {
+                    metrics.cacheHit();
+                    return fromWindow(window, limit);
+                })
                 .switchIfEmpty(Mono.defer(() -> {
+                    metrics.cacheMiss();
                     var windowSize = props.getCacheMaxMessages();
                     return newestBefore(scope, conversationId, null, Math.max(limit, windowSize)).flatMap(rows -> {
                         var page = toPage(rows, limit);

@@ -39,6 +39,7 @@ public class TurnFinalizer implements DisposableBean {
     private final TurnRepository turns;
     private final ConversationRepository conversations;
     private final MemoryProperties props;
+    private final MemoryMetrics metrics;
     private final TransactionalOperator transactions;
     private final Sinks.Many<Request> queue = Sinks.many().unicast()
             .onBackpressureBuffer(Queues.<Request>get(QUEUE_CAPACITY).get());
@@ -48,7 +49,8 @@ public class TurnFinalizer implements DisposableBean {
     private final AtomicLong failed = new AtomicLong();
 
     public TurnFinalizer(ConnectionFactory connectionFactory, TurnRepository turns,
-            ConversationRepository conversations, MemoryProperties props) {
+            ConversationRepository conversations, MemoryProperties props, MemoryMetrics metrics) {
+        this.metrics = metrics;
         this.turns = turns;
         this.conversations = conversations;
         this.props = props;
@@ -81,15 +83,21 @@ public class TurnFinalizer implements DisposableBean {
                 }
             }
             var textToSave = storedText;
+            var writtenStatus = finalStatus;
             var write = turns.markTerminal(ticket, finalStatus, usage, finalCode)
                     .flatMap(owned -> !owned ? Mono.just(false)
                             : (textToSave == null ? Mono.<Void>empty() : conversations.saveAssistantText(ticket, textToSave))
                                     .then(conversations.bumpRevision(ticket.conversationId()))
                                     .thenReturn(true));
-            return transactions.transactional(write);
+            return transactions.transactional(write).doOnNext(written -> {
+                if (written) {
+                    metrics.terminal(writtenStatus);
+                }
+            });
         })
                 .timeout(props.getFinalizerTimeout())
                 .onErrorResume(e -> {
+                    metrics.finalizerFailure();
                     log.warn("memory.finalizer write failed turnId={} status={}: {}", ticket.turnId(), status,
                             NestedExceptionUtils.getMostSpecificCause(e).toString());
                     return Mono.just(false);
@@ -109,6 +117,7 @@ public class TurnFinalizer implements DisposableBean {
         }
         if (result.isFailure()) {
             failed.incrementAndGet();
+            metrics.finalizerFailure();
             log.warn("memory.finalizer queue rejected turnId={} status={} result={}; recovery scan will interrupt it",
                     ticket.turnId(), status, result);
             return false;

@@ -83,10 +83,10 @@ class MemoryDeletionTest {
         files = spy(new FileStorageService(uploads));
         var sessionRepository = new SessionRepository(fixture.databaseClient());
         history = new ConversationHistory(fixture.databaseClient(), sessionRepository, support.conversations, cache,
-                support.props);
+                support.props, support.metrics);
         sessions = new SessionService(sessionRepository);
         maintenance = new MemoryMaintenance(fixture.connectionFactory(), fixture.databaseClient(), cache, files,
-                support.props);
+                support.props, support.metrics);
     }
 
     @AfterEach
@@ -174,6 +174,20 @@ class MemoryDeletionTest {
         // The id stays taken: neither chat nor upload can bring the conversation back.
         assertNotFound(support.lifecycle.accept(new TurnCommand(ALICE, conversation, "k-again", "复活")));
         assertNotFound(sessions.createOwned(conversation, ALICE, "复活"));
+    }
+
+    @Test
+    void deletionInterruptCountsAsInterruptedTerminalOnce() {
+        var conversation = newConversationId();
+        var ticket = accept(ALICE, conversation, "还没开始");
+
+        delete(ALICE, conversation);
+        delete(ALICE, conversation);
+
+        assertThat(support.status(ticket.turnId())).isEqualTo("INTERRUPTED");
+        var interrupted = support.meters.find("memory.turn.terminal").tag("status", "INTERRUPTED").counter();
+        assertThat(interrupted).isNotNull();
+        assertThat(interrupted.count()).isEqualTo(1.0);
     }
 
     @Test

@@ -27,6 +27,8 @@ final class TurnTestSupport implements AutoCloseable {
     final TurnLifecycle lifecycle;
     final ExpiredTurnRecovery recovery;
     final InstanceGuard guard;
+    final MeterRegistry meters;
+    final MemoryMetrics metrics;
 
     private TurnTestSupport(MemoryTestFixture fixture, Consumer<MemoryProperties> tune,
             UnaryOperator<TurnRepository> decorateTurns, MeterRegistry meters) {
@@ -34,14 +36,16 @@ final class TurnTestSupport implements AutoCloseable {
         this.props = new MemoryProperties();
         props.setFinalizerTimeout(Duration.ofSeconds(5));
         tune.accept(props);
+        this.meters = meters;
+        this.metrics = new MemoryMetrics(meters);
         var cf = fixture.connectionFactory();
         this.turns = decorateTurns.apply(new TurnRepository(fixture.databaseClient(), props));
         this.conversations = new ConversationRepository(fixture.databaseClient(), mapper);
-        this.finalizer = new TurnFinalizer(cf, turns, conversations, props);
+        this.finalizer = new TurnFinalizer(cf, turns, conversations, props, metrics);
         // Never started here: conflict() stays false unless a test drives heartbeat() itself.
         this.guard = new InstanceGuard(fixture.databaseClient(), props, meters);
-        this.lifecycle = new TurnLifecycle(cf, turns, conversations, finalizer, props, guard);
-        this.recovery = new ExpiredTurnRecovery(cf, turns, conversations, props);
+        this.lifecycle = new TurnLifecycle(cf, turns, conversations, finalizer, props, guard, metrics);
+        this.recovery = new ExpiredTurnRecovery(cf, turns, conversations, props, metrics);
     }
 
     static TurnTestSupport create(MemoryTestFixture fixture) {

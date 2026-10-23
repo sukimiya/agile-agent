@@ -42,7 +42,7 @@ public final class MemoryTestStack implements AutoCloseable {
         var cache = new HotMemoryCache(new ReactiveStringRedisTemplate(redisFactory), support.mapper, support.props);
         var sessionRepository = new SessionRepository(fixture.databaseClient());
         this.history = new ConversationHistory(fixture.databaseClient(), sessionRepository, support.conversations,
-                cache, support.props);
+                cache, support.props, support.metrics);
         this.sessions = new SessionService(sessionRepository);
     }
 
@@ -96,6 +96,28 @@ public final class MemoryTestStack implements AutoCloseable {
 
     public SessionService sessionService() {
         return sessions;
+    }
+
+    /** Meter registry behind this stack's {@link MemoryMetrics} (and its instance guard). */
+    public io.micrometer.core.instrument.MeterRegistry meters() {
+        return support.meters;
+    }
+
+    public TurnFinalizer finalizer() {
+        return support.finalizer;
+    }
+
+    public MemoryMetrics metrics() {
+        return support.metrics;
+    }
+
+    /** Runs a raw SQL update against the stack's database (test setup only). */
+    public int sql(String statement, Object... args) {
+        return support.fixture.jdbc().update(statement, args);
+    }
+
+    public java.util.List<Map<String, Object>> rows(String query, Object... args) {
+        return support.fixture.jdbc().queryForList(query, args);
     }
 
     public MemoryProperties props() {

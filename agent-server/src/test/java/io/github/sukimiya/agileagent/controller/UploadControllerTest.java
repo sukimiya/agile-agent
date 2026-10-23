@@ -34,6 +34,7 @@ import io.github.sukimiya.agileagent.LocalRedisTestServer;
 import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.memory.HotMemoryCache;
 import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
+import io.github.sukimiya.agileagent.memory.MemoryMetrics;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.service.FileStorageService;
@@ -70,8 +71,9 @@ class UploadControllerTest {
 
         @Bean
         @Primary
-        MemoryMaintenance ownershipMaintenance(HotMemoryCache cache, FileStorageService files, MemoryProperties props) {
-            return new MemoryMaintenance(DB.connectionFactory(), DB.databaseClient(), cache, files, props);
+        MemoryMaintenance ownershipMaintenance(HotMemoryCache cache, FileStorageService files, MemoryProperties props,
+                MemoryMetrics metrics) {
+            return new MemoryMaintenance(DB.connectionFactory(), DB.databaseClient(), cache, files, props, metrics);
         }
     }
 

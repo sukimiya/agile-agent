@@ -64,7 +64,8 @@ class ConversationHistoryTest {
 
     ConversationHistory historyWith(HotMemoryCache c) {
         return new ConversationHistory(support.fixture.databaseClient(),
-                new SessionRepository(support.fixture.databaseClient()), support.conversations, c, support.props);
+                new SessionRepository(support.fixture.databaseClient()), support.conversations, c, support.props,
+                support.metrics);
     }
 
     /** Creates an owned session with {@code count} messages, each in its own COMPLETED turn. */

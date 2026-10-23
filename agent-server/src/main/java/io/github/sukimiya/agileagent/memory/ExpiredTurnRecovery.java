@@ -30,11 +30,13 @@ public class ExpiredTurnRecovery implements SmartLifecycle {
     private final TurnRepository turns;
     private final ConversationRepository conversations;
     private final MemoryProperties props;
+    private final MemoryMetrics metrics;
     private final TransactionalOperator transactions;
     private volatile Disposable schedule;
 
     public ExpiredTurnRecovery(ConnectionFactory connectionFactory, TurnRepository turns,
-            ConversationRepository conversations, MemoryProperties props) {
+            ConversationRepository conversations, MemoryProperties props, MemoryMetrics metrics) {
+        this.metrics = metrics;
         this.turns = turns;
         this.conversations = conversations;
         this.props = props;
@@ -47,7 +49,8 @@ public class ExpiredTurnRecovery implements SmartLifecycle {
                 .concatMap(row -> transactions.transactional(turns.interruptExpired(row.id(), row.fence())
                         .flatMap(done -> done
                                 ? conversations.bumpRevision(row.conversationId()).thenReturn(1)
-                                : Mono.just(0))))
+                                : Mono.just(0)))
+                        .doOnNext(n -> metrics.terminal(MemoryModel.TurnStatus.INTERRUPTED, n)))
                 .reduce(0, Integer::sum);
     }
 

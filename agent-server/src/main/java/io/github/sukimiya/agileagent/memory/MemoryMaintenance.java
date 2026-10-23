@@ -56,12 +56,14 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final HotMemoryCache cache;
     private final FileStorageService files;
     private final MemoryProperties props;
+    private final MemoryMetrics metrics;
     private final TransactionalOperator transactions;
     private final String instanceId = NonBlockingIds.uuid();
     private volatile Disposable schedule;
 
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
-            FileStorageService files, MemoryProperties props) {
+            FileStorageService files, MemoryProperties props, MemoryMetrics metrics) {
+        this.metrics = metrics;
         this.db = db;
         this.cache = cache;
         this.files = files;
@@ -79,10 +81,16 @@ public class MemoryMaintenance implements SmartLifecycle {
     public Mono<Void> deleteConversation(MemoryScope scope, String conversationId) {
         return Mono.defer(() -> {
             ConversationIds.validate(conversationId);
-            return transactions.transactional(Mono.defer(() -> tombstone(scope, conversationId)))
+            // Turns interrupted by the attempt that committed (reset per attempt, read after commit).
+            var interrupted = new java.util.concurrent.atomic.AtomicLong();
+            return transactions.transactional(Mono.defer(() -> {
+                        interrupted.set(0);
+                        return tombstone(scope, conversationId, interrupted);
+                    }))
                     .retryWhen(Retry.max(DELETE_ATTEMPTS - 1).filter(MemoryMaintenance::isTransient))
                     .onErrorMap(e -> !(e instanceof MemoryException),
                             e -> new MemoryException(ErrorCode.STORAGE_UNAVAILABLE, e))
+                    .doOnNext(newlyDeleted -> metrics.terminal(MemoryModel.TurnStatus.INTERRUPTED, interrupted.get()))
                     // Best effort right away; the cleanup job writes the cache tombstone again and must succeed.
                     .flatMap(newlyDeleted -> newlyDeleted
                             ? cache.tombstone(scope, conversationId).onErrorResume(e -> {
@@ -95,14 +103,16 @@ public class MemoryMaintenance implements SmartLifecycle {
     }
 
     /** True when this call deleted the conversation, false when it was already deleted by the same owner. */
-    private Mono<Boolean> tombstone(MemoryScope scope, String conversationId) {
+    private Mono<Boolean> tombstone(MemoryScope scope, String conversationId,
+            java.util.concurrent.atomic.AtomicLong interrupted) {
         return db.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), title = '', revision = revision + 1,"
                         + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND tenant_id = :tenantId"
                         + " AND user_id = :subject AND deleted_at IS NULL")
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 1
-                        ? revokeTurns(scope, conversationId).then(enqueue(scope, conversationId)).thenReturn(true)
+                        ? revokeTurns(scope, conversationId, interrupted).then(enqueue(scope, conversationId))
+                                .thenReturn(true)
                         : alreadyDeletedByOwner(scope, conversationId));
     }
 
@@ -117,14 +127,16 @@ public class MemoryMaintenance implements SmartLifecycle {
     }
 
     /** Interrupts active turns (fence + 1, slot released) and marks their open tool calls UNCERTAIN. */
-    private Mono<Void> revokeTurns(MemoryScope scope, String conversationId) {
+    private Mono<Void> revokeTurns(MemoryScope scope, String conversationId,
+            java.util.concurrent.atomic.AtomicLong interrupted) {
         var turns = db.sql("UPDATE chat_turns SET status = 'INTERRUPTED', active_conversation_id = NULL,"
                         + " fence = fence + 1, lease_expires_at = NULL, error_code = '" + DELETED_ERROR + "',"
                         + " finished_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE conversation_id = :c AND tenant_id = :tenantId AND subject = :subject"
                         + " AND status IN " + TurnRepository.ACTIVE)
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
-                .fetch().rowsUpdated();
+                .fetch().rowsUpdated()
+                .doOnNext(interrupted::set);
         var tools = db.sql("UPDATE chat_tool_events SET status = 'UNCERTAIN', updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE conversation_id = :c AND tenant_id = :tenantId AND subject = :subject"
                         + " AND status = 'STARTED'")

@@ -66,11 +66,13 @@ public class TurnLifecycle {
     private final MemoryProperties props;
     private final TransactionalOperator transactions;
     private final InstanceGuard instanceGuard;
+    private final MemoryMetrics metrics;
 
     public TurnLifecycle(ConnectionFactory connectionFactory, TurnRepository turns,
             ConversationRepository conversations, TurnFinalizer finalizer, MemoryProperties props,
-            InstanceGuard instanceGuard) {
+            InstanceGuard instanceGuard, MemoryMetrics metrics) {
         this.instanceGuard = instanceGuard;
+        this.metrics = metrics;
         this.turns = turns;
         this.conversations = conversations;
         this.finalizer = finalizer;
@@ -96,10 +98,21 @@ public class TurnLifecycle {
             var payload = conversations.serialize(LlmClient.Message.user(command.text()));
             props.checkMessageSize(payload);
             var hash = sha256(command.text());
-            return transactions.transactional(Mono.defer(() -> acceptOnce(command, payload, hash)))
+            // Set by the attempt that interrupted an expired turn; read only after that attempt committed.
+            var interruptedExpired = new AtomicBoolean();
+            return transactions.transactional(Mono.defer(() -> {
+                        interruptedExpired.set(false);
+                        return acceptOnce(command, payload, hash, interruptedExpired);
+                    }))
                     .retryWhen(Retry.max(ACCEPT_ATTEMPTS - 1).filter(TurnLifecycle::isAcceptRace))
                     .onErrorMap(e -> !(e instanceof MemoryException),
-                            e -> new MemoryException(ErrorCode.STORAGE_UNAVAILABLE, unwrap(e)));
+                            e -> new MemoryException(ErrorCode.STORAGE_UNAVAILABLE, unwrap(e)))
+                    .doOnNext(accepted -> {
+                        if (interruptedExpired.get()) {
+                            metrics.terminal(TurnStatus.INTERRUPTED);
+                        }
+                        metrics.accepted(accepted.replay());
+                    });
         });
     }
 
@@ -108,14 +121,15 @@ public class TurnLifecycle {
         return requestId != null && IDEMPOTENCY_KEY.matcher(requestId).matches();
     }
 
-    private Mono<AcceptedTurn> acceptOnce(TurnCommand command, String payload, String hash) {
+    private Mono<AcceptedTurn> acceptOnce(TurnCommand command, String payload, String hash,
+            AtomicBoolean interruptedExpired) {
         var conversationId = command.conversationId();
         return conversations.ensureOwnedSession(conversationId, command.scope(), command.text())
                 .then(turns.findByRequest(conversationId, command.requestId()))
                 .flatMap(existing -> resolveExisting(existing, hash))
                 .switchIfEmpty(Mono.defer(() -> turns.findActive(conversationId)
                         .flatMap(active -> active.leaseExpired()
-                                ? interruptExpired(active)
+                                ? interruptExpired(active).doOnNext(interruptedExpired::set)
                                 : Mono.<Boolean>error(MemoryException.turnInProgress(active.id())))
                         .then(Mono.defer(() -> insertTurn(command, payload, hash)))));
     }
@@ -221,9 +235,17 @@ public class TurnLifecycle {
 
     /** Fenced checkpoint: renews the lease and saves the text in one transaction; false when not the owner. */
     private Mono<Boolean> checkpoint(TurnTicket ticket, String text) {
-        return transactions.transactional(turns.renew(ticket)
-                .flatMap(owned -> owned ? conversations.saveAssistantText(ticket, text).thenReturn(true)
-                        : Mono.just(false)));
+        return Mono.defer(() -> {
+            long start = System.nanoTime();
+            return transactions.transactional(turns.renew(ticket)
+                            .flatMap(owned -> owned ? conversations.saveAssistantText(ticket, text).thenReturn(true)
+                                    : Mono.just(false)))
+                    .doOnNext(owned -> {
+                        if (owned) {
+                            metrics.checkpointLatency(Duration.ofNanos(System.nanoTime() - start));
+                        }
+                    });
+        });
     }
 
     private static boolean isAcceptRace(Throwable e) {

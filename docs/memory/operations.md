@@ -27,3 +27,10 @@
 - 健康检查只暴露 `/actuator/health`，默认不显示组件与详情；`/actuator/health/memoryInstance` 等子路径也不可访问。不要把它配置成会重启容器的存活探针（liveness），否则冲突时两个实例会被反复重启；用作就绪探针或告警即可。
 - 为什么冲突时拒绝而不只是告警：多实例下取消信号、执行权和清理任务的可靠性都没有保证，只告警不拒绝仍属于不受支持的部署。
 - `app.memory.instance-guard-enabled=false` 会关闭心跳（仅用于没有 memory 表的测试），生产环境保持默认值 `true`。
+
+## 基础指标与评测
+
+- 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。
+- 未实现的能力不以数字上报：Recall 相关指标为“不适用”（不注册），整理积压为“功能未启用”（不注册）。看板上缺这些指标属于正常情况，不要用 0 补齐。
+- `memory.finalizer.failures` 持续增长时，检查数据库可用性；这些执行由恢复扫描在租约过期后标记为 INTERRUPTED。
+- 真实模型评测（`-Pmemory-eval-live`）只在隔离环境手动运行，API key 通过环境变量提供，不写入仓库或报告。
