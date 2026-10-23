@@ -102,7 +102,9 @@ public class ContextAssembler {
         messages.add(LlmClient.Message.user(userMessage));
         messages.addAll(fixedSuffix);
         var truncated = kept.size() < turns.size();
-        if (truncated) {
+        // A CAPABILITY assembly is only the candidate background; the domain agent fits it to the capability's
+        // own prompt and tool schemas and reports truncation there.
+        if (truncated && purpose != ContextPurpose.CAPABILITY) {
             log.info("memory.context history truncated purpose={} keptTurns={} droppedTurns={} budgetTokens={}",
                     purpose, kept.size(), turns.size() - kept.size(), available);
             if (metrics != null) {

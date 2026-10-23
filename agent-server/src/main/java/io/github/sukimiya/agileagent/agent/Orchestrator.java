@@ -298,12 +298,22 @@ public class Orchestrator {
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
         var ticket = call.ticket();
         var taskWindow = budget.enabled() ? call.window() : null;
-        var tasks = capabilityCodes.stream()
-                .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code, userMessage,
-                        accessToken, identity, ticket, taskWindow))
-                .toList();
+        // Candidate background: the recent completed turns that fit next to the question alone. Each domain agent
+        // fits it to its own prompt and tool schemas. Off: no background (M1 behaviour).
+        Mono<AssembledContext> candidate = budget.enabled()
+                ? assembler.assemble(ticket, ContextPurpose.CAPABILITY, call.window(), List.of(), userMessage)
+                : Mono.just(new AssembledContext(List.of(LlmClient.Message.user(userMessage)), 0, false, List.of(),
+                        0));
         var results = new ArrayList<AgentEvent>();
-        Flux<String> progress = dispatcher.dispatch(tasks, call.llm())
+        Flux<String> progress = candidate.flatMapMany(context -> {
+                    var background = context.messages().subList(0, context.messages().size() - 1);
+                    var tasks = capabilityCodes.stream()
+                            .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code,
+                                    userMessage, accessToken, identity, ticket, taskWindow, background,
+                                    context.historyTruncated()))
+                            .toList();
+                    return dispatcher.dispatch(tasks, call.llm());
+                })
                 .doOnNext(call.usage()::add)
                 .handle((event, sink) -> {
                     if (event instanceof AgentEvent.ToolCalled called) {

@@ -106,6 +106,58 @@ public class ContextBudget {
                 <= context.budgetTokens();
     }
 
+    /** Background kept for a capability call and how many older turns were left out. */
+    public record BackgroundFit(List<LlmClient.Message> messages, int droppedTurns) {}
+
+    /** Whole turns that can still be kept, newest first: the two newest turns are kept whenever they fit. */
+    static final int BACKGROUND_TURN_FLOOR = 2;
+
+    /**
+     * Fits {@code background} (completed turns in order; each turn starts with its user message) next to the
+     * capability's {@code fixed} parts (system prompt, question, tool schemas). Whole turns are kept newest
+     * first while they stay within {@code capability-background-share} of what the fixed parts leave; the two
+     * newest turns may use the rest of the budget too. Stops at the first turn that does not fit, so the kept
+     * background is contiguous and tool calls stay paired with their results. Disabled: nothing is kept.
+     */
+    public BackgroundFit fitBackground(List<LlmClient.Message> fixed, List<LlmClient.Message> background,
+            ModelWindow window) {
+        var turns = splitTurns(background);
+        if (!enabled() || window == null) {
+            return new BackgroundFit(List.of(), turns.size());
+        }
+        long fixedRaw = TokenEstimator.estimate(fixed);
+        int available = availableInput(window);
+        int remaining = Math.max(0, available - scale(fixedRaw));
+        int shareLimit = (int) Math.floor(remaining * props.getContext().getCapabilityBackgroundShare());
+        long raw = fixedRaw;
+        var kept = new java.util.ArrayList<List<LlmClient.Message>>();
+        for (int i = turns.size() - 1; i >= 0; i--) {
+            long next = raw + TokenEstimator.estimate(turns.get(i));
+            int total = scale(next);
+            boolean withinShare = total - scale(fixedRaw) <= shareLimit;
+            boolean withinFloor = kept.size() < BACKGROUND_TURN_FLOOR && total <= available;
+            if (!withinShare && !withinFloor) {
+                break;
+            }
+            raw = next;
+            kept.addFirst(turns.get(i));
+        }
+        return new BackgroundFit(kept.stream().flatMap(List::stream).toList(), turns.size() - kept.size());
+    }
+
+    private static List<List<LlmClient.Message>> splitTurns(List<LlmClient.Message> background) {
+        var turns = new java.util.ArrayList<List<LlmClient.Message>>();
+        List<LlmClient.Message> current = null;
+        for (var message : background) {
+            if (current == null || "user".equals(message.role())) {
+                current = new java.util.ArrayList<>();
+                turns.add(current);
+            }
+            current.add(message);
+        }
+        return turns;
+    }
+
     /**
      * What the model sees instead of a result that does not fit: no part of the original, only its size and
      * {@code reference} (the tool call id or capability), under which the full text stays recorded.

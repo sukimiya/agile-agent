@@ -52,6 +52,11 @@ public class MemoryProperties {
         private int defaultMaxOutputTokens = 4_096;
         /** Safety factor on the heuristic token estimate (D3). */
         private double estimateFactor = 1.3;
+        /**
+         * Share of a capability call's remaining budget its background (recent conversation) may use, so tool
+         * results keep the rest (D5 recent-window share; the two newest turns are kept whenever they fit).
+         */
+        private double capabilityBackgroundShare = 0.5;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
@@ -75,6 +80,13 @@ public class MemoryProperties {
                 throw new IllegalArgumentException("app.memory.context.estimate-factor must be >= 1");
             }
             this.estimateFactor = v;
+        }
+        public double getCapabilityBackgroundShare() { return capabilityBackgroundShare; }
+        public void setCapabilityBackgroundShare(double v) {
+            if (!(v > 0.0 && v <= 1.0)) {
+                throw new IllegalArgumentException("app.memory.context.capability-background-share must be in (0, 1]");
+            }
+            this.capabilityBackgroundShare = v;
         }
     }
 
