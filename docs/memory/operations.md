@@ -53,7 +53,7 @@
 ## 上下文预算（M2a 起）
 
 - 配置：`app.memory.context.enabled`（默认 `true`）、`default-context-window-tokens`（默认 32768）、`default-max-output-tokens`（默认 4096）、`estimate-factor`（默认 1.3，必须 ≥ 1，否则启动失败）。按模型的窗口在模型预设上设置（`contextWindowTokens`、`maxOutputTokens`，可空）。
-- 输出预留不小于窗口时（例如预设只填了很小的窗口、输出预留用默认值，或两个默认值配反了），预算改用窗口的 1/4 作为输出预留，并在每次计算时记一条 WARN 日志。
+- 输出预留不小于窗口时（例如预设只填了很小的窗口、输出预留用默认值，或两个默认值配反了），预算改用窗口的 1/4 作为输出预留（同时作为 `max_tokens` 发送），每个预设的每种配置只记一次 WARN 日志（预设改成另一种仍放不下的配置时再记一次）。
 - 历史被截断时记一行 INFO 日志 `memory.context history truncated purpose=… keptTurns=… droppedTurns=… budgetTokens=…`（不含内容）。
 - 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
 - `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。

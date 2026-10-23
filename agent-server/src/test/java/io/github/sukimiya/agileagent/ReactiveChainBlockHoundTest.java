@@ -86,6 +86,8 @@ class ReactiveChainBlockHoundTest {
                 new io.github.sukimiya.agileagent.knowledge.KnowledgeAccessPolicy());
 
         LlmClient llm = mock(LlmClient.class);
+        // Budgeted calls carry max_tokens; the interface default forwards them to the scripted plain call.
+        when(llm.chatStream(any(), any(), any())).thenCallRealMethod();
         var toolCall = new LlmClient.ToolCall("c1", "readKnowledgeDoc", "{\"id\":\"" + knowledgeId + "\"}");
         when(llm.chatStream(any(), any())).thenReturn(
                         // 1) routing

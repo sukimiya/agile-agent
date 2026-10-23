@@ -90,7 +90,8 @@ public class DomainAgent {
                         JSON.convertValue(tool.parametersSchema(),
                                 new TypeReference<java.util.Map<String, Object>>() {})))
                 .toList();
-        return llm.chatStream(messages, llmTools).concatMap(event -> switch (event) {
+        return Orchestrator.modelCall(llm, messages, llmTools, budget, task.window())
+                .concatMap(event -> switch (event) {
             case LlmClient.LlmEvent.ContentDelta d -> Flux.just(new AgentEvent.Delta(provider.code(), d.text()));
             case LlmClient.LlmEvent.Usage u -> Flux.just(new AgentEvent.Usage(provider.code(), u.promptTokens(),
                     u.completionTokens(), u.totalTokens()));

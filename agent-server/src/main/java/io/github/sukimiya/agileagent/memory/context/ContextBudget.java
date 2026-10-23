@@ -22,7 +22,12 @@ public class ContextBudget {
 
     private static final Logger log = LoggerFactory.getLogger(ContextBudget.class);
 
+    /** Upper bound on remembered warnings; presets are few, this only guards against unbounded growth. */
+    private static final int MAX_WARNED = 1_024;
+
     private final MemoryProperties props;
+    /** Preset configurations whose reserve fallback was already logged: {@code presetKey:window:output}. */
+    private final java.util.Set<String> warned = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public ContextBudget(MemoryProperties props) {
         this.props = props;
@@ -40,13 +45,30 @@ public class ContextBudget {
      * The preset's window with defaults for unset values. When only the window is set and the default reserve
      * would leave no input, the reserve becomes a quarter of the window.
      */
+    /** {@link #windowFor(String, Integer, Integer)} for a window not tied to a preset (the configured defaults). */
     public ModelWindow windowFor(Integer contextWindowTokens, Integer maxOutputTokens) {
+        return windowFor(null, contextWindowTokens, maxOutputTokens);
+    }
+
+    /**
+     * The window for one preset; unset values fall back to the configured defaults. When the reserve does not fit
+     * the window, a quarter of the window is reserved instead and a WARN is logged once per preset configuration
+     * ({@code presetKey} with the resulting values; a changed preset that still does not fit is logged again).
+     */
+    public ModelWindow windowFor(String presetKey, Integer contextWindowTokens, Integer maxOutputTokens) {
         var context = props.getContext();
         int window = contextWindowTokens != null ? contextWindowTokens : context.getDefaultContextWindowTokens();
         int output = maxOutputTokens != null ? maxOutputTokens : context.getDefaultMaxOutputTokens();
         if (output >= window) {
             var reduced = Math.max(1, window / 4);
-            log.warn("memory.context output reserve {} does not fit window {}; using {}", output, window, reduced);
+            var key = (presetKey == null ? "default" : presetKey) + ":" + window + ":" + output;
+            if (warned.size() >= MAX_WARNED) {
+                warned.clear();
+            }
+            if (warned.add(key)) {
+                log.warn("memory.context output reserve {} does not fit window {} of preset {}; using {}", output,
+                        window, presetKey == null ? "default" : presetKey, reduced);
+            }
             output = reduced;
         }
         return new ModelWindow(window, output);

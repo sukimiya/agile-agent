@@ -88,7 +88,7 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 ## 上下文预算（M2a 起）
 
 - 每次模型调用（路由、能力、直接回答、汇总）都按模型窗口单独组装：可用输入 = 窗口 − 输出预留。估算沿用 M1 口径（中日韩 1 字 1 Token，其余 4 字符 1 Token）再乘 `app.memory.context.estimate-factor`（默认 1.3）。
-- 窗口来自租户使用的模型预设：`GET/POST/PUT /api/llm-providers` 的请求和响应新增可选字段 `contextWindowTokens`、`maxOutputTokens`。未填写时用 `app.memory.context.default-context-window-tokens`（默认 32768）和 `default-max-output-tokens`（默认 4096）。校验：窗口 ≥ 1024；输出预留 ≥ 1，且两者都填写时输出预留必须小于窗口；不合法返回既有的预设校验错误。输出预留只用于计算预算，不作为 `max_tokens` 发给服务商。
+- 窗口来自租户使用的模型预设：`GET/POST/PUT /api/llm-providers` 的请求和响应新增可选字段 `contextWindowTokens`、`maxOutputTokens`。未填写时用 `app.memory.context.default-context-window-tokens`（默认 32768）和 `default-max-output-tokens`（默认 4096）。校验：窗口 ≥ 1024；输出预留 ≥ 1，且两者都填写时输出预留必须小于窗口；不合法返回既有的预设校验错误。生效的输出预留（见下一条的回退规则）作为 `max_tokens` 随每次模型调用（路由、能力、直接回答、汇总）发给服务商；关闭预算时不发送。
 - 先扣固定部分（系统提示词、当前问题、能力结果），再从最新到最旧按整轮加入已完成的历史，直到下一轮放不下为止。一轮不会被拆开，工具调用与工具结果始终成对出现。放不下的旧轮次在 M2a Task 4（分段摘要）之前不会进入提示词，只记指标与日志；数据库中的历史不受影响。
 - 工具结果或能力结果放不下时，模型看到的是一条占位说明（大小和引用 ID，不含原文），完整结果仍写入 `chat_tool_events`。每轮工具调用后重新检查。
 - `app.memory.context.enabled=false` 恢复 M1 行为：每次调用带全部历史，不做以上检查。

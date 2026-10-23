@@ -49,6 +49,38 @@ class ContextBudgetTest {
     }
 
     @Test
+    void reserveFallbackWarnsOncePerPreset() {
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ContextBudget.class);
+        logger.addAppender(appender);
+        try {
+            for (int i = 0; i < 3; i++) {
+                assertThat(budget.windowFor("preset-a", 4_096, null)).isEqualTo(new ModelWindow(4_096, 1_024));
+            }
+            assertThat(warnings(appender)).isEqualTo(1);
+            budget.windowFor("preset-b", 4_096, null);
+            budget.windowFor("preset-b", 4_096, null);
+            assertThat(warnings(appender)).isEqualTo(2);
+            // The same preset changed to another configuration that still does not fit: warned again, once.
+            budget.windowFor("preset-a", 2_048, 4_000);
+            budget.windowFor("preset-a", 2_048, 4_000);
+            assertThat(warnings(appender)).isEqualTo(3);
+            // A configuration that fits never warns.
+            budget.windowFor("preset-c", 64_000, 8_000);
+            assertThat(warnings(appender)).isEqualTo(3);
+            assertThat(appender.list).allSatisfy(e -> assertThat(e.getFormattedMessage()).contains("preset"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    private static long warnings(
+            ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender) {
+        return appender.list.stream().filter(e -> e.getLevel() == ch.qos.logback.classic.Level.WARN).count();
+    }
+
+    @Test
     void oversizedFixedPartIsRejectedWithBudgetError() {
         var window = new ModelWindow(2_000, 1_000);
         budget.requireFits(List.of(LlmClient.Message.user("你".repeat(769))), window); // 769 x1.3 = 1000 (ceil)

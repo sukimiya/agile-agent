@@ -59,11 +59,24 @@ class OrchestratorBudgetTest {
     private final String conversation = MemoryTestStack.newConversationId();
     /** Every model call, in order: the messages it was sent. */
     private final List<List<LlmClient.Message>> calls = new CopyOnWriteArrayList<>();
+    /** The max_tokens each model call asked for, in call order ({@code null}: not sent). */
+    private final List<Integer> maxTokens = new CopyOnWriteArrayList<>();
     private Function<List<LlmClient.Message>, Flux<LlmClient.LlmEvent>> script;
-    private final LlmClient llm = (messages, tools) -> Flux.defer(() -> {
-        calls.add(List.copyOf(messages));
-        return script.apply(messages);
-    });
+    private final LlmClient llm = new LlmClient() {
+        @Override
+        public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools) {
+            return chatStream(messages, tools, new CallOptions(null));
+        }
+
+        @Override
+        public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools, CallOptions options) {
+            return Flux.defer(() -> {
+                calls.add(List.copyOf(messages));
+                maxTokens.add(options.maxTokens());
+                return script.apply(messages);
+            });
+        }
+    };
 
     @AfterEach
     void tearDown() {
@@ -133,6 +146,47 @@ class OrchestratorBudgetTest {
         for (var call : calls) {
             assertThat(budget().estimate(call)).isLessThanOrEqualTo(2_000);
         }
+    }
+
+    @Test
+    void everyModelCallSendsTheEffectiveOutputReserveAsMaxTokens() {
+        scriptToolRounds(1);
+
+        run(orchestrator(new DataTools("ok")), "查数据", 3_000, 1_000);
+
+        // routing, capability round 1, capability round 2, aggregate
+        assertThat(calls).hasSize(4);
+        assertThat(maxTokens).hasSize(4).containsOnly(1_000);
+    }
+
+    @Test
+    void fallbackReserveIsWhatGetsSentWhenThePresetReserveDoesNotFit() {
+        scriptToolRounds(0);
+
+        // 4,096 window with the default 4,096 reserve: the budget uses a quarter of the window instead.
+        AcceptedTurn accepted = stack.accept(conversation, "你好");
+        orchestrator(new DataTools("ok")).chat(accepted, "tok", null, new ResolvedModel(llm, 4_096, null))
+                .collectList().block(WAIT);
+
+        assertThat(maxTokens).isNotEmpty().containsOnly(1_024);
+    }
+
+    @Test
+    void disabledBudgetSendsNoMaxTokens() {
+        try (var disabled = MemoryTestStack.h2(p -> p.getContext().setEnabled(false))) {
+            scriptToolRounds(1);
+            var registry = new CapabilityRegistry(List.of(new DataTools("ok")));
+            var budget = new ContextBudget(disabled.props());
+            var orchestrator = new Orchestrator(
+                    new InProcessTaskDispatcher(new DomainAgent(registry, disabled.toolRecorder(), budget)),
+                    registry, disabled.lifecycle(), disabled.history(),
+                    new ContextAssembler(disabled.history(), budget, disabled.metrics()));
+            var conv = MemoryTestStack.newConversationId();
+            orchestrator.chat(disabled.accept(conv, "查数据"), "tok", null, new ResolvedModel(llm, 3_000, 1_000))
+                    .collectList().block(WAIT);
+        }
+
+        assertThat(maxTokens).hasSize(4).containsOnlyNulls();
     }
 
     @Test

@@ -90,11 +90,37 @@ class OpenAiCompatibleLlmClientTest {
         assertThat(body.path("stream").asBoolean()).isTrue();
     }
 
+    @Test
+    void maxTokensSentOnlyWhenTheCallAsksForIt() throws Exception {
+        var messages = List.of(LlmClient.Message.user("hello"));
+        assertThat(sendAndReadRequest(messages, List.of()).has("max_tokens")).isFalse();
+        assertThat(sendAndReadRequest(messages, List.of(), new LlmClient.CallOptions(null)).has("max_tokens"))
+                .isFalse();
+        var limited = sendAndReadRequest(messages, List.of(), new LlmClient.CallOptions(1_024));
+        assertThat(limited.path("max_tokens").asInt()).isEqualTo(1_024);
+        assertThat(limited.path("stream").asBoolean()).isTrue();
+    }
+
+    @Test
+    void defaultCallOptionsMethodDelegatesToThePlainCall() {
+        LlmClient plain = (messages, tools) -> reactor.core.publisher.Flux.just(
+                new LlmClient.LlmEvent.Completed("plain"));
+        StepVerifier.create(plain.chatStream(List.of(), List.of(), new LlmClient.CallOptions(10)))
+                .expectNext(new LlmClient.LlmEvent.Completed("plain"))
+                .verifyComplete();
+    }
+
     private JsonNode sendAndReadRequest(List<LlmClient.Message> messages, List<LlmClient.ToolDefinition> tools)
             throws Exception {
+        return sendAndReadRequest(messages, tools, null);
+    }
+
+    private JsonNode sendAndReadRequest(List<LlmClient.Message> messages, List<LlmClient.ToolDefinition> tools,
+            LlmClient.CallOptions options) throws Exception {
         server.enqueue(new MockResponse().setHeader("Content-Type", "text/event-stream")
                 .setBody("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"));
-        StepVerifier.create(client.chatStream(messages, tools))
+        StepVerifier.create(options == null ? client.chatStream(messages, tools)
+                        : client.chatStream(messages, tools, options))
                 .expectNext(new LlmClient.LlmEvent.Completed(""))
                 .verifyComplete();
         var request = server.takeRequest(5, TimeUnit.SECONDS);

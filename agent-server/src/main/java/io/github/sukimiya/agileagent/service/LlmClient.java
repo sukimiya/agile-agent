@@ -55,6 +55,18 @@ public interface LlmClient {
 
     reactor.core.publisher.Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools);
 
+    /** Per-call request options; {@code maxTokens == null} means the provider default (nothing is sent). */
+    record CallOptions(Integer maxTokens) {}
+
+    /**
+     * A call with request options. Clients that cannot apply them (test doubles, adapters) inherit this default,
+     * which ignores the options and makes the plain call.
+     */
+    default reactor.core.publisher.Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools,
+            CallOptions options) {
+        return chatStream(messages, tools);
+    }
+
     default reactor.core.publisher.Mono<String> summarize(String content) {
         var messages = List.of(
                 Message.system("你是一个文档摘要助手。用一到两句话总结这份文档讲的是什么、"

@@ -121,7 +121,7 @@ public class Orchestrator {
     }
 
     private ModelWindow windowOf(ResolvedModel model) {
-        return budget.windowFor(model.contextWindowTokens(), model.maxOutputTokens());
+        return budget.windowFor(model.presetId(), model.contextWindowTokens(), model.maxOutputTokens());
     }
 
     /** Streams one accepted turn for the tenant's resolved model, budgeting every call to its window. */
@@ -221,9 +221,21 @@ public class Orchestrator {
         return List.of(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
     }
 
+    /**
+     * The request options of a call in this window: the effective output reserve is sent as {@code max_tokens}
+     * while the budget is on; with it off nothing is sent (M1 behaviour).
+     */
+    static Flux<LlmClient.LlmEvent> modelCall(LlmClient llm, List<LlmClient.Message> messages,
+            List<LlmClient.ToolDefinition> tools, ContextBudget budget, ModelWindow window) {
+        return budget != null && budget.enabled() && window != null
+                ? llm.chatStream(messages, tools, new LlmClient.CallOptions(window.maxOutputTokens()))
+                : llm.chatStream(messages, tools);
+    }
+
     /** One budgeted model call: adds usage to the turn total and records the estimate deviation. */
     private Flux<LlmClient.LlmEvent> stream(Call call, ContextPurpose purpose, AssembledContext context) {
-        return call.llm().chatStream(context.messages(), List.of()).doOnNext(event -> {
+        return modelCall(call.llm(), context.messages(), List.of(), budget, call.window())
+                .doOnNext(event -> {
             call.usage().add(event);
             if (event instanceof LlmClient.LlmEvent.Usage value) {
                 assembler.recordUsage(context, purpose, value.promptTokens());

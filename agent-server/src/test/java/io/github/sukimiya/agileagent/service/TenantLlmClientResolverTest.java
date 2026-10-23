@@ -297,6 +297,8 @@ class TenantLlmClientResolverTest {
         var sized = fixture.resolver.resolveModel("tenant-b").block();
         assertThat(sized.contextWindowTokens()).isEqualTo(128_000);
         assertThat(sized.maxOutputTokens()).isEqualTo(8_192);
+        assertThat(plain.presetId()).isEqualTo("preset-a");
+        assertThat(sized.presetId()).isEqualTo("preset-b");
     }
 
     private static TenantLlmConfigRepository.TenantLlmConfigRow config(String tenant, String preset, String encrypted) {

@@ -67,7 +67,16 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     @Override
     public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools) {
+        return chatStream(messages, tools, null);
+    }
+
+    /** Sends {@code max_tokens} when the options carry one; otherwise the request is unchanged. */
+    @Override
+    public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools, CallOptions options) {
         var body = buildRequestBody(model, messages, tools);
+        if (options != null && options.maxTokens() != null) {
+            body.put("max_tokens", options.maxTokens());
+        }
         body.put("stream", true);
         return Flux.defer(() -> {
             var aggregator = new StreamAggregator();
