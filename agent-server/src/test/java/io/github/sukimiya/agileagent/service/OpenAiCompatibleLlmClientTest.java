@@ -24,7 +24,9 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import reactor.test.StepVerifier;
 
-@SpringBootTest(classes = AgentApplication.class)
+// R2DBC and Flyway use different embedded H2 databases in this context, so memory tables are absent.
+@SpringBootTest(classes = AgentApplication.class, properties = {"app.memory.recovery-enabled=false",
+        "app.memory.instance-guard-enabled=false"})
 class OpenAiCompatibleLlmClientTest {
     @Autowired private ApplicationContext context;
     private final ObjectMapper json = new ObjectMapper();

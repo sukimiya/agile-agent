@@ -39,6 +39,8 @@ import io.r2dbc.spi.Option;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import reactor.core.publisher.Mono;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -52,6 +54,14 @@ import reactor.core.publisher.Mono;
     "spring.flyway.password="
 })
 class KnowledgeControllerIntegrationTest {
+
+    /** Uses the per-JVM loopback test Redis instead of an ambient localhost:6379 server. */
+    @DynamicPropertySource
+    static void redis(DynamicPropertyRegistry registry) {
+        registry.add("spring.data.redis.host", () -> "127.0.0.1");
+        registry.add("spring.data.redis.port", io.github.sukimiya.agileagent.LocalRedisTestServer::port);
+        registry.add("spring.data.redis.database", () -> 3);
+    }
 
     @Autowired WebTestClient client;
     @Autowired KnowledgeProperties props;

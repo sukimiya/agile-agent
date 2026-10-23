@@ -10,14 +10,22 @@ import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 
 import io.github.sukimiya.agileagent.config.UploadProperties;
+import io.github.sukimiya.agileagent.memory.ConversationIds;
 
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+/**
+ * Local attachment storage under {@code ${app.upload.dir}/{conversationId}/{name}}. The directory is the
+ * conversation id itself, accepted only in its canonical form ({@link ConversationIds}), so distinct
+ * conversations never share a directory; only file names are cleaned. Ownership is checked by the caller before
+ * any call here. Nothing returned from this service carries a server path.
+ */
 @Service
 public class FileStorageService {
 
-    public record Ref(String name, String path, long size) {}
+    /** A stored attachment: its final file name inside the conversation directory and its size. */
+    public record Ref(String name, long size) {}
 
     private final UploadProperties props;
 
@@ -36,6 +44,7 @@ public class FileStorageService {
 
     public Mono<Ref> save(String sessionId, FilePart part) {
         return Mono.defer(() -> {
+            ConversationIds.validate(sessionId);
             final Path temp;
             try {
                 temp = Files.createTempFile("upload-", ".tmp");
@@ -70,13 +79,55 @@ public class FileStorageService {
         if (!props.getAllowedContentTypes().contains(detected)) {
             throw new RejectedException("MIME_MISMATCH", "real type " + detected + " differs from declared " + declaredType);
         }
-        var dir = Path.of(props.getDir(), sanitize(sessionId));
+        var dir = conversationDir(sessionId);
         Files.createDirectories(dir);
         var target = resolveUnique(dir, sanitize(part.filename()));
         Files.copy(temp, target, StandardCopyOption.REPLACE_EXISTING);
-        return new Ref(target.getFileName().toString(), target.toAbsolutePath().toString(), size);
+        return new Ref(target.getFileName().toString(), size);
     }
 
+    /**
+     * The stored file {@code name} of a conversation, if it exists. The id must be canonical
+     * ({@code INVALID_CONVERSATION_ID} otherwise) and the name a plain file name ({@code INVALID_PATH}
+     * otherwise); the resolved path is confined to the conversation directory.
+     */
+    public java.util.Optional<Path> locate(String conversationId, String name) {
+        var dir = conversationDir(ConversationIds.validate(conversationId));
+        if (name == null || name.isBlank() || name.contains("/") || name.contains("\\") || name.contains("..")
+                || name.indexOf('\0') >= 0) {
+            throw new RejectedException("INVALID_PATH", "invalid file name");
+        }
+        var path = dir.resolve(name).normalize();
+        if (!dir.equals(path.getParent()) || !Files.isRegularFile(path)) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(path);
+    }
+
+    /**
+     * Removes a conversation's attachment directory (idempotent). The directory is the canonical id itself, so
+     * no other conversation's files can be matched; symbolic links are removed, never followed.
+     */
+    public Mono<Void> deleteConversationFiles(String conversationId) {
+        return Mono.fromCallable(() -> {
+            var dir = conversationDir(conversationId);
+            if (!Files.exists(dir, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return null;
+            }
+            try (var walk = Files.walk(dir)) {
+                for (var path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
+            return null;
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    private Path conversationDir(String conversationId) {
+        return Path.of(props.getDir(), ConversationIds.validate(conversationId)).normalize();
+    }
+
+    /** File names only; conversation ids are validated, never sanitized. */
     private static String sanitize(String name) {
         if (name == null || name.isBlank()) return "file";
         var basename = name.replaceAll("[\\\\/]", "_").replaceAll("\\.\\.+", "_");

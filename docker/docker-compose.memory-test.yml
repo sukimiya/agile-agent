@@ -1,0 +1,38 @@
+# Local-only MySQL 8.4 for the memory schema integration tests. Not part of any deployment.
+# Separate project, service and volume; the port is bound to loopback only.
+#
+#   docker compose -f docker/docker-compose.memory-test.yml up -d
+#   export MEMORY_MYSQL_IT_HOST=127.0.0.1 MEMORY_MYSQL_IT_PORT=33306 \
+#          MEMORY_MYSQL_IT_DATABASE=agile_agent_memory_it MEMORY_MYSQL_IT_USER=memory_it \
+#          MEMORY_MYSQL_IT_PASSWORD=memory-it-password
+#   mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryMySqlIntegrationTest test
+#   # failure acceptance (M1 Task 10) and concurrency on real MySQL:
+#   mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest test
+#   # every mysql-it test:
+#   mvn -Pmemory-mysql-it -pl agent-server -am test
+#   docker compose -f docker/docker-compose.memory-test.yml down -v
+#
+# The tests clean and re-migrate only the configured loopback database whose name ends in _it; nothing here is a
+# production database or a recovery target. The credentials below are throwaway test values.
+name: agile-agent-memory-test
+
+services:
+  memory-mysql-it:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: agile_agent_memory_it
+      MYSQL_USER: memory_it
+      MYSQL_PASSWORD: memory-it-password
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    ports:
+      - "127.0.0.1:33306:3306"
+    volumes:
+      - memory-mysql-it-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  memory-mysql-it-data:

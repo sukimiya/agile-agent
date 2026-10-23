@@ -2,6 +2,7 @@ package io.github.sukimiya.agileagent.agent;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.*;
 
 import java.util.List;
@@ -12,6 +13,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
+import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.MemoryTestDoubles;
+import io.github.sukimiya.agileagent.memory.TurnToolRecorder;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
@@ -27,6 +32,8 @@ import reactor.core.publisher.Mono;
 class DomainAgentTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final TurnTicket TICKET = new TurnTicket(new MemoryScope("tenant-1", "alice"), "conv-9", "turn-1", 1);
+    private final TurnToolRecorder tools = MemoryTestDoubles.noopToolRecorder();
 
     @Test
     void finalAnswerStreamsDeltasThenFinished() {
@@ -36,7 +43,7 @@ class DomainAgentTest {
                 new LlmClient.LlmEvent.ContentDelta("你好，"),
                 new LlmClient.LlmEvent.ContentDelta("答案在资料中"),
                 new LlmClient.LlmEvent.Completed("你好，答案在资料中")));
-        var agent = new DomainAgent(registry(provider));
+        var agent = new DomainAgent(registry(provider), tools);
 
         List<AgentEvent> events = agent.run(task("NOTES"), llm).collectList().block();
 
@@ -60,7 +67,7 @@ class DomainAgentTest {
                         new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Usage(5, 4, 9),
                         new LlmClient.LlmEvent.Completed("stage.set 用于设置变量")));
-        var agent = new DomainAgent(registry(new KnowledgeCapabilityProvider(catalog)));
+        var agent = new DomainAgent(registry(new KnowledgeCapabilityProvider(catalog)), tools);
 
         List<AgentEvent> events = agent.run(task("KNOWLEDGE"), llm).collectList().block();
 
@@ -76,7 +83,7 @@ class DomainAgentTest {
         var provider = new RecordingProvider();
         var call = new LlmClient.ToolCall("call-1", "read", "{}");
         when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(call))));
-        var agent = new DomainAgent(registry(provider));
+        var agent = new DomainAgent(registry(provider), tools);
 
         List<AgentEvent> events = agent.run(task("NOTES"), llm).collectList().block();
 
@@ -87,7 +94,7 @@ class DomainAgentTest {
     @Test
     void unknownCapabilityEmitsFailureWithoutCallingLlm() {
         LlmClient llm = mock(LlmClient.class);
-        var agent = new DomainAgent(registry(new RecordingProvider()));
+        var agent = new DomainAgent(registry(new RecordingProvider()), tools);
 
         List<AgentEvent> events = agent.run(task("UNKNOWN"), llm).collectList().block();
 
@@ -103,7 +110,7 @@ class DomainAgentTest {
         when(llm.chatStream(any(), any()))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("rejected")));
-        var agent = new DomainAgent(registry(provider));
+        var agent = new DomainAgent(registry(provider), tools);
 
         agent.run(task("NOTES"), llm).collectList().block();
 
@@ -123,9 +130,9 @@ class DomainAgentTest {
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("done")));
         var identity = new IdentityContext("user-7", "Lin", null, null, null, null,
                 java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), false, false);
-        var agent = new DomainAgent(registry(provider));
+        var agent = new DomainAgent(registry(provider), tools);
 
-        agent.run(new DomainTask("task-1", "conv-9", "NOTES", "question", "secret-token", identity), llm)
+        agent.run(new DomainTask("task-1", "conv-9", "NOTES", "question", "secret-token", identity, TICKET), llm)
                 .collectList().block();
 
         assertThat(provider.definitionContext.identity()).isSameAs(identity);
@@ -154,19 +161,60 @@ class DomainAgentTest {
                         new ToolDefinition("duplicate", "two", JSON.createObjectNode().put("type", "object")))));
             }
         };
-        var agent = new DomainAgent(registry(provider));
+        var agent = new DomainAgent(registry(provider), tools);
 
         assertThatThrownBy(() -> agent.run(task("NOTES"), llm).collectList().block())
                 .isInstanceOf(IllegalStateException.class).hasMessage("capability definition failed");
         verifyNoInteractions(llm);
     }
 
-    private static CapabilityRegistry registry(AgentCapabilityProvider provider) {
+    @Test
+    void recordsToolStartBeforeExecuteAndOutcomeAfterwards() {
+        LlmClient llm = mock(LlmClient.class);
+        var provider = new RecordingProvider();
+        var toolCall = new LlmClient.ToolCall("call-1", "read", "{\"id\":1}");
+        when(llm.chatStream(any(), any()))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(toolCall))))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("done")));
+        var recorder = MemoryTestDoubles.noopToolRecorder();
+        var order = new java.util.ArrayList<String>();
+        when(recorder.started(any(), any(), any())).thenReturn(Mono.fromRunnable(() -> order.add("started")));
+        when(recorder.finished(any(), any(), any(), any(), anyBoolean(), any()))
+                .thenReturn(Mono.fromRunnable(() -> order.add("finished")));
+        provider.onExecute = () -> order.add("execute");
+
+        new DomainAgent(registry(provider), recorder).run(task("NOTES"), llm).collectList().block();
+
+        assertThat(order).containsExactly("started", "execute", "finished");
+        verify(recorder).started(TICKET, "NOTES", toolCall);
+        verify(recorder).finished(TICKET, "NOTES", "call-1", "ok", true, null);
+    }
+
+    @Test
+    void failedStartRecordNeverExecutesTheTool() {
+        LlmClient llm = mock(LlmClient.class);
+        var provider = new RecordingProvider();
+        when(llm.chatStream(any(), any())).thenReturn(Flux.just(new LlmClient.LlmEvent.ToolCallsReady(List.of(
+                new LlmClient.ToolCall("call-1", "read", "{}")))));
+        var recorder = MemoryTestDoubles.noopToolRecorder();
+        when(recorder.started(any(), any(), any())).thenReturn(Mono.error(
+                new io.github.sukimiya.agileagent.memory.MemoryException(
+                        io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode.STORAGE_UNAVAILABLE)));
+
+        assertThatThrownBy(() -> new DomainAgent(registry(provider), recorder).run(task("NOTES"), llm)
+                .collectList().block())
+                .isInstanceOf(io.github.sukimiya.agileagent.memory.MemoryException.class);
+        assertThat(provider.executeCalls).isZero();
+    }
+
+    private CapabilityRegistry registry(AgentCapabilityProvider provider) {
         return new CapabilityRegistry(List.of(provider));
     }
 
     private static DomainTask task(String code) {
-        return new DomainTask("task-1", "conv-9", code, "question", "secret-token");
+        return new DomainTask("task-1", "conv-9", code, "question", "secret-token",
+                new IdentityContext("conv-9", null, null, null, null, null,
+                        java.util.Set.of(), java.util.Set.of(), java.util.Set.of(), false, false), TICKET);
     }
 
     private static class RecordingProvider implements AgentCapabilityProvider {
@@ -174,6 +222,7 @@ class DomainAgentTest {
         private AgentExecutionContext definitionContext;
         private AgentExecutionContext executionContext;
         private String executionToken;
+        private Runnable onExecute = () -> { };
 
         @Override public String code() { return "NOTES"; }
         @Override public String displayName() { return "Notes"; }
@@ -189,6 +238,7 @@ class DomainAgentTest {
         @Override
         public Mono<ToolResult> execute(ToolInvocation invocation, AgentExecutionContext context) {
             executeCalls++;
+            onExecute.run();
             executionContext = context;
             executionToken = context.accessTokenAccessor().get();
             return Mono.just(new ToolResult(true, "ok"));

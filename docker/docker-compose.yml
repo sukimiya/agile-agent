@@ -4,6 +4,10 @@ services:
     image: ${DOCKER_REGISTRY_URL}/agile-agent-server:${IMAGE_TAG}
     container_name: agile-agent-server
     restart: unless-stopped
+    # M1 supports a single server instance only; do not scale this service (the instance guard refuses new turns
+    # while two instances share a deployment namespace).
+    deploy:
+      replicas: 1
     ports:
       - "8088:8088"
     environment:
@@ -40,6 +44,9 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    # M1 supports a single server instance only; do not scale this service.
+    deploy:
+      replicas: 1
     ports:
       - "127.0.0.1:8088:8088"
     environment:

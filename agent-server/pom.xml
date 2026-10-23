@@ -35,6 +35,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webflux</artifactId>
 		</dependency>
+		<!-- Health check (single-instance conflict status) and Micrometer metrics; only /actuator/health is exposed. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -129,6 +134,112 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						Two executions split the suite by tag, so a -Dtest filter naturally matches nothing in one of
+						them; do not fail that execution for it.
+					-->
+					<failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+				</configuration>
+				<executions>
+					<!--
+						BlockHound.install() is JVM-global and cannot be undone. Installed in a shared fork after
+						Reactor scheduler threads already exist, it instruments those idle workers mid-park, corrupts
+						their DelayedWorkQueue locks and silently stops Schedulers.parallel() (timeouts, delays and
+						WebTestClient's mock connector), hanging every later test in that JVM. Run BlockHound tests
+						in their own fresh fork only.
+					-->
+					<execution>
+						<id>default-test</id>
+						<configuration>
+							<!-- mysql-it needs a real MySQL and runs only with -Pmemory-mysql-it; memory-eval-live calls a
+							     real model and runs only with -Pmemory-eval-live. -->
+							<excludedGroups>blockhound,mysql-it,memory-eval-live</excludedGroups>
+						</configuration>
+					</execution>
+					<execution>
+						<id>blockhound-isolated</id>
+						<phase>test</phase>
+						<goals>
+							<goal>test</goal>
+						</goals>
+						<configuration>
+							<groups>blockhound</groups>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!--
+			Real MySQL 8.4 checks for the memory schema (Flyway, binary identity collation, unique constraints).
+			Requires MEMORY_MYSQL_IT_{HOST,PORT,DATABASE,USER,PASSWORD} for a disposable loopback test database
+			whose name ends in _it (docker/docker-compose.memory-test.yml); missing configuration fails the tests.
+			The database is cleaned and re-migrated, so never point it at a shared or production schema.
+			mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryMySqlIntegrationTest test
+		-->
+		<profile>
+			<id>memory-mysql-it</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>default-test</id>
+								<configuration>
+									<groups>mysql-it</groups>
+									<excludedGroups>blockhound,memory-eval-live</excludedGroups>
+								</configuration>
+							</execution>
+							<execution>
+								<id>blockhound-isolated</id>
+								<configuration>
+									<skip>true</skip>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+		<!--
+			Real-model end-to-end memory eval baseline (opt-in, never in the default build). Requires
+			MEMORY_EVAL_LLM_BASE_URL, MEMORY_EVAL_LLM_API_KEY and MEMORY_EVAL_LLM_MODEL (optional
+			MEMORY_EVAL_LLM_MODEL_VERSION); missing configuration fails the run. Writes agent-server/target/memory-eval/.
+			mvn -B -Pmemory-eval-live -pl agent-server -am test
+		-->
+		<profile>
+			<id>memory-eval-live</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>default-test</id>
+								<configuration>
+									<groups>memory-eval-live</groups>
+									<excludedGroups>blockhound,mysql-it</excludedGroups>
+								</configuration>
+							</execution>
+							<execution>
+								<id>blockhound-isolated</id>
+								<configuration>
+									<skip>true</skip>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

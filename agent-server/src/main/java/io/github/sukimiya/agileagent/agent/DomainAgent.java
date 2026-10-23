@@ -13,6 +13,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
+import io.github.sukimiya.agileagent.memory.ToolRecordSanitizer;
+import io.github.sukimiya.agileagent.memory.TurnToolRecorder;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
@@ -22,7 +24,12 @@ import io.github.sukimiya.agileagent.spi.capability.ToolInvocation;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** Runs the tool-calling loop for one domain capability. */
+/**
+ * Runs the tool-calling loop for one domain capability. Every tool call is recorded against the task's turn
+ * before it executes and its outcome afterwards ({@link TurnToolRecorder}); a call whose start cannot be recorded
+ * is not executed, and a call whose outcome cannot be recorded ends the run instead of being retried. Tool
+ * results only ever become tool-role messages: they gain no instruction rights and cannot widen the allowed tools.
+ */
 @Service
 public class DomainAgent {
 
@@ -32,9 +39,11 @@ public class DomainAgent {
     static final int MAX_ROUNDS = 8;
 
     private final CapabilityRegistry capabilities;
+    private final TurnToolRecorder tools;
 
-    public DomainAgent(CapabilityRegistry capabilities) {
+    public DomainAgent(CapabilityRegistry capabilities, TurnToolRecorder tools) {
         this.capabilities = capabilities;
+        this.tools = tools;
     }
 
     public Flux<AgentEvent> run(DomainTask task, LlmClient llm) {
@@ -81,7 +90,7 @@ public class DomainAgent {
                 yield Flux.fromIterable(tc.calls())
                         .concatMap(call -> Flux.concat(
                                 Flux.just(new AgentEvent.ToolCalled(provider.code(), call.name(), summarize(call.argumentsJson()))),
-                                executeTool(provider, allowedTools, call, context).flatMapMany(result -> {
+                                recordedTool(provider, allowedTools, call, task, context).flatMapMany(result -> {
                                     messages.add(LlmClient.Message.toolResult(call.id(), result));
                                     return Flux.<AgentEvent>empty();
                                 })))
@@ -90,28 +99,60 @@ public class DomainAgent {
         });
     }
 
-    private Mono<String> executeTool(AgentCapabilityProvider provider, Set<String> allowedTools,
-                                     LlmClient.ToolCall call, AgentExecutionContext context) {
+    /** Start record, then execution, then outcome record; the tool result text for the model. */
+    private Mono<String> recordedTool(AgentCapabilityProvider provider, Set<String> allowedTools,
+                                      LlmClient.ToolCall call, DomainTask task, AgentExecutionContext context) {
+        var ticket = task.ticket();
+        if (ticket == null) {
+            return Mono.error(new IllegalStateException("tool call outside an accepted turn"));
+        }
+        return tools.started(ticket, provider.code(), call)
+                .then(Mono.defer(() -> executeTool(provider, allowedTools, call, context)))
+                .flatMap(outcome -> tools.finished(ticket, provider.code(), call.id(),
+                                outcome.error() == null ? outcome.text() : null, outcome.success(), outcome.errorType())
+                        .then(outcome.error() == null ? Mono.just(outcome.text()) : Mono.<String>error(outcome.error())));
+    }
+
+    /** What one call produced: model-facing text, or the error that ends the run, plus the recorded error type. */
+    private record Outcome(String text, boolean success, String errorType, Throwable error) {
+        static Outcome succeeded(String text) {
+            return new Outcome(text, true, null, null);
+        }
+
+        static Outcome failed(String text, String errorType) {
+            return new Outcome(text, false, errorType, null);
+        }
+    }
+
+    private Mono<Outcome> executeTool(AgentCapabilityProvider provider, Set<String> allowedTools,
+                                      LlmClient.ToolCall call, AgentExecutionContext context) {
         if (!allowedTools.contains(call.name())) {
-            return Mono.just("unknown tool: " + call.name());
+            return Mono.just(Outcome.failed("unknown tool: " + call.name(), "UNKNOWN_TOOL"));
         }
         JsonNode args;
         try {
             args = JSON.readTree(call.argumentsJson());
         } catch (Exception e) {
-            return Mono.just("tool execution error: " + e.getMessage());
+            return Mono.just(Outcome.failed("tool execution error: invalid arguments JSON", "INVALID_ARGUMENTS"));
         }
         var invocation = new ToolInvocation(call.name(), call.id(), args);
         return provider.execute(invocation, context)
-                .map(result -> result.displayResult())
-                .onErrorMap(error -> {
+                .map(result -> result.success() ? Outcome.succeeded(result.displayResult())
+                        : Outcome.failed(result.displayResult(), "TOOL_REPORTED_FAILURE"))
+                .onErrorResume(error -> {
+                    var errorType = error.getClass().getSimpleName();
                     log.warn("capability tool failed role={} tool={} errorType={}", provider.code(), call.name(),
-                            error.getClass().getSimpleName());
-                    return new IllegalStateException("capability tool execution failed");
+                            errorType);
+                    return Mono.just(new Outcome(null, false, errorType,
+                            new IllegalStateException("capability tool execution failed")));
                 });
     }
 
     private static String summarize(String argumentsJson) {
-        return argumentsJson.length() > 200 ? argumentsJson.substring(0, 200) + "...(truncated)" : argumentsJson;
+        var safe = ToolRecordSanitizer.sanitize(argumentsJson);
+        if (safe == null) {
+            return "";
+        }
+        return safe.length() > 200 ? safe.substring(0, 200) + "...(truncated)" : safe;
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import io.github.sukimiya.agileagent.config.UploadProperties;
+import io.github.sukimiya.agileagent.memory.ConversationIds;
 
 @Component
 public class UploadCleanupTask {
@@ -35,7 +36,11 @@ public class UploadCleanupTask {
         if (!Files.isDirectory(root)) return;
         var cutoff = Instant.now().minusMillis(props.getTtlMillis());
         try (var stream = Files.list(root)) {
-            stream.filter(Files::isDirectory).forEach(p -> {
+            // Only conversation directories are expired; anything else under the root is never matched to a
+            // conversation (no sanitized-name lookups) and is left alone.
+            stream.filter(Files::isDirectory)
+                    .filter(p -> ConversationIds.isValid(p.getFileName().toString()))
+                    .forEach(p -> {
                 try {
                     if (Files.getLastModifiedTime(p).toInstant().isBefore(cutoff)) {
                         deleteRecursively(p);

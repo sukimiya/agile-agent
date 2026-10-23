@@ -15,7 +15,13 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
-import io.github.sukimiya.agileagent.service.ChatMemory;
+import io.github.sukimiya.agileagent.memory.ConversationHistory;
+import io.github.sukimiya.agileagent.memory.MemoryException;
+import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
+import io.github.sukimiya.agileagent.memory.TurnLifecycle;
+import io.github.sukimiya.agileagent.memory.TurnRecorder;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
@@ -29,6 +35,14 @@ import reactor.core.publisher.Mono;
  * {@link TaskDispatcher}, and aggregates the results into one streamed answer.
  * Output line format (control-line JSON / plain final-text line / done) is unchanged
  * from the single-agent predecessor so the frontend needs no changes.
+ *
+ * <p>Each call runs one accepted turn through {@link TurnLifecycle#execute}: the prompt history and the
+ * question come from durable storage, streamed answer text is checkpointed through the {@link TurnRecorder},
+ * and the final text plus all usage observed (including usage after Completed) is committed only when the
+ * upstream completes. {@code done} after an answer is emitted only once COMPLETED is durably written; every
+ * failure ends with an {@code error} line carrying a stable {@code code} (then {@code done} as the protocol
+ * terminator, never as success). Cancelling the subscription (client disconnect) cancels routing, the model
+ * stream and the capability dispatch, including tool calls not started yet, and marks the turn CANCELLED.
  */
 @Service
 public class Orchestrator {
@@ -64,42 +78,95 @@ public class Orchestrator {
 
     private final TaskDispatcher dispatcher;
     private final CapabilityRegistry capabilities;
-    private final ChatMemory memory;
+    private final TurnLifecycle lifecycle;
+    private final ConversationHistory history;
 
-    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, ChatMemory memory) {
+    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
+                        ConversationHistory history) {
         this.dispatcher = dispatcher;
         this.capabilities = capabilities;
-        this.memory = memory;
+        this.lifecycle = lifecycle;
+        this.history = history;
     }
 
-    public Flux<String> chat(String ownerId, String accessToken, String userMessage, IdentityContext identity,
-                             LlmClient llm) {
+    /**
+     * Streams one accepted turn. A completed replay re-emits the stored answer as one delta, the observed usage
+     * and done without calling the model; otherwise the turn executes while subscribed (a ticket runs at most
+     * once, so a second subscription gets an error line instead of a second model call).
+     */
+    public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm) {
+        var ticket = accepted.ticket();
+        if (accepted.replay()) {
+            return replay(accepted);
+        }
         return Flux.defer(() -> {
             IdentityContext executionIdentity = identity == null
-                    ? new IdentityContext(ownerId, null, null, null, null, null, Set.of(), Set.of(), Set.of(), false, false)
+                    ? new IdentityContext(ticket.scope().subject(), null, ticket.scope().tenantId(), null, null, null,
+                            Set.of(), Set.of(), Set.of(), false, false)
                     : identity;
-            var usage = new UsageAccumulator();
-            Flux<String> body = memory.get(ownerId)
-                .flatMapMany(history -> route(llm, usage, history, userMessage)
-                        .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
-                                ? answerDirectly(llm, usage, ownerId, history, userMessage)
-                                : answerViaCapabilities(llm, usage, ownerId, history, userMessage, capabilityCodes,
-                                        accessToken, executionIdentity)));
             String traceId = NonBlockingIds.shortUuid();
             return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
-                        body.timeout(TOTAL_BUDGET),
-                        Flux.defer(() -> usage.observed()
-                                ? Flux.just(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()))
-                                : Flux.empty()),
+                        lifecycle.execute(ticket, recorder -> runTurn(recorder, accessToken, executionIdentity, llm)),
                         Flux.just(controlLine("done", null)))
                 .onErrorResume(e -> {
-                    log.error("Orchestrator error type={}", e.getClass().getSimpleName());
-                    return Flux.just(controlLine("error", "处理出错"), controlLine("done", null));
+                    String code = errorCode(e);
+                    log.error("Orchestrator error type={} code={}", e.getClass().getSimpleName(), code);
+                    return Flux.just(errorLine(code), controlLine("done", null));
                 })
-                .contextWrite(ctx -> ctx.put("traceId", traceId).put("sessionId", ownerId));
+                .contextWrite(ctx -> ctx.put("traceId", traceId).put("sessionId", ticket.conversationId()));
         });
     }
+
+    private Flux<String> runTurn(TurnRecorder recorder, String accessToken, IdentityContext identity, LlmClient llm) {
+        var ticket = recorder.ticket();
+        var usage = new UsageAccumulator();
+        var finalText = new AtomicReference<String>();
+        Flux<String> body = Mono.zip(history.contextBefore(ticket), history.userInput(ticket))
+                .flatMapMany(prompt -> {
+                    var past = prompt.getT1();
+                    var userMessage = prompt.getT2();
+                    var answer = new FinalAnswer(recorder, finalText);
+                    return route(llm, usage, past, userMessage)
+                            .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
+                                    ? answerDirectly(llm, usage, answer, past, userMessage)
+                                    : answerViaCapabilities(llm, usage, answer, ticket, past, userMessage,
+                                            capabilityCodes, accessToken, identity));
+                });
+        return Flux.concat(
+                body.timeout(TOTAL_BUDGET),
+                // Stage the final text with every usage observed so far, including usage after Completed.
+                Mono.defer(() -> finalText.get() == null ? Mono.<Void>empty()
+                        : recorder.completed(finalText.get(), usage.snapshot())).then(Mono.<String>empty()),
+                Flux.defer(() -> usage.observed()
+                        ? Flux.just(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()))
+                        : Flux.empty()));
+    }
+
+    private Flux<String> replay(AcceptedTurn accepted) {
+        var lines = new ArrayList<String>();
+        lines.add(controlLine("delta", accepted.answer() == null ? "" : accepted.answer()));
+        var usage = accepted.usage();
+        if (usage != null && usage.observed()) {
+            lines.add(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()));
+        }
+        lines.add(controlLine("done", null));
+        return Flux.fromIterable(lines);
+    }
+
+    /** Stable, client-visible code for an execution failure; never the underlying message. */
+    static String errorCode(Throwable error) {
+        if (error instanceof TurnLifecycle.ExecutionRightLostException) {
+            return "TURN_INTERRUPTED";
+        }
+        if (error instanceof MemoryException memory) {
+            return memory.code().name();
+        }
+        return "TURN_FAILED";
+    }
+
+    /** Where the final model answer's deltas are checkpointed and its full text staged. */
+    private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text) {}
 
     private Mono<List<String>> route(LlmClient llm, UsageAccumulator usage, List<LlmClient.Message> history, String userMessage) {
         var messages = new ArrayList<LlmClient.Message>();
@@ -143,36 +210,43 @@ public class Orchestrator {
         }
     }
 
-    private Flux<String> answerDirectly(LlmClient llm, UsageAccumulator usage, String ownerId,
+    private Flux<String> answerDirectly(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
                                         List<LlmClient.Message> history, String userMessage) {
         log.info("routing no-capability, answering directly");
         var messages = new ArrayList<LlmClient.Message>();
         messages.add(LlmClient.Message.system(DIRECT_ANSWER_PROMPT));
         messages.addAll(history);
         messages.add(LlmClient.Message.user(userMessage));
-        return streamFinalAnswer(llm, usage, ownerId, userMessage, messages);
+        return streamFinalAnswer(llm, usage, answer, messages);
     }
 
-    private Flux<String> answerViaCapabilities(LlmClient llm, UsageAccumulator usage, String ownerId,
-                                               List<LlmClient.Message> history, String userMessage,
+    /**
+     * One subscription to the dispatch both streams tool progress and collects the results, so cancelling the
+     * returned Flux cancels the dispatch itself (a shared {@code cache()} would keep it running). The aggregate
+     * model call starts only after the dispatch completed normally.
+     */
+    private Flux<String> answerViaCapabilities(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
+                                               TurnTicket ticket, List<LlmClient.Message> history, String userMessage,
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
         var tasks = capabilityCodes.stream()
-                .map(code -> new DomainTask(NonBlockingIds.uuid(), ownerId, code, userMessage, accessToken, identity))
+                .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code, userMessage,
+                        accessToken, identity, ticket))
                 .toList();
-        Flux<AgentEvent> events = dispatcher.dispatch(tasks, llm).doOnNext(usage::add).cache();
-
-        Flux<String> progress = events.filter(e -> e instanceof AgentEvent.ToolCalled)
-                .map(e -> controlLine("tool_call", ((AgentEvent.ToolCalled) e).tool()));
-
-        Mono<List<AgentEvent>> results = events
-                .filter(e -> e instanceof AgentEvent.Finished || e instanceof AgentEvent.Failed)
-                .collectList();
-
+        var results = new ArrayList<AgentEvent>();
+        Flux<String> progress = dispatcher.dispatch(tasks, llm)
+                .doOnNext(usage::add)
+                .handle((event, sink) -> {
+                    if (event instanceof AgentEvent.ToolCalled called) {
+                        sink.next(controlLine("tool_call", called.tool()));
+                    } else if (event instanceof AgentEvent.Finished || event instanceof AgentEvent.Failed) {
+                        results.add(event);
+                    }
+                });
         return progress.concatWith(Flux.defer(() ->
-                results.flatMapMany(r -> aggregate(llm, usage, ownerId, history, userMessage, r))));
+                aggregate(llm, usage, answer, history, userMessage, List.copyOf(results))));
     }
 
-    private Flux<String> aggregate(LlmClient llm, UsageAccumulator usage, String ownerId,
+    private Flux<String> aggregate(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
                                    List<LlmClient.Message> history, String userMessage,
                                     List<AgentEvent> capabilityResults) {
         long start = System.currentTimeMillis();
@@ -186,7 +260,7 @@ public class Orchestrator {
         messages.add(LlmClient.Message.user(userMessage));
         messages.add(LlmClient.Message.user("各能力执行结果：\n" + summary));
 
-        return streamFinalAnswer(llm, usage, ownerId, userMessage, messages)
+        return streamFinalAnswer(llm, usage, answer, messages)
                 .doOnComplete(() -> log.info("aggregate capabilities={} totalElapsedMs={}", capabilityCodes, System.currentTimeMillis() - start));
     }
 
@@ -210,24 +284,20 @@ public class Orchestrator {
         };
     }
 
-    private Flux<String> streamFinalAnswer(LlmClient llm, UsageAccumulator usage, String ownerId, String userMessage,
+    /** Streams the final answer: each delta is checkpointed before it is emitted; Completed stages the text. */
+    private Flux<String> streamFinalAnswer(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
                                            List<LlmClient.Message> messages) {
-        var finalText = new AtomicReference<>("");
         return llm.chatStream(messages, List.of()).doOnNext(usage::add)
                 .concatMap(event -> switch (event) {
-                    case LlmClient.LlmEvent.ContentDelta d -> Flux.just(controlLine("delta", d.text()));
+                    case LlmClient.LlmEvent.ContentDelta d ->
+                            answer.recorder().delta(d.text()).thenReturn(controlLine("delta", d.text())).flux();
                     case LlmClient.LlmEvent.Completed c -> {
-                        finalText.set(c.fullText());
+                        answer.text().set(c.fullText());
                         yield Flux.just(c.fullText() + "\n");
                     }
                     case LlmClient.LlmEvent.ToolCallsReady tc -> Flux.<String>empty();
                     case LlmClient.LlmEvent.Usage ignored -> Flux.<String>empty();
-                })
-                .concatWith(Flux.defer(() -> saveTurn(ownerId, userMessage, finalText.get()).thenMany(Flux.empty())));
-    }
-
-    private Mono<Void> saveTurn(String ownerId, String userMessage, String answer) {
-        return memory.append(ownerId, List.of(LlmClient.Message.user(userMessage), LlmClient.Message.assistantText(answer)));
+                });
     }
 
     private static String truncate(String s, int max) {
@@ -238,6 +308,18 @@ public class Orchestrator {
         var node = JSON.createObjectNode();
         node.put("type", type);
         if (content != null) node.put("content", content);
+        try {
+            return JSON.writeValueAsString(node) + "\n";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String errorLine(String code) {
+        var node = JSON.createObjectNode();
+        node.put("type", "error");
+        node.put("content", "TURN_INTERRUPTED".equals(code) ? "执行已中断" : "处理出错");
+        node.put("code", code);
         try {
             return JSON.writeValueAsString(node) + "\n";
         } catch (Exception e) {
@@ -283,6 +365,10 @@ public class Orchestrator {
         }
 
         boolean observed() { return observed.get(); }
+        TokenUsage snapshot() {
+            return observed() ? new TokenUsage(true, promptTokens(), completionTokens(), totalTokens())
+                    : TokenUsage.notObserved();
+        }
         long promptTokens() { return prompt.sum(); }
         long completionTokens() { return completion.sum(); }
         long totalTokens() { return total.sum(); }
