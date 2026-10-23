@@ -148,6 +148,19 @@ public class MemoryMetrics {
                 .register(meters).increment();
     }
 
+    /** A summary was written (M2a Task 4). */
+    public void summaryGenerated() {
+        Counter.builder("memory.summary.generated").description("Segment summaries written")
+                .register(meters).increment();
+    }
+
+    /** A summary job attempt failed; {@code reason}: MODEL_MISSING, MODEL_ERROR or TIMEOUT. */
+    public void summaryFailed(String reason) {
+        Counter.builder("memory.summary.failures").tag("reason", reason)
+                .description("Summary job attempts that failed and will be retried")
+                .register(meters).increment();
+    }
+
     /** Provider {@code prompt_tokens} divided by the raw (unscaled) estimate of the same call. */
     public void estimateRatio(String purpose, double ratio) {
         DistributionSummary.builder("memory.context.estimate.ratio").tag("purpose", purpose)

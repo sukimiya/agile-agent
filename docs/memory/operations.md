@@ -12,7 +12,7 @@
 ## 会话删除清理
 
 - `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`；V10 之前叫 `DELETE_CONVERSATION`，升级时未完成的任务由迁移改名后继续执行）。物理清理由 `MemoryMaintenance` 注册给 `MemoryJobWorker` 的处理器执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
-- 清理内容：`chat_messages`、`chat_tool_events`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
+- 清理内容：`chat_messages`、`chat_tool_events`、M2a 的 `memory_summaries` 与 `memory_index_progress`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
 - 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
 - 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
 - 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
@@ -58,6 +58,16 @@
 - 能力背景被截断时记 INFO 日志 `memory.context background truncated role=… keptMessages=… droppedTurns=…`（不含内容），并计入 `purpose=CAPABILITY`（每个能力任务一次）。
 - 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
 - `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。
+
+## 分段摘要（M2a Task 4 起，默认关闭）
+
+- 配置 `app.memory.summary.*`：`enabled`（默认 `false`，D4）、`max-source-tokens`（默认 12000：一个任务送给模型的对话记录上限，按估算 Token 计）、`max-output-tokens`（默认 800，作为 `max_tokens` 发送）、`job-timeout`（默认 120 秒）。
+- 关闭时不注册 `SUMMARIZE` 处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。全局并发为 1：单实例的任务处理器逐个执行任务。
+- 摘要用租户自己的模型生成，只读已完成（COMPLETED）的轮次，写入前经过与工具记录相同的脱敏。单个任务的输入超过上限时，只取放得下的整轮，其余留给下一个任务；单独一轮就超过上限时截断该轮内容后摘要，这一轮仍算已覆盖。租户窗口较小时，上限还会再收紧到窗口能容纳的大小。
+- 摘要与处理位置（`memory_index_progress.summarized_through_sequence`）在同一事务中按位置比较后写入；重复或并发的任务不会写出重复摘要。缺少租户模型、模型报错或超时都不推进位置，任务按退避重试。
+- 已删除的会话：摘要立即不可读（读取时校验删除标记），清理任务删除摘要与处理位置；晚到的摘要任务直接跳过，不调用模型。
+- 指标：`memory.summary.generated`（写入的摘要数）、`memory.summary.failures{reason}`（`MODEL_MISSING`、`MODEL_ERROR`、`TIMEOUT`）。
+- 排查：`SELECT status, attempts, last_error FROM memory_jobs WHERE job_type = 'SUMMARIZE' AND status <> 'DONE'`。
 
 ## 基础指标与评测
 

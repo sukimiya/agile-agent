@@ -245,6 +245,8 @@ public class MemoryMaintenance implements SmartLifecycle {
                         : Mono.error(new IllegalStateException("cleanup target is not a deleted conversation")))
                 .then(scopedDelete("chat_messages", scope, c))
                 .then(scopedDelete("chat_tool_events", scope, c))
+                .then(scopedDelete("memory_summaries", scope, c))
+                .then(scopedDelete("memory_index_progress", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))
                 .then(Mono.defer(() -> files.deleteConversationFiles(c)));
     }

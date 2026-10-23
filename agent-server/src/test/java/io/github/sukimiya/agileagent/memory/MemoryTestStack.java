@@ -150,6 +150,10 @@ public final class MemoryTestStack implements AutoCloseable {
         return support.fixture.jdbc().queryForList(query, args);
     }
 
+    public ConversationRepository conversations() {
+        return support.conversations;
+    }
+
     public MemoryProperties props() {
         return support.props;
     }

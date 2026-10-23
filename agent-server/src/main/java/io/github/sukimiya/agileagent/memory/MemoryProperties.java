@@ -42,6 +42,46 @@ public class MemoryProperties {
 
     public Context getContext() { return context; }
 
+    private final Summary summary = new Summary();
+
+    public Summary getSummary() { return summary; }
+
+    /** {@code app.memory.summary.*}: background segment summaries (M2a Task 4, D4/D5). */
+    public static class Summary {
+        /** Summary generation; off by default (D4). Off: no SUMMARIZE handler, jobs wait unclaimed. */
+        private boolean enabled;
+        /** Largest transcript one job sends, in estimated tokens (D5 source range). */
+        private int maxSourceTokens = 12_000;
+        /** {@code max_tokens} of the summary call (D5). */
+        private int maxOutputTokens = 800;
+        /** Upper bound of one summary call. */
+        private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxSourceTokens() { return maxSourceTokens; }
+        public void setMaxSourceTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.summary.max-source-tokens must be > 0");
+            }
+            this.maxSourceTokens = v;
+        }
+        public int getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.summary.max-output-tokens must be > 0");
+            }
+            this.maxOutputTokens = v;
+        }
+        public java.time.Duration getJobTimeout() { return jobTimeout; }
+        public void setJobTimeout(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.summary.job-timeout must be positive");
+            }
+            this.jobTimeout = v;
+        }
+    }
+
     /** {@code app.memory.context.*}: per-call context budget (M2a). */
     public static class Context {
         /** Budget enforcement; off means every call gets the full history (M1 behaviour). */
