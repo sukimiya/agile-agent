@@ -419,6 +419,120 @@ class MemoryDeletionTest {
 
     /** Unused helper kept for symmetry with other suites. */
     @SuppressWarnings("unused")
+    // --- deletion audit log (the protected deletion list) ---------------------------------------------------
+
+    /** Captures the audit logger and, for each line, whether the deletion was already committed at that moment. */
+    private final class AuditCapture extends ch.qos.logback.core.AppenderBase<ch.qos.logback.classic.spi.ILoggingEvent>
+            implements AutoCloseable {
+        final List<ch.qos.logback.classic.spi.ILoggingEvent> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+        final List<Integer> committedAtLogTime = new java.util.concurrent.CopyOnWriteArrayList<>();
+        private final String conversationId;
+
+        AuditCapture(String conversationId) {
+            this.conversationId = conversationId;
+            start();
+            auditLogger().addAppender(this);
+        }
+
+        @Override
+        protected void append(ch.qos.logback.classic.spi.ILoggingEvent event) {
+            events.add(event);
+            // A separate JDBC connection sees only committed data.
+            committedAtLogTime.add(count("SELECT COUNT(*) FROM sessions WHERE id = ? AND deleted_at IS NOT NULL",
+                    conversationId));
+        }
+
+        @Override
+        public void close() {
+            auditLogger().detachAppender(this);
+            stop();
+        }
+    }
+
+    private static ch.qos.logback.classic.Logger auditLogger() {
+        return (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("memory.deletion-audit");
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode json(ch.qos.logback.classic.spi.ILoggingEvent event) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readTree(event.getFormattedMessage());
+        } catch (Exception e) {
+            throw new AssertionError("audit line is not a JSON object: " + event.getFormattedMessage(), e);
+        }
+    }
+
+    @Test
+    void committedDeleteEmitsOneStructuredAuditLineAfterCommit() throws Exception {
+        var conversation = newConversationId();
+        completedTurn(ALICE, conversation, "我的项目代号是蓝鲸", "记住了");
+        attachment(conversation, "secret-plan.txt");
+        fixture.jdbc().update("UPDATE sessions SET title = ? WHERE id = ?", "蓝鲸项目标题", conversation);
+
+        try (var audit = new AuditCapture(conversation)) {
+            delete(ALICE, conversation);
+
+            assertThat(audit.events).singleElement().satisfies(event -> {
+                assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+                assertThat(event.getLoggerName()).isEqualTo("memory.deletion-audit");
+                assertThat(event.getFormattedMessage()).doesNotContain("\n").doesNotContain("蓝鲸")
+                        .doesNotContain("记住了").doesNotContain("secret-plan").doesNotContain(uploadDir.toString());
+            });
+            assertThat(audit.committedAtLogTime).as("logged only after the tombstone committed").containsExactly(1);
+            var line = json(audit.events.getFirst());
+            var row = fixture.jdbc().queryForMap("SELECT deleted_at, revision FROM sessions WHERE id = ?",
+                    conversation);
+            assertThat(line.get("event").asText()).isEqualTo("CONVERSATION_DELETED");
+            assertThat(line.get("tenantId").asText()).isEqualTo(ALICE.tenantId());
+            assertThat(line.get("subject").asText()).isEqualTo(ALICE.subject());
+            assertThat(line.get("conversationId").asText()).isEqualTo(conversation);
+            assertThat(java.time.LocalDateTime.parse(line.get("deletedAt").asText())).isEqualTo(
+                    fixture.jdbc().queryForObject("SELECT deleted_at FROM sessions WHERE id = ?",
+                            java.time.LocalDateTime.class, conversation));
+            assertThat(line.get("revision").asLong()).isEqualTo(((Number) row.get("REVISION")).longValue());
+            assertThat(line.size()).as("no other fields").isEqualTo(6);
+        }
+    }
+
+    @Test
+    void repeatedDeleteLogsOnlyTheFirstTransition() {
+        var conversation = newConversationId();
+        completedTurn(ALICE, conversation, "问题", "回答");
+
+        try (var audit = new AuditCapture(conversation)) {
+            delete(ALICE, conversation);
+            delete(ALICE, conversation);
+            runPending();
+            delete(ALICE, conversation);
+
+            assertThat(audit.events).hasSize(1);
+        }
+    }
+
+    @Test
+    void rejectedOrRolledBackDeleteEmitsNoAuditLine() {
+        var foreign = newConversationId();
+        completedTurn(BOB, foreign, "别人的", "回答");
+        var conversation = newConversationId();
+        completedTurn(ALICE, conversation, "问题", "回答");
+
+        try (var audit = new AuditCapture(conversation)) {
+            assertNotFound(maintenance.deleteConversation(ALICE, foreign));
+            assertNotFound(maintenance.deleteConversation(ALICE, newConversationId()));
+            // The tombstone update succeeds but the rest of the transaction fails: everything rolls back.
+            fixture.jdbc().execute("ALTER TABLE chat_turns RENAME TO chat_turns_broken");
+            assertThatThrownBy(() -> delete(ALICE, conversation)).isInstanceOfSatisfying(MemoryException.class,
+                    e -> assertThat(e.code()).isEqualTo(ErrorCode.STORAGE_UNAVAILABLE));
+            fixture.jdbc().execute("ALTER TABLE chat_turns_broken RENAME TO chat_turns");
+
+            assertThat(count("SELECT COUNT(*) FROM sessions WHERE id = ? AND deleted_at IS NOT NULL", conversation))
+                    .isZero();
+            assertThat(audit.events).isEmpty();
+
+            delete(ALICE, conversation);
+            assertThat(audit.events).hasSize(1);
+        }
+    }
+
     private static List<String> ids(List<MemoryModel.StoredMessage> items) {
         return items.stream().map(MemoryModel.StoredMessage::id).toList();
     }

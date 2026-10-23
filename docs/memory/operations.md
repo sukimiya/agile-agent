@@ -17,6 +17,20 @@
 - 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
 - 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
 
+### 删除审计日志（受保护的删除清单）
+
+- 每次删除事务**提交后**，专用 logger `memory.deletion-audit` 以 INFO 级别写一行 JSON，这个日志流就是恢复时使用的删除清单：
+
+  ```
+  14:15:29.521 [] [] INFO  m.deletion-audit - {"event":"CONVERSATION_DELETED","tenantId":"tenant-a","subject":"user-123","conversationId":"0b7e4c1a-5f2d-4c3e-9a61-2d8f0e6b7c45","deletedAt":"2026-10-23T14:15:29.521226","revision":3}
+  ```
+
+  默认日志格式会把 logger 名缩写为 `m.deletion-audit`，筛选时请按 `"event":"CONVERSATION_DELETED"` 匹配。
+- 字段只有：`event`、`tenantId`、`subject`、`conversationId`、`deletedAt`、`revision`。`deletedAt` 和 `revision` 是同一事务写入 `sessions` 的值；`deletedAt` 是数据库时间，与 `sessions.deleted_at` 同一时区，不带时区偏移。日志中不包含消息内容、标题、附件路径或密钥。值经过 JSON 转义，所以每次删除只占一行。
+- `tenantId` 与 `subject` 记录原始 ID，与 `sessions.tenant_id`/`user_id` 一致，恢复时可以直接按行核对归属。代价是日志存储中包含用户标识，需要按个人数据控制访问权限和保留期限。
+- 只有第一次实际删除会写日志；对已删除会话的重复删除、他人或不存在的会话（404）以及回滚的事务都不会写。
+- **运维要求：** 将这一行投递到与数据库**不同故障域**的日志存储，投递延迟和 binlog 一样要为 15 分钟 RPO 留出余量。保留期不短于“最早可恢复的全量备份”到现在的时间跨度（本地 `logs/` 只保留 7 天，不能替代日志存储）。另外需要能够查到每个实例最后一条日志的接收时间，用来判断日志覆盖到哪个时间点。
+
 ## 单实例保护
 
 - M1 只支持单实例部署（`replicas=1`），多实例不受支持。`InstanceGuard` 在启动时于 `service_instances` 登记本实例，此后每隔 `app.memory.instance-heartbeat-interval`（默认 10 秒）续期。心跳与判定都使用数据库时间。
@@ -62,7 +76,7 @@
 - 全量备份与连续 binlog 归档（`binlog_format=ROW`，建议开启 GTID）存放在**与数据库不同的故障域**（不同主机、可用区或账号）。只放在数据库同一台机器或同一磁盘上的备份不算数。
 - 日志交付延迟必须给 15 分钟 RPO 留出余量：binlog 至少每 5 分钟轮转或流式上传一次，并对“最新已归档 binlog 的时间距现在超过 10 分钟”告警。全量备份周期由 RTO 决定：全量恢复加 binlog 回放的实测时间必须远小于 4 小时。
 - `LLM_CONFIG_SECRET` 保存在密钥管理系统中，与数据库备份分属不同故障域，并保留历史版本；记录每个版本的生效时间段，以便确定恢复点对应哪个版本。
-- 删除记录：M1 的删除标记（`sessions.deleted_at`）和 `DELETE_CONVERSATION` 任务与删除请求在同一事务内写入数据库，所以会随全量备份和 binlog 一起恢复。**M1 没有独立于数据库故障域的删除清单**，见第 4 步。
+- 删除清单：删除标记（`sessions.deleted_at`）和 `DELETE_CONVERSATION` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
 
 ### 2. 准备隔离环境
 
@@ -81,7 +95,27 @@
 
 - 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `DELETE_CONVERSATION` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
 - 如果 binlog 一直回放到故障时刻（Tlast 等于故障时间），就没有遗漏的删除。
-- 如果 Tlast 早于故障时间，那么 (Tlast, 故障时间] 之间的删除请求已经丢失，这些会话会被恢复出来。spec 要求“删除清单不完整时，不开放无法核实的范围”，而 M1 没有独立保存的删除清单，无法确定这段时间删除了哪些会话。这种情况下**不开放恢复后的会话数据**，由负责人决定后续处理。这是 M1 的已知缺口，见验收记录中的未完成项。
+- 如果 Tlast 早于故障时间，(Tlast, 故障时间] 之间的删除不在数据库中，需要在**服务启动前**（服务停止、隔离环境、不开放访问）按删除审计日志人工复放：
+  1. **确认日志覆盖范围。** 在日志存储中确认这个部署所有实例的日志都已经接收到故障时间。删除并不频繁，没有删除日志不能证明期间没有删除，所以只能以日志管道的接收时间为准。如果覆盖范围早于故障时间，那么从覆盖终点到故障时间这段无法核实，按第 4 条处理。
+  2. **导出删除行。** 导出 `"event":"CONVERSATION_DELETED"` 且 `deletedAt` 不早于所用全量备份开始时间的全部行。复放是幂等的，范围取宽一些比只取 Tlast 之后更安全，可以避免日志时间与 binlog 时间之间的误差。
+  3. **逐行核对并复放。** 对每一行按 `conversationId` 查询 `SELECT tenant_id, user_id, deleted_at FROM sessions WHERE id = ?`：
+     - 没有这一行：会话创建于恢复点之后，已不存在，记录下来即可。
+     - `deleted_at` 已经有值：已包含在恢复的数据中，跳过。
+     - `tenant_id`、`user_id` 与日志不一致：停止复放并调查，不开放访问。
+     - `deleted_at` 为空：在一个事务中执行：
+
+       ```sql
+       UPDATE sessions SET deleted_at = '<deletedAt>', title = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND deleted_at IS NULL;
+       INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, available_at, created_at, updated_at)
+       VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'DELETE_CONVERSATION', 'PENDING', 0,
+               CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
+       ```
+
+       服务启动后，清理任务会删除消息、工具记录、缓存和附件目录。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。
+  4. **无法核实的时间段。** 如果日志覆盖不到故障时间，或者有行无法核对，这些数据保持不可访问（spec 第 12 节）：不启动服务，或者不开放访问，由负责人决定后续处理。
+  5. **记录结果。** 记录复放行数、各类结果的数量，以及日志覆盖终点。
+- 以上 SQL 只在隔离环境中人工执行；仓库不提供修改生产数据的脚本。
 
 ### 5. 恢复密钥与启动服务
 

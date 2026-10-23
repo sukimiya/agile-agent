@@ -25,7 +25,7 @@
 | 7 | 会话删除与持久清理 | `87b5a6c` |
 | 8 | 单实例保护与部署配置 | `82e6df2` |
 | 9 | 评测集、基线与基础指标；真实模型端到端基线 | `d3aea8c`、`bc18dbe` |
-| 10 | 故障验收、恢复手册与本记录 | `test: verify durable memory failure and recovery paths`（本文件所在提交） |
+| 10 | 故障验收、恢复手册与本记录 | `89596ba`；删除审计日志（受保护的删除清单）为后续提交 `feat: emit deletion audit log as protected deletion list` |
 
 ## 3. 验证命令与结果（2026-10-23，JDK 21）
 
@@ -34,9 +34,9 @@
 | 命令 | 结果 |
 | --- | --- |
 | `mvn -pl agent-spi -am test` | PASS：17 个测试，0 失败，0 错误，0 跳过 |
-| `mvn -pl agent-server -am clean test` | PASS：agent-spi 17、mock-oauth2 25、agent-server 596 + BlockHound 2，0 失败，0 错误，0 跳过 |
+| `mvn -pl agent-server -am clean test` | PASS：agent-spi 17、mock-oauth2 25、agent-server 596 + BlockHound 2，0 失败，0 错误，0 跳过；加入删除审计日志后 agent-server 为 599 |
 | `mvn -Pmemory-mysql-it -pl agent-server -am -Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest test` | PASS：25（TurnConcurrencyIntegrationTest 18、MemoryFailureIntegrationTest 7），真实 MySQL |
-| `mvn -Pmemory-mysql-it -pl agent-server -am test`（全部 mysql-it） | PASS：102，真实 MySQL |
+| `mvn -Pmemory-mysql-it -pl agent-server -am test`（全部 mysql-it） | PASS：102，真实 MySQL；加入删除审计日志后为 105 |
 | `mvn -pl agent-server -am -DskipTests package` | PASS（只编译打包，不算验收） |
 | `mvn -Pmemory-eval-live …`（真实模型端到端评测） | 2026-10-23 运行一次，结果见 `eval-baseline.md` 第 2 节；M1 不设质量门槛 |
 
@@ -54,12 +54,12 @@ H2 测试和构建成功都不能算作 MySQL 迁移或并发验收。并发与�
 | 4 | 两个聊天入口回归，流式事件格式和 capability 契约不变 | 满足 | `ChatControllerTest`、`TurnStreamingIntegrationTest` |
 | 5 | 附件归属、ID 规则、404、不泄露路径、24 小时清理，并写明附件原件不保证永久可恢复 | 满足 | `FileStorageServiceTest`、`UploadCleanupTaskTest`、`ChatControllerTest`、`operations.md` |
 | 6 | 部署配置声明 replicas=1；第二个实例产生告警并拒绝新执行 | 满足 | `InstanceGuardTest` 等（Task 8） |
-| 7 | 删除后原文和缓存不可读取，也不会被重建复活 | 满足 | `MemoryDeletionTest`、`MemoryFailureTest` |
+| 7 | 删除后原文和缓存不可读取，也不会被重建复活 | 满足 | `MemoryDeletionTest`、`MemoryFailureTest`；删除提交后写一行审计日志（`memory.deletion-audit`） |
 | 8 | 不读取旧 `chatmemory:*` key | 满足 | `ConversationHistoryTest` |
 | 9 | 中立评测集与基线；组件状态和端到端结果分开记录；未实现组件记为“不适用”或“功能未启用” | 满足 | `eval-baseline.md`、`MemoryMetricsTest` |
 | 10 | 来源类型、租户隔离与凭证过滤 | 满足 | `ToolRecordSanitizerTest`、`TurnToolRecorderTest` |
 | 18 | 主线测试与 mcp-tool 适配测试分别记录 | 主线已记录；mcp-tool 待主线验收后适配 | 第 6 节 |
-| 19 | RPO ≤ 15 分钟、RTO ≤ 4 小时，需数据库、密钥和删除清单的恢复演练都通过 | **未满足（未验证）** | 只有恢复手册（`operations.md`），演练尚未执行；删除清单存在缺口，见第 5 节 |
+| 19 | RPO ≤ 15 分钟、RTO ≤ 4 小时，需数据库、密钥和删除清单的恢复演练都通过 | **未满足（未验证）** | 删除清单已定义为删除审计日志流（`memory.deletion-audit`），实现与测试见 `MemoryDeletionTest` 及其 MySQL 变体；恢复手册包含复放步骤（`operations.md`）。日志投递到其他故障域的日志存储尚未配置，恢复演练尚未执行 |
 
 ## 5. 未实现、限制与上线门槛
 
@@ -68,7 +68,7 @@ H2 测试和构建成功都不能算作 MySQL 迁移或并发验收。并发与�
 **限制：**
 
 - **生产 RPO/RTO 未验证。** 恢复演练尚未在隔离环境执行，不能宣称达到“RPO ≤ 15 分钟、RTO ≤ 4 小时”。
-- **删除清单缺口。** M1 的删除记录（删除标记和删除任务）只保存在数据库中。如果只能恢复到故障前的某个时间点，这段时间内的删除无法从数据库外部核实。按 spec 第 12 节，这种情况下恢复的数据保持不可访问。在宣称达到恢复目标之前，需要确定一种独立于数据库故障域的删除清单（待决策）。
+- **删除清单。** 用户于 2026-10-23 确定：删除清单是删除审计日志流。每次会话删除提交后，`memory.deletion-audit` 写一行 JSON，只在首次实际删除时写，并且记录原始 tenantId 和 subject。不新增表，也不使用外部存储。日志投递到不同故障域的日志存储由部署方负责，目前尚未配置，也未验证。恢复时按日志复放的步骤见 `operations.md` 第 4 步。如果日志覆盖不到故障时间，那段时间的数据保持不可访问。
 - **单实例。** 只支持 `replicas=1`。出现第二个实例时，所有实例都会拒绝新执行（503 `INSTANCE_CONFLICT`）。
 - **附件。** 附件原件不保证长期可恢复，24 小时后会被清理，也不在数据库恢复范围内。
 

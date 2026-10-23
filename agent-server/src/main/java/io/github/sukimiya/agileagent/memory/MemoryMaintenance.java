@@ -44,6 +44,17 @@ public class MemoryMaintenance implements SmartLifecycle {
     static final String DELETED_ERROR = "CONVERSATION_DELETED";
 
     private static final Logger log = LoggerFactory.getLogger(MemoryMaintenance.class);
+    /**
+     * The protected deletion list: one INFO line per committed deletion, a JSON object with {@code event},
+     * {@code tenantId}, {@code subject}, {@code conversationId}, {@code deletedAt} (database time, as stored in
+     * {@code sessions.deleted_at}) and {@code revision}. Never message content, titles, paths or secrets. Operators
+     * ship this logger to a log store outside the database's failure domain and replay it after a restore.
+     */
+    static final String AUDIT_LOGGER = "memory.deletion-audit";
+    static final String AUDIT_EVENT = "CONVERSATION_DELETED";
+    private static final Logger audit = LoggerFactory.getLogger(AUDIT_LOGGER);
+    private static final com.fasterxml.jackson.databind.ObjectMapper AUDIT_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
     private static final int BATCH = 50;
     private static final int DELETE_ATTEMPTS = 4;
     private static final Duration JOB_LEASE = Duration.ofMinutes(5);
@@ -73,6 +84,15 @@ public class MemoryMaintenance implements SmartLifecycle {
 
     private record Job(String id, MemoryScope scope, String conversationId) {}
 
+    /** Outcome of the tombstone transaction; {@code deletedAt} is null when it was already deleted (a repeat). */
+    private record Tombstone(java.time.LocalDateTime deletedAt, long revision) {
+        static final Tombstone REPEAT = new Tombstone(null, 0);
+
+        boolean newlyDeleted() {
+            return deletedAt != null;
+        }
+    }
+
     /**
      * Deletes a conversation owned by {@code scope}. Completes for a live or already deleted own conversation
      * (idempotent); fails with {@code INVALID_CONVERSATION_ID} for a non-canonical id and
@@ -90,9 +110,15 @@ public class MemoryMaintenance implements SmartLifecycle {
                     .retryWhen(Retry.max(DELETE_ATTEMPTS - 1).filter(MemoryMaintenance::isTransient))
                     .onErrorMap(e -> !(e instanceof MemoryException),
                             e -> new MemoryException(ErrorCode.STORAGE_UNAVAILABLE, e))
-                    .doOnNext(newlyDeleted -> metrics.terminal(MemoryModel.TurnStatus.INTERRUPTED, interrupted.get()))
+                    .doOnNext(result -> metrics.terminal(MemoryModel.TurnStatus.INTERRUPTED, interrupted.get()))
+                    // Emitted after commit, once per actual transition; repeats and rolled-back attempts log nothing.
+                    .doOnNext(result -> {
+                        if (result.newlyDeleted()) {
+                            auditDeletion(scope, conversationId, result);
+                        }
+                    })
                     // Best effort right away; the cleanup job writes the cache tombstone again and must succeed.
-                    .flatMap(newlyDeleted -> newlyDeleted
+                    .flatMap(result -> result.newlyDeleted()
                             ? cache.tombstone(scope, conversationId).onErrorResume(e -> {
                                 log.warn("memory.delete cache tombstone deferred to cleanup: {}",
                                         NestedExceptionUtils.getMostSpecificCause(e).toString());
@@ -102,8 +128,24 @@ public class MemoryMaintenance implements SmartLifecycle {
         });
     }
 
-    /** True when this call deleted the conversation, false when it was already deleted by the same owner. */
-    private Mono<Boolean> tombstone(MemoryScope scope, String conversationId,
+    private static void auditDeletion(MemoryScope scope, String conversationId, Tombstone result) {
+        var line = new java.util.LinkedHashMap<String, Object>();
+        line.put("event", AUDIT_EVENT);
+        line.put("tenantId", scope.tenantId());
+        line.put("subject", scope.subject());
+        line.put("conversationId", conversationId);
+        line.put("deletedAt", result.deletedAt().toString());
+        line.put("revision", result.revision());
+        try {
+            audit.info(AUDIT_JSON.writeValueAsString(line));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // Unreachable for strings and numbers; never fail a committed delete over its audit line.
+            log.error("memory.delete audit line could not be written conversationId={}", conversationId);
+        }
+    }
+
+    /** The committed tombstone of this call, or {@link Tombstone#REPEAT} when the owner had already deleted it. */
+    private Mono<Tombstone> tombstone(MemoryScope scope, String conversationId,
             java.util.concurrent.atomic.AtomicLong interrupted) {
         return db.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), title = '', revision = revision + 1,"
                         + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND tenant_id = :tenantId"
@@ -112,17 +154,26 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 1
                         ? revokeTurns(scope, conversationId, interrupted).then(enqueue(scope, conversationId))
-                                .thenReturn(true)
+                                .then(readTombstone(conversationId))
                         : alreadyDeletedByOwner(scope, conversationId));
     }
 
-    private Mono<Boolean> alreadyDeletedByOwner(MemoryScope scope, String conversationId) {
+    /** Reads the deletion time and revision written by this transaction (database time). */
+    private Mono<Tombstone> readTombstone(String conversationId) {
+        return db.sql("SELECT deleted_at, revision FROM sessions WHERE id = :id")
+                .bind("id", conversationId)
+                .map(row -> new Tombstone(row.get("deleted_at", java.time.LocalDateTime.class),
+                        TurnRepository.number(row.get("revision"))))
+                .one();
+    }
+
+    private Mono<Tombstone> alreadyDeletedByOwner(MemoryScope scope, String conversationId) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :id AND tenant_id = :tenantId"
                         + " AND user_id = :subject AND deleted_at IS NOT NULL")
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> TurnRepository.number(row.get("n")))
                 .one()
-                .flatMap(n -> n > 0 ? Mono.just(false)
+                .flatMap(n -> n > 0 ? Mono.just(Tombstone.REPEAT)
                         : Mono.error(new MemoryException(ErrorCode.CONVERSATION_NOT_FOUND)));
     }
 
