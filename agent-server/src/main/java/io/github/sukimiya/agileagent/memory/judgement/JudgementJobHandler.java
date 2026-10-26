@@ -28,7 +28,9 @@ import io.github.sukimiya.agileagent.memory.items.MemoryItemSourceRepository;
 import io.github.sukimiya.agileagent.memory.jobs.ClaimedJob;
 import io.github.sukimiya.agileagent.memory.jobs.ConsolidationQuota;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
+import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
+import io.github.sukimiya.agileagent.memory.items.RebuildProfileJobHandler;
 import io.github.sukimiya.agileagent.memory.judgement.JudgementValidator.RejectedException;
 import io.github.sukimiya.agileagent.memory.recall.MemorySettingsService;
 import io.github.sukimiya.agileagent.memory.summary.SummaryJobHandler;
@@ -65,6 +67,7 @@ public class JudgementJobHandler {
     private final MemoryMetrics metrics;
     private final MemoryJobWorker worker;
     private final ConsolidationQuota quota;
+    private final MemoryJobQueue jobs;
 
     @Autowired
     public JudgementJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementProgress progress,
@@ -95,6 +98,7 @@ public class JudgementJobHandler {
         this.metrics = metrics;
         this.worker = worker;
         this.quota = quota;
+        this.jobs = new MemoryJobQueue(db);
         if (props.getJudgement().isEnabled()) {
             worker.register(JobType.JUDGE_MEMORY, this::handle);
         }
@@ -266,7 +270,8 @@ public class JudgementJobHandler {
                             metrics.judgementRejected("STALE_REVISION");
                             return Mono.empty();
                         }
-                        return sources.saveAll(v.targetItemId(), v.sources());
+                        return sources.saveAll(v.targetItemId(), v.sources())
+                                .then(enqueueRebuild(scope, conversationId, cross));
                     });
         }
         if (v.kind() == JudgementAction.Kind.SUPERSEDE) {
@@ -292,14 +297,25 @@ public class JudgementJobHandler {
                                     return Mono.<Void>empty();
                                 }
                                 return items.save(created).then(sources.saveAll(created.id(), v.sources()))
-                                        .doOnSuccess(x -> metrics.judgementWritten());
+                                        .doOnSuccess(x -> metrics.judgementWritten())
+                                        .then(enqueueRebuild(scope, conversationId, cross));
                             }));
         }
         // REMEMBER
         var item = MemoryItem.newItem(scope, itemConversationId, v.itemType(), v.content(), v.status(),
                 v.assertion(), v.importance(), v.confidence(), rulesVersion, judgeModel, v.reason());
         return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources())))
-                .doOnSuccess(x -> metrics.judgementWritten());
+                .doOnSuccess(x -> metrics.judgementWritten())
+                .then(enqueueRebuild(scope, conversationId, cross));
+    }
+
+
+    private Mono<Void> enqueueRebuild(MemoryScope scope, String conversationId, boolean cross) {
+        if (!cross) {
+            return Mono.empty();
+        }
+        return jobs.enqueue(scope, conversationId, JobType.REBUILD_PROFILE,
+                RebuildProfileJobHandler.dedupeKey(scope), "{}").then();
     }
 
     private Mono<String> call(JudgeModel model, String rulesText, String transcript, String existing,

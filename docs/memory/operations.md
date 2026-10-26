@@ -60,6 +60,18 @@
 - 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
 - `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。
 
+## 用户记忆概要（M2b Task 4）
+
+配置前缀 `app.memory.profile.*`：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `max-tokens` | `800` | 重建概要的估算 Token 上限（D14） |
+| `cache-ttl` | `1h` | Redis 概要快照 TTL；命中时刷新；版本变化立即失效 |
+| `max-relations` | `10` | 召回时注入的一跳关系上限 |
+
+跨会话开关关闭时不读不写用户级概要；开启后由 `REBUILD_PROFILE` 任务从 ACTIVE 用户级条目增量重建（不自动扫描既往会话）。
+
 ## 轮次记忆记录（M2a Task 4，默认关闭）
 
 轮次记忆记录是长期记忆的**检索索引**，不是上下文压缩：会话结束（闲置）后，为每个尚未建立记录的已完成轮次生成一条结构化记录，存入 `memory_summaries`。记录**不进入提示词**；检索命中后交给模型的是该轮原文（见下文“基础 Recall”）。决定见计划 D18–D25（用户已确认 2026-10-26）。

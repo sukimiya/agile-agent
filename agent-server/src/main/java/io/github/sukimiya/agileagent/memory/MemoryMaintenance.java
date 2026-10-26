@@ -17,6 +17,7 @@ import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.ProfileCache;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemSourceRepository;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
 import io.github.sukimiya.agileagent.service.FileStorageService;
@@ -75,18 +76,21 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final MemoryJobWorker worker;
     private final MemoryItemSourceRepository itemSources;
     private final MemoryItemRepository memoryItems;
+    private final ProfileCache profileCache;
     private volatile Disposable schedule;
 
     /** Standalone wiring (tests): its own worker, which never pauses for an instance conflict. */
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
             FileStorageService files, MemoryProperties props, MemoryMetrics metrics) {
-        this(connectionFactory, db, cache, files, props, metrics, new MemoryJobWorker(db, () -> false));
+        this(connectionFactory, db, cache, files, props, metrics, new MemoryJobWorker(db, () -> false),
+                (ProfileCache) null);
     }
 
     /** Registers the {@link JobType#CONVERSATION_CLEANUP} handler on the shared worker. */
     @Autowired
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
-            FileStorageService files, MemoryProperties props, MemoryMetrics metrics, MemoryJobWorker worker) {
+            FileStorageService files, MemoryProperties props, MemoryMetrics metrics, MemoryJobWorker worker,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) ProfileCache profileCache) {
         this.metrics = metrics;
         this.db = db;
         this.cache = cache;
@@ -97,6 +101,7 @@ public class MemoryMaintenance implements SmartLifecycle {
         this.worker = worker;
         this.itemSources = new MemoryItemSourceRepository(db);
         this.memoryItems = new MemoryItemRepository(db);
+        this.profileCache = profileCache;
         worker.register(JobType.CONVERSATION_CLEANUP, job -> cleanup(job.scope(), job.conversationId()));
     }
 
@@ -139,7 +144,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                                 log.warn("memory.delete cache tombstone deferred to cleanup: {}",
                                         NestedExceptionUtils.getMostSpecificCause(e).toString());
                                 return Mono.empty();
-                            })
+                            }).then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope))
                             : Mono.empty());
         });
     }
@@ -283,7 +288,7 @@ public class MemoryMaintenance implements SmartLifecycle {
         return itemSources.deleteByConversation(scope, conversationId)
                 .concatMap(itemId -> itemSources.countForItem(itemId)
                         .flatMap(n -> n > 0 ? Mono.<Void>empty() : memoryItems.markInactive(scope, itemId).then()))
-                .then();
+                .then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope));
     }
 
     /** Physically removes session-scoped memory items (and their leftover sources) of a deleted conversation. */

@@ -1,10 +1,13 @@
 package io.github.sukimiya.agileagent.memory.recall;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 
 import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.items.ProfileCache;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
@@ -12,6 +15,7 @@ import reactor.util.retry.Retry;
  * Per-user memory switches in {@code user_memory_settings} (D1=A), keyed by {@code (tenantId, subject)}.
  * Cross-conversation recall is off until the user turns it on. Read from the database on every recall and never
  * cached, so a change applies to the very next question; every update increments {@code revision}.
+ * Profile cache is invalidated on every settings change (M2b Task 4).
  */
 @Service
 public class MemorySettingsService {
@@ -22,9 +26,20 @@ public class MemorySettingsService {
     private static final MemorySettings DEFAULTS = new MemorySettings(false, 0);
 
     private final DatabaseClient db;
+    private final ProfileCache profileCache;
 
     public MemorySettingsService(DatabaseClient db) {
+        this(db, (ProfileCache) null);
+    }
+
+    @Autowired
+    public MemorySettingsService(DatabaseClient db, ObjectProvider<ProfileCache> profileCache) {
+        this(db, profileCache.getIfAvailable());
+    }
+
+    public MemorySettingsService(DatabaseClient db, ProfileCache profileCache) {
         this.db = db;
+        this.profileCache = profileCache;
     }
 
     public Mono<MemorySettings> get(MemoryScope scope) {
@@ -52,6 +67,7 @@ public class MemorySettingsService {
                         .fetch().rowsUpdated());
         // A concurrent first write wins the insert; the loser repeats as an update.
         return Mono.defer(() -> change).retryWhen(Retry.max(1).filter(DuplicateKeyException.class::isInstance))
+                .then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope))
                 .then(get(scope));
     }
 

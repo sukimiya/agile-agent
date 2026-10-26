@@ -8,6 +8,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
 
 import io.github.sukimiya.agileagent.memory.MemoryScope;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -59,17 +60,7 @@ public class MemoryItemRepository {
                         + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
                         + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject")
                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
-                .map((row, meta) -> new MemoryItem(row.get("id", String.class),
-                        new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
-                        row.get("conversation_id", String.class), row.get("item_type", String.class),
-                        row.get("content", String.class), ItemStatus.valueOf(row.get("status", String.class)),
-                        MemoryItem.Assertion.valueOf(row.get("assertion", String.class)),
-                        row.get("importance", Double.class), row.get("confidence", Double.class),
-                        row.get("valid_until", LocalDateTime.class), row.get("last_recalled_at", LocalDateTime.class),
-                        row.get("superseded_by", String.class), row.get("rules_version", Integer.class),
-                        row.get("judge_model", String.class), row.get("reason", String.class),
-                        row.get("revision", Long.class), row.get("created_at", LocalDateTime.class),
-                        row.get("updated_at", LocalDateTime.class)))
+                .map((row, meta) -> mapRow(row))
                 .one()
                 .map(Optional::of)
                 .defaultIfEmpty(Optional.empty());
@@ -97,6 +88,67 @@ public class MemoryItemRepository {
                 : spec.bind("supersededBy", supersededBy);
         spec = reason == null ? spec.bindNull("reason", String.class) : spec.bind("reason", reason);
         return spec.fetch().rowsUpdated().map(n -> n == 1);
+    }
+
+
+    /** ACTIVE user-level items (conversation_id IS NULL), newest/important first — profile rebuild input. */
+    public Flux<MemoryItem> findActiveUserLevel(MemoryScope scope) {
+        return db.sql("SELECT id, tenant_id, subject, conversation_id, item_type, content, status, assertion,"
+                        + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
+                        + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
+                        + " WHERE tenant_id = :tenantId AND subject = :subject AND conversation_id IS NULL"
+                        + " AND status = 'ACTIVE'"
+                        + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                        + " ORDER BY COALESCE(importance, 0) DESC, updated_at DESC")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .map((row, meta) -> mapRow(row))
+                .all();
+    }
+
+    /**
+     * ACTIVE items whose content contains any of {@code needles} (case-insensitive). When {@code conversationId}
+     * is null, only user-level rows; otherwise session-scoped rows of that conversation.
+     */
+    public Flux<MemoryItem> searchActive(MemoryScope scope, String conversationId, java.util.Collection<String> needles,
+            int limit) {
+        if (needles == null || needles.isEmpty() || limit <= 0) {
+            return Flux.empty();
+        }
+        var terms = needles.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).distinct().toList();
+        if (terms.isEmpty()) {
+            return Flux.empty();
+        }
+        var sql = "SELECT id, tenant_id, subject, conversation_id, item_type, content, status, assertion,"
+                + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
+                + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
+                + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE'"
+                + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                + (conversationId == null ? " AND conversation_id IS NULL" : " AND conversation_id = :conversationId")
+                + " ORDER BY COALESCE(importance, 0) DESC, updated_at DESC";
+        var spec = db.sql(sql).bind("tenantId", scope.tenantId()).bind("subject", scope.subject());
+        if (conversationId != null) {
+            spec = spec.bind("conversationId", conversationId);
+        }
+        return spec.map((row, meta) -> mapRow(row)).all()
+                .filter(item -> {
+                    var lower = item.content() == null ? "" : item.content().toLowerCase(java.util.Locale.ROOT);
+                    return terms.stream().anyMatch(t -> lower.contains(t.toLowerCase(java.util.Locale.ROOT)));
+                })
+                .take(limit);
+    }
+
+    private static MemoryItem mapRow(io.r2dbc.spi.Readable row) {
+        return new MemoryItem(row.get("id", String.class),
+                new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
+                row.get("conversation_id", String.class), row.get("item_type", String.class),
+                row.get("content", String.class), ItemStatus.valueOf(row.get("status", String.class)),
+                MemoryItem.Assertion.valueOf(row.get("assertion", String.class)),
+                row.get("importance", Double.class), row.get("confidence", Double.class),
+                row.get("valid_until", LocalDateTime.class), row.get("last_recalled_at", LocalDateTime.class),
+                row.get("superseded_by", String.class), row.get("rules_version", Integer.class),
+                row.get("judge_model", String.class), row.get("reason", String.class),
+                row.get("revision", Long.class), row.get("created_at", LocalDateTime.class),
+                row.get("updated_at", LocalDateTime.class));
     }
 
     public Mono<Boolean> markInactive(MemoryScope scope, String id) {

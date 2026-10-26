@@ -134,9 +134,31 @@ class JudgementValidatorTest {
 
     @Test
     void credentialInContentRejectedOrRedacted() {
-        var v = validator.validate(ALICE, remember("INFERRED", List.of(toolMsgId),
-                List.of("secret-password-value"), "api key sk-abcdefghijklmnopqrstuvwxyz1234"), rules).block(WAIT);
-        assertThat(v.content()).contains("[REDACTED]");
+        // F3: PII/credentials are rejected on item writes (not merely redacted).
+        assertRejected(() -> validator.validate(ALICE, remember("INFERRED", List.of(toolMsgId),
+                List.of("secret-password-value"), "api key sk-abcdefghijklmnopqrstuvwxyz1234"), rules).block(WAIT));
+    }
+
+    @Test
+    void eventRememberRejectedAsNotLongTerm() {
+        assertRejected(() -> validator.validate(ALICE,
+                new JudgementAction("REMEMBER", "EVENT", "查询了违章", "INFERRED", List.of(userMsgId),
+                        List.of("违章"), "情节", 0.5, 0.7, null, null, null), rules).block(WAIT));
+    }
+
+    @Test
+    void phoneNumberContentRejected() {
+        assertRejected(() -> validator.validate(ALICE,
+                remember("USER_STATED", List.of(userMsgId), List.of("A7-3921"), "我的手机是13812345678"), rules)
+                .block(WAIT));
+    }
+
+    @Test
+    void inferredConfidenceCappedAtPointEight() {
+        var v = validator.validate(ALICE, new JudgementAction("REMEMBER", "FACT", "可能住在杭州附近", "INFERRED",
+                List.of(userMsgId), List.of("A7-3921"), "推断", 0.5, 0.95, null, null, null), rules)
+                .block(WAIT);
+        assertThat(v.confidence()).isEqualTo(0.8);
     }
 
     @Test

@@ -58,6 +58,42 @@ public class MemoryProperties {
 
     public Judgement getJudgement() { return judgement; }
 
+    private final Profile profile = new Profile();
+
+    public Profile getProfile() { return profile; }
+
+    /** {@code app.memory.profile.*}: user memory profile snapshot (M2b Task 4, D14). */
+    public static class Profile {
+        /** Max estimated tokens of the rebuilt profile text (D14). */
+        private int maxTokens = 800;
+        /** Redis snapshot TTL (idle refresh on hit). */
+        private java.time.Duration cacheTtl = java.time.Duration.ofHours(1);
+        /** Max one-hop relations injected with a recall. */
+        private int maxRelations = 10;
+
+        public int getMaxTokens() { return maxTokens; }
+        public void setMaxTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.profile.max-tokens must be > 0");
+            }
+            this.maxTokens = v;
+        }
+        public java.time.Duration getCacheTtl() { return cacheTtl; }
+        public void setCacheTtl(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.profile.cache-ttl must be positive");
+            }
+            this.cacheTtl = v;
+        }
+        public int getMaxRelations() { return maxRelations; }
+        public void setMaxRelations(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.profile.max-relations must be > 0");
+            }
+            this.maxRelations = v;
+        }
+    }
+
     /**
      * {@code app.memory.judgement.*}: idle-triggered LLM memory judgement (M2b Task 3, D10).
      * Shares idle detection with {@link Summary} (D19).

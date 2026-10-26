@@ -86,6 +86,10 @@ public class JudgementValidator {
         if (kind == JudgementAction.Kind.IGNORE) {
             return Mono.error(new RejectedException("IGNORE"));
         }
+        // F1: EVENT stays at the turn-record layer; do not write long-term items.
+        if (kind == JudgementAction.Kind.REMEMBER && "EVENT".equalsIgnoreCase(nullToEmpty(action.itemType()).trim())) {
+            return Mono.error(new RejectedException("EVENT_NOT_LONG_TERM"));
+        }
         if (INSTRUCTION.matcher(nullToEmpty(action.content())).find()
                 || INSTRUCTION.matcher(nullToEmpty(action.reason())).find()) {
             return Mono.error(new RejectedException("INSTRUCTION_IN_MATERIAL"));
@@ -124,9 +128,8 @@ public class JudgementValidator {
             return Mono.error(new RejectedException("BAD_ASSERTION"));
         }
         String content = scrub(action.content());
-        if (content != null && content.contains(ToolRecordSanitizer.REDACTED)
-                && content.replace(ToolRecordSanitizer.REDACTED, "").isBlank()) {
-            return Mono.error(new RejectedException("CREDENTIAL_ONLY"));
+        if (WriteGovernance.containsBlockedPii(action.content()) || WriteGovernance.containsBlockedPii(content)) {
+            return Mono.error(new RejectedException("PII_OR_CREDENTIAL"));
         }
         // Poisoning heuristics: these must not become USER_STATED / USER_CONFIRMED facts.
         boolean poisonShape = HYPOTHETICAL.matcher(nullToEmpty(action.content())).find()
@@ -185,9 +188,10 @@ public class JudgementValidator {
                     return Mono.empty();
                 });
             }
+            Double confidence = WriteGovernance.capConfidence(finalAssertion, action.confidence());
             ValidatedAction validated = new ValidatedAction(finalKind, safeType(action.itemType()), content,
                     finalAssertion, finalStatus, sources, scrub(action.reason()), action.importance(),
-                    action.confidence(), validUntil, action.targetItemId(), action.expectedRevision());
+                    confidence, validUntil, action.targetItemId(), action.expectedRevision());
             return targetCheck.thenReturn(validated);
         });
     }
