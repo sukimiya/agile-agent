@@ -17,10 +17,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.sukimiya.agileagent.memory.ConversationRepository;
 import io.github.sukimiya.agileagent.memory.MemoryMetrics;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.memory.jobs.ClaimedJob;
+import io.github.sukimiya.agileagent.memory.jobs.ConsolidationQuota;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
 import io.github.sukimiya.agileagent.service.LlmClient;
@@ -73,20 +75,27 @@ public class SummaryJobHandler {
     private final MemoryProperties props;
     private final MemoryMetrics metrics;
     private final MemoryJobWorker worker;
+    private final ConsolidationQuota quota;
 
     @Autowired
     public SummaryJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, SummaryRepository summaries,
             ConversationRepository conversations, TenantLlmClientResolver resolver, MemoryJobWorker worker,
-            MemoryProperties props, MemoryMetrics metrics) {
+            MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
         this(db, connectionFactory, summaries, conversations, tenant -> resolver.resolveModel(tenant)
                 .zipWith(resolver.resolvePresetAndKey(tenant), (model, preset) -> new SummaryModel(model.client(),
                         preset.preset().model(), model.contextWindowTokens(), model.presetId())),
-                worker, props, metrics);
+                worker, props, metrics, quota);
     }
 
     public SummaryJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, SummaryRepository summaries,
             ConversationRepository conversations, Function<String, Mono<SummaryModel>> models,
             MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics) {
+        this(db, connectionFactory, summaries, conversations, models, worker, props, metrics, null);
+    }
+
+    public SummaryJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, SummaryRepository summaries,
+            ConversationRepository conversations, Function<String, Mono<SummaryModel>> models,
+            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
         this.db = db;
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.summaries = summaries;
@@ -95,6 +104,7 @@ public class SummaryJobHandler {
         this.props = props;
         this.metrics = metrics;
         this.worker = worker;
+        this.quota = quota;
         if (props.getSummary().isEnabled()) {
             worker.register(JobType.SUMMARIZE, this::handle);
         }
@@ -110,27 +120,40 @@ public class SummaryJobHandler {
     }
 
     private Mono<Void> handle(ClaimedJob job) {
+        var usageAcc = new long[3]; // prompt, completion, total; total > 0 ⇒ observed
         return Mono.fromCallable(() -> JSON.readTree(job.payload()).path("throughSequence").asLong(-1))
                 .flatMap(through -> through < 0
                         ? Mono.error(new IllegalArgumentException("SUMMARIZE payload without throughSequence"))
                         : summarize(job.scope(), job.conversationId(), through, Mono.defer(() -> worker.renewLease(job)
                                 .flatMap(held -> held ? Mono.<Void>empty()
-                                        : Mono.error(new IllegalStateException("SUMMARIZE job lease lost"))))));
+                                        : Mono.error(new IllegalStateException("SUMMARIZE job lease lost")))),
+                                usageAcc))
+                .then(Mono.defer(() -> settleUsage(job.scope().tenantId(), usageAcc)));
+    }
+
+    /** Replaces the worker's reservation with observed totals when the provider reported usage. */
+    private Mono<Void> settleUsage(String tenantId, long[] usageAcc) {
+        if (quota == null || usageAcc[2] <= 0) {
+            return Mono.empty();
+        }
+        return quota.settle(tenantId, props.getConsolidation().getReserveTokens(),
+                new TokenUsage(true, usageAcc[0], usageAcc[1], usageAcc[2]));
     }
 
     /** Records every completed turn after the current position, through at most {@code throughSequence}. */
     public Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence) {
-        return summarize(scope, conversationId, throughSequence, Mono.empty());
+        return summarize(scope, conversationId, throughSequence, Mono.empty(), null);
     }
 
     /** As above; {@code beforeTurn} runs before each turn's model call (the job's lease renewal). */
-    private Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence, Mono<Void> beforeTurn) {
+    private Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence, Mono<Void> beforeTurn,
+            long[] usageAcc) {
         return summaries.summarizedThrough(scope, conversationId).flatMap(position -> position >= throughSequence
                 ? Mono.<Void>empty()
                 : summaries.isLive(scope, conversationId).flatMap(live -> !live ? Mono.<Void>empty()
                         : model(scope).flatMap(model -> sourceTurns(scope, conversationId, position, throughSequence)
                                 .flatMap(turns -> recordTurns(scope, conversationId, model, turns, 0, position,
-                                        throughSequence, beforeTurn)))));
+                                        throughSequence, beforeTurn, usageAcc)))));
     }
 
     private Mono<SummaryModel> model(MemoryScope scope) {
@@ -175,30 +198,37 @@ public class SummaryJobHandler {
 
     /** Records {@code turns[index..]} one after another; stops early when a write loses the position race. */
     private Mono<Void> recordTurns(MemoryScope scope, String conversationId, SummaryModel model,
-            List<List<SourceMessage>> turns, int index, long position, long through, Mono<Void> beforeTurn) {
+            List<List<SourceMessage>> turns, int index, long position, long through, Mono<Void> beforeTurn,
+            long[] usageAcc) {
         if (index == turns.size()) {
             // Trailing messages of turns that did not complete: nothing to record, move past them.
             return position < through
                     ? transactions.transactional(summaries.skip(scope, conversationId, position, through)).then()
                     : Mono.empty();
         }
-        return beforeTurn.then(Mono.defer(() -> recordTurn(scope, conversationId, model, turns.get(index), position)))
+        return beforeTurn.then(Mono.defer(() -> recordTurn(scope, conversationId, model, turns.get(index), position,
+                        usageAcc)))
                 .flatMap(next -> recordTurns(scope, conversationId, model, turns, index + 1, next, through,
-                        beforeTurn));
+                        beforeTurn, usageAcc));
     }
 
     /** Emits the new position after the turn, or completes empty when the position moved meanwhile. */
     private Mono<Long> recordTurn(MemoryScope scope, String conversationId, SummaryModel model,
-            List<SourceMessage> turn, long position) {
+            List<SourceMessage> turn, long position, long[] usageAcc) {
         var first = turn.getFirst();
         var last = turn.getLast();
         var text = String.join("\n", turn.stream().map(m -> SummaryPrompt.line(m.message())).toList());
         int cap = sourceCap(model);
         var transcript = TokenEstimator.estimate(text) > cap ? truncate(text, cap) : text;
-        return call(model, transcript).flatMap(output -> {
+        return call(model, transcript).flatMap(out -> {
+            if (usageAcc != null && out.usage().observed()) {
+                usageAcc[0] += out.usage().promptTokens();
+                usageAcc[1] += out.usage().completionTokens();
+                usageAcc[2] += out.usage().totalTokens();
+            }
             MemoryRecordValidator.Content content;
             try {
-                content = MemoryRecordValidator.validate(output, transcript);
+                content = MemoryRecordValidator.validate(out.text(), transcript);
             } catch (MemoryRecordValidator.InvalidRecordException e) {
                 return invalid(scope, conversationId, first.turnId(), position, last.sequence(), e);
             }
@@ -269,15 +299,28 @@ public class SummaryJobHandler {
         return text.substring(0, low);
     }
 
+    private record ModelOutput(String text, TokenUsage usage) {}
+
     /** The model's raw output (possibly blank: the validator decides); errors are counted by reason. */
-    private Mono<String> call(SummaryModel model, String transcript) {
+    private Mono<ModelOutput> call(SummaryModel model, String transcript) {
         var options = new LlmClient.CallOptions(props.getSummary().getMaxOutputTokens(), true);
         return model.client().chatStream(SummaryPrompt.messages(transcript), List.of(), options)
-                .ofType(LlmClient.LlmEvent.Completed.class)
-                .next()
-                .map(completed -> completed.fullText() == null ? "" : completed.fullText())
-                .defaultIfEmpty("")
+                .collectList()
+                .map(events -> {
+                    String text = "";
+                    TokenUsage usage = TokenUsage.notObserved();
+                    for (var event : events) {
+                        if (event instanceof LlmClient.LlmEvent.Completed completed) {
+                            text = completed.fullText() == null ? "" : completed.fullText();
+                        } else if (event instanceof LlmClient.LlmEvent.Usage u) {
+                            usage = new TokenUsage(true, u.promptTokens(), u.completionTokens(), u.totalTokens());
+                        }
+                    }
+                    return new ModelOutput(text, usage);
+                })
+                .defaultIfEmpty(new ModelOutput("", TokenUsage.notObserved()))
                 .timeout(props.getSummary().getJobTimeout())
                 .doOnError(e -> metrics.summaryFailed(e instanceof TimeoutException ? "TIMEOUT" : "MODEL_ERROR"));
     }
+
 }

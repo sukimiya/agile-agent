@@ -96,6 +96,18 @@
 - 指标（仅在启用时注册，同时 `memory.feature.enabled{feature=recall}` 为 1）：`memory.recall.latency`（每个问题的检索耗时）、`memory.recall.items`（每个问题采用的候选轮次数，注入前；最终注入多少还受预算限制）、`memory.recall.coverage.limited`（存在未切块且未被扫描的轮次的检索次数）。
 - 排查：`SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'INDEX_CHUNKS' GROUP BY status`；长期 PENDING 的积压会让 `memory.recall.coverage.limited` 上升。检索失败时日志为 `memory.recall failed, answering without recall errorType=…`（不含内容），该轮不带召回资料继续回答。
 
+
+## 整理 Token 额度（M2b Task 2，D11=A）
+
+后台 LLM 整理任务（`SUMMARIZE`、`JUDGE_MEMORY`、`REBUILD_PROFILE`、`REPLAY_RULES`）受每租户每日 Token 上限约束。
+
+- 配置 `app.memory.consolidation.*`：`enabled`（默认 `false`：只控制 `memory.consolidation.backlog` 与 `memory.feature.enabled{feature=consolidation}` 是否注册；**额度强制始终生效**）、`daily-token-limit`（默认 `200000`）、`max-concurrent-per-tenant`（默认 `1`，本实例进程内）、`reserve-tokens`（默认 `12800`：领取任务时的预留估算，结束后按实际用量结算）。
+- 租户覆盖：表 `memory_tenant_quotas(tenant_id, daily_token_limit, updated_at)`，缺行则用全局默认；仅管理员写入（本任务不提供 API）。
+- 日期边界：用量记在 `memory_token_usage.usage_date = CURRENT_DATE`，以**数据库会话时区**为准（MySQL IT 使用 UTC）。跨日以库钟为准，不按应用 JVM 时区切日。
+- 超限：任务保持 `PENDING`，`available_at` 推到次日 0 点（`TIMESTAMPADD(DAY, 1, CAST(CURRENT_DATE AS DATETIME(6)))`），**不丢弃、不增加 attempts**；指标 `memory.consolidation.quota.postponed`。
+- 结算：工人预留 `reserve-tokens`；handler 若观察到用量则 `settle(reserved, actual)` 替换为实际值；成功结束时工人再 `settle(reserved, notObserved)`（若已替换则净变为 0）。失败则退还预留以便重试。未观察到用量时保留预留（偏保守）。
+- 指标：`memory.consolidation.backlog`（仅 `enabled=true` 时注册）、`memory.consolidation.quota.postponed`、`memory.feature.enabled{feature=consolidation}`。
+
 ## 基础指标与评测
 
 - 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。

@@ -50,6 +50,53 @@ public class MemoryProperties {
 
     public Recall getRecall() { return recall; }
 
+    private final Consolidation consolidation = new Consolidation();
+
+    public Consolidation getConsolidation() { return consolidation; }
+
+    /**
+     * {@code app.memory.consolidation.*}: per-tenant daily token budget and concurrency for background LLM
+     * jobs (SUMMARIZE / JUDGE_MEMORY / REBUILD_PROFILE / REPLAY_RULES). D11=A.
+     */
+    public static class Consolidation {
+        /**
+         * When true, registers {@code memory.consolidation.backlog} and sets
+         * {@code memory.feature.enabled{feature=consolidation}}=1. Quota enforcement for LLM jobs is always on
+         * once the bean is wired (cost control from day one); this flag only gates the backlog gauge.
+         */
+        private boolean enabled;
+        /** Global default daily token limit; overridden per tenant by {@code memory_tenant_quotas}. */
+        private long dailyTokenLimit = 200_000L;
+        /** Max concurrent LLM consolidation jobs per tenant on this instance. */
+        private int maxConcurrentPerTenant = 1;
+        /** Tokens reserved up-front when claiming one LLM job (settled to actual usage afterwards). */
+        private long reserveTokens = 12_800L;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public long getDailyTokenLimit() { return dailyTokenLimit; }
+        public void setDailyTokenLimit(long v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.daily-token-limit must be > 0");
+            }
+            this.dailyTokenLimit = v;
+        }
+        public int getMaxConcurrentPerTenant() { return maxConcurrentPerTenant; }
+        public void setMaxConcurrentPerTenant(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.max-concurrent-per-tenant must be > 0");
+            }
+            this.maxConcurrentPerTenant = v;
+        }
+        public long getReserveTokens() { return reserveTokens; }
+        public void setReserveTokens(long v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.reserve-tokens must be > 0");
+            }
+            this.reserveTokens = v;
+        }
+    }
+
     /** {@code app.memory.recall.*}: basic recall over turn records and original-text chunks (M2a Task 5, D22/D24). */
     public static class Recall {
         /** Off: no retrieval and no reference message, prompts as before Task 5 (chunks are still indexed). */
