@@ -105,7 +105,7 @@ class MemoryEvalBaselineTest {
         assertThat(run.modelVersion()).isEqualTo("2026-09");
         assertThat(run.endpointHost()).isEqualTo("llm.example.test");
         assertThat(run.temperature()).contains("未发送");
-        assertThat(run.contextInput()).isEqualTo(MemoryEvalRunner.FULL_HISTORY);
+        assertThat(run.contextInput()).isEqualTo(MemoryEvalRunner.M2A_CONTEXT);
         assertThat(run.commit()).isNotBlank();
 
         var baseline = runner.answers(only("early-01"), fake(q -> "A7-3921"), run);
@@ -115,7 +115,7 @@ class MemoryEvalBaselineTest {
         assertThat(result.answer()).isEqualTo("A7-3921");
         assertThat(result.verdict()).isEqualTo(Verdict.CORRECT);
         assertThat(result.turnStatuses()).hasSize(7).containsOnly("COMPLETED");
-        assertThat(result.context().mode()).isEqualTo(MemoryEvalRunner.FULL_HISTORY);
+        assertThat(result.context().mode()).isEqualTo(MemoryEvalRunner.M2A_CONTEXT);
         assertThat(result.context().injectedMessages()).isEqualTo(12);
         assertThat(result.context().estimatedTokens()).isPositive();
         // Routing and answer calls of the probe turn each report 11 prompt tokens.
@@ -123,7 +123,10 @@ class MemoryEvalBaselineTest {
         assertThat(result.durationMs()).isNotNegative();
         var md = Files.readString(MemoryEvalReport.writeAnswers(out, baseline));
         assertThat(md).contains("model-x").contains("2026-09").contains("llm.example.test").contains("未发送")
-                .contains("完整历史").doesNotContain("sk-never-printed").doesNotContain("fake LLM");
+                .contains("上下文预算与基础 Recall").doesNotContain("sk-never-printed").doesNotContain("fake LLM");
+        // First-token latency is measured on the probe and summarised.
+        assertThat(result.firstTokenMs()).isNotNull().isNotNegative();
+        assertThat(md).contains("首字延迟");
     }
 
     @Test
@@ -148,7 +151,7 @@ class MemoryEvalBaselineTest {
         JsonNode json = JSON.readTree(out.resolve(MemoryEvalReport.COMPONENT_JSON).toFile());
 
         var ids = cases.stream().map(Case::id).toList();
-        assertThat(ids).hasSize(14).doesNotHaveDuplicates();
+        assertThat(ids).hasSize(20).doesNotHaveDuplicates();
         var perCase = new java.util.HashMap<String, Integer>();
         json.path("results").forEach(r -> perCase.merge(r.path("caseId").asText(), 1, Integer::sum));
         for (var c : cases) {
@@ -161,26 +164,120 @@ class MemoryEvalBaselineTest {
     }
 
     @Test
-    void unimplementedRecallCasesAreNotApplicableNotFailed() {
+    void m2aComponentsNoLongerNotApplicable() {
         var results = runner.components(cases, "test").results();
-        var byCase = results.stream().collect(Collectors.groupingBy(MemoryEvalRunner.ComponentResult::caseId));
 
-        assertThat(byCase.get("recall-01")).singleElement().satisfies(r -> {
-            assertThat(r.component()).isEqualTo("recall");
-            assertThat(r.status()).isEqualTo(ComponentStatus.NOT_APPLICABLE);
-            assertThat(r.detail()).contains("M2a");
-        });
-        assertThat(byCase.get("early-02")).anySatisfy(r -> {
-            assertThat(r.component()).isEqualTo("summary");
-            assertThat(r.status()).isEqualTo(ComponentStatus.NOT_APPLICABLE);
-        }).anySatisfy(r -> {
-            assertThat(r.component()).isEqualTo("persistence");
-            assertThat(r.status()).isEqualTo(ComponentStatus.PASS);
-        });
-        assertThat(results).filteredOn(r -> !MemoryEvalCases.M1_COMPONENTS.contains(r.component()))
-                .isNotEmpty().allMatch(r -> r.status() == ComponentStatus.NOT_APPLICABLE);
-        assertThat(results).filteredOn(r -> MemoryEvalCases.M1_COMPONENTS.contains(r.component()))
-                .isNotEmpty().allMatch(r -> r.status() == ComponentStatus.PASS);
+        for (var component : List.of("summary", "context-budget", "recall", "capability-background")) {
+            assertThat(results).as(component).filteredOn(r -> r.component().equals(component)).isNotEmpty()
+                    .allSatisfy(r -> assertThat(r.status()).as(r.caseId() + " " + component + ": " + r.detail())
+                            .isEqualTo(ComponentStatus.PASS));
+        }
+        // Only M2b components remain not applicable.
+        assertThat(results).filteredOn(r -> r.status() == ComponentStatus.NOT_APPLICABLE).isNotEmpty()
+                .allSatisfy(r -> {
+                    assertThat(r.component()).isEqualTo("memory-judgement");
+                    assertThat(r.detail()).contains("M2b");
+                });
+        assertThat(results).noneMatch(r -> r.status() == ComponentStatus.FAIL);
+    }
+
+    @Test
+    void existingM1AndM2bCasesStillPass() {
+        var original = List.of("coref-01", "coref-02", "early-01", "early-02", "corr-01", "corr-02", "long-01",
+                "long-02", "tool-01", "paste-01", "quote-01", "hypo-01", "recall-01", "iso-01");
+        var results = runner.components(only(original.toArray(String[]::new)), "test").results();
+
+        assertThat(results).filteredOn(r -> !r.component().equals("memory-judgement")).isNotEmpty()
+                .allSatisfy(r -> assertThat(r.status()).as(r.caseId() + " " + r.component() + ": " + r.detail())
+                        .isEqualTo(ComponentStatus.PASS));
+        // The M1 full-history check still holds wherever the whole history fits the default window.
+        assertThat(results).filteredOn(r -> r.component().equals("history-injection")).hasSize(11)
+                .allMatch(r -> r.detail().contains("全部"));
+    }
+
+    @Test
+    void recallAtKAndSourceAccuracyRecorded() throws Exception {
+        var components = runner.components(cases, "test");
+        var retrieval = components.retrieval();
+
+        assertThat(retrieval.cases()).isEqualTo(5);
+        assertThat(retrieval.k()).isEqualTo(5);
+        assertThat(retrieval.recallAtK()).isEqualTo(1.0);
+        assertThat(retrieval.sourceAccuracy()).isEqualTo(1.0);
+        var byCase = retrieval.perCase().stream()
+                .collect(Collectors.toMap(MemoryEvalRunner.RecallInfo::caseId, Function.identity()));
+        assertThat(byCase.get("window-01").reasons()).containsExactly("CHUNK_FULLTEXT");
+        assertThat(byCase.get("recall-02").reasons()).containsExactly("ENTITY_EXACT");
+        assertThat(byCase.get("recall-03").reasons()).containsExactly("RECORD_FULLTEXT");
+        assertThat(byCase.get("recall-01").crossConversation()).isTrue();
+        assertThat(byCase.get("recall-04").items()).isZero();
+        assertThat(byCase.get("recall-04").hitAtK()).isNull();
+        var md = Files.readString(MemoryEvalReport.writeComponents(out, components, stack.metrics()));
+        assertThat(md).contains("Recall@5").contains("来源正确率").contains("| window-01 |");
+        assertThat(Files.readString(out.resolve(MemoryEvalReport.COMPONENT_JSON))).contains("\"recallAtK\"");
+
+        var answers = runner.answers(only("recall-02"), fake(q -> "860 元"), fakeRun());
+        var recall = answers.results().getFirst().recall();
+        assertThat(recall.hitAtK()).isTrue();
+        assertThat(recall.correctItems()).isEqualTo(recall.items()).isPositive();
+        assertThat(answers.retrieval().recallAtK()).isEqualTo(1.0);
+    }
+
+    @Test
+    void retrievalLatencyPercentilesRecorded() throws Exception {
+        var components = runner.components(only("window-01", "recall-02"), "test");
+        var retrieval = components.retrieval();
+
+        // One recall per turn: 9 + 1 and 5 + 1 turns.
+        assertThat(retrieval.latencySamples()).isEqualTo(16);
+        assertThat(retrieval.p50Ms()).isNotNull().isNotNegative();
+        assertThat(retrieval.p95Ms()).isNotNull().isGreaterThanOrEqualTo(retrieval.p50Ms());
+        var md = Files.readString(MemoryEvalReport.writeComponents(out, components, stack.metrics()));
+        assertThat(md).contains("检索延迟 p50").contains("p95");
+    }
+
+    @Test
+    void weakHitThresholdSweepRecorded() {
+        var sweep = runner.thresholdSweep(cases, List.of(1, 2, 3));
+
+        assertThat(sweep).extracting(MemoryEvalRunner.ThresholdResult::minMatchedTerms).containsExactly(1, 2, 3);
+        // The configured threshold (2) finds every expected source without noise.
+        var two = sweep.get(1).retrieval();
+        assertThat(two.recallAtK()).isEqualTo(1.0);
+        assertThat(two.sourceAccuracy()).isEqualTo(1.0);
+        assertThat(stack.props().getRecall().getMinMatchedTerms()).as("restored").isEqualTo(2);
+    }
+
+    @Test
+    void weakHitReplaySweepUsesTheAnswerRunData() {
+        var answers = runner.answers(only("recall-02", "recall-04"), fake(q -> "860"), fakeRun());
+        int calls = answers.cost().turns().calls() + answers.cost().probes().calls();
+
+        var replay = runner.replaySweep(List.of(1, 2));
+
+        assertThat(replay).extracting(MemoryEvalRunner.ThresholdResult::minMatchedTerms).containsExactly(1, 2);
+        var two = replay.get(1).retrieval();
+        assertThat(two.cases()).isEqualTo(2);
+        assertThat(two.recallAtK()).isEqualTo(1.0);
+        assertThat(two.perCase()).filteredOn(i -> i.caseId().equals("recall-04")).singleElement()
+                .satisfies(i -> assertThat(i.items()).isZero());
+        assertThat(stack.props().getRecall().getMinMatchedTerms()).isEqualTo(2);
+        // No model calls: the answer run's cost is unchanged.
+        assertThat(answers.cost().turns().calls() + answers.cost().probes().calls()).isEqualTo(calls);
+    }
+
+    @Test
+    void recordBuildingCostRecorded() {
+        var answers = runner.answers(only("recall-03"), withRecords(fake(q -> "下周四下午三点")), fakeRun());
+
+        var cost = answers.cost();
+        // One record per completed turn of the case (1 + 4 turns), one model call each.
+        assertThat(cost.recordsWritten()).isEqualTo(5);
+        assertThat(cost.records().calls()).isEqualTo(5);
+        assertThat(cost.records().promptTokens()).isEqualTo(55);
+        assertThat(cost.probes().calls()).isEqualTo(2);
+        assertThat(cost.turns().calls()).isEqualTo(10);
+        assertThat(answers.results().getFirst().sourceRecord()).startsWith("记录");
     }
 
     @Test
@@ -193,23 +290,31 @@ class MemoryEvalBaselineTest {
         assertThat(injected.count()).isEqualTo(3);
         assertThat(injected.totalAmount()).isEqualTo(6.0);
         assertThat(stack.meters().find("memory.history.injected.tokens").summary().totalAmount()).isPositive();
-        assertThat(stack.meters().find("memory.recall.items").meter()).isNull();
-        assertThat(stack.metrics().recallItems().availability()).isEqualTo(Availability.NOT_APPLICABLE);
+        // Recall is counted on its own meter, once per question, never mixed into history injection.
+        assertThat(stack.meters().find("memory.recall.items").summary().count()).isEqualTo(3);
+        assertThat(stack.metrics().recallItems().availability()).isEqualTo(Availability.REPORTED);
     }
 
     @Test
-    void recallLatencyIsNotReportedAsZero() throws Exception {
+    void recallLatencyNotApplicableOnlyWhenRecallDisabled() throws Exception {
         runner.answers(only("coref-01"), fake(q -> "青岛 3000"), fakeRun());
+        assertThat(stack.metrics().recallLatency().availability()).isEqualTo(Availability.REPORTED);
+        assertThat(stack.meters().find("memory.recall.latency").timer().count()).isEqualTo(3);
 
-        assertThat(stack.meters().getMeters()).noneMatch(m -> m.getId().getName().startsWith("memory.recall"));
-        var latency = stack.metrics().recallLatency();
-        assertThat(latency.availability()).isEqualTo(Availability.NOT_APPLICABLE);
-        assertThat(latency.value()).isNull();
-        assertThat(latency.display()).isEqualTo("不适用").doesNotContain("0");
-        assertThat(stack.metrics().snapshot().get("memory.recall.latency").display()).isEqualTo("不适用");
-        var md = Files.readString(MemoryEvalReport.writeComponents(out, runner.components(only("coref-01"), "test"),
-                stack.metrics()));
-        assertThat(md).contains("| memory.recall.latency | 不适用 |").doesNotContain("0ms");
+        try (var off = newStack()) {
+            off.props().getRecall().setEnabled(false);
+            var offRunner = new MemoryEvalRunner(off);
+            offRunner.answers(only("coref-01"), fake(q -> "青岛 3000"), fakeRun());
+
+            assertThat(off.meters().getMeters()).noneMatch(m -> m.getId().getName().startsWith("memory.recall"));
+            var latency = off.metrics().recallLatency();
+            assertThat(latency.availability()).isEqualTo(Availability.NOT_APPLICABLE);
+            assertThat(latency.value()).isNull();
+            assertThat(latency.display()).isEqualTo("不适用").doesNotContain("0");
+            var md = Files.readString(MemoryEvalReport.writeComponents(out,
+                    offRunner.components(only("coref-01"), "test"), off.metrics()));
+            assertThat(md).contains("| memory.recall.latency | 不适用 |").doesNotContain("0ms");
+        }
     }
 
     @Test
@@ -227,7 +332,8 @@ class MemoryEvalBaselineTest {
         assertThat(stack.meters().find("memory.consolidation.backlog").meter()).isNull();
         assertThat(stack.meters().find("memory.feature.enabled").tag("feature", "consolidation").gauge().value())
                 .isZero();
-        assertThat(stack.meters().find("memory.feature.enabled").tag("feature", "recall").gauge().value()).isZero();
+        assertThat(stack.meters().find("memory.feature.enabled").tag("feature", "recall").gauge().value())
+                .isEqualTo(1.0);
     }
 
     private List<Case> only(String... ids) {
@@ -238,8 +344,17 @@ class MemoryEvalBaselineTest {
     }
 
     private static RunInfo fakeRun() {
-        return new RunInfo(false, "fake", "n/a", "none", "未发送（使用服务商默认值）", MemoryEvalRunner.FULL_HISTORY,
+        return new RunInfo(false, "fake", "n/a", "none", "未发送（使用服务商默认值）", MemoryEvalRunner.M2A_CONTEXT,
                 MemoryEvalRunner.commit(), Instant.now(), "test");
+    }
+
+    /** {@code answers} plus a valid memory record (usage 11/2/13) for every record-building call. */
+    static LlmClient withRecords(LlmClient answers) {
+        return (messages, tools) -> messages.getFirst().content().contains("对话记忆索引模块")
+                ? Flux.just(new LlmClient.LlmEvent.Completed("{\"summary\":\"记录\",\"entities\":[],\"key_facts\":[],"
+                        + "\"decision\":false,\"keywords\":[],\"memory_type\":\"EVENT\"}"),
+                        new LlmClient.LlmEvent.Usage(11, 2, 13))
+                : answers.chatStream(messages, tools);
     }
 
     /** Routing answers "[]"; answers come from {@code reply}; every call reports usage 11/2/13. */

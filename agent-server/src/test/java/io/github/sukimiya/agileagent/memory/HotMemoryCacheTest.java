@@ -104,6 +104,49 @@ class HotMemoryCacheTest {
         assertThat(redis.getExpire(key(ALICE)).block(WAIT)).isBetween(sevenDays.minusMinutes(1), sevenDays);
     }
 
+    /**
+     * Controlled clock over Redis expiry (acceptance 13): Redis keeps the time, so elapsed idle time is applied by
+     * rewriting the key's remaining TTL ({@code remaining - elapsed}), and an elapsed time at or beyond the
+     * remaining TTL lets the key expire for real.
+     */
+    final class RedisIdleClock {
+        void advance(String key, Duration elapsed) {
+            var remaining = redis.getExpire(key).block(WAIT);
+            assertThat(remaining).as("key has a TTL").isNotNull().isPositive();
+            if (elapsed.compareTo(remaining) >= 0) {
+                redis.expire(key, Duration.ofMillis(1)).block(WAIT);
+                long deadline = System.nanoTime() + WAIT.toNanos();
+                while (Boolean.TRUE.equals(redis.hasKey(key).block(WAIT)) && System.nanoTime() < deadline) {
+                    Thread.onSpinWait();
+                }
+            } else {
+                redis.expire(key, remaining.minus(elapsed)).block(WAIT);
+            }
+        }
+    }
+
+    @Test
+    void recentWindowIdleTtlSevenDaysWithControlledClock() {
+        var clock = new RedisIdleClock();
+        var window = new HistoryWindow(messages(1, 3, "m"), false, 1);
+        cache.put(ALICE, conversation, 1, window).block(WAIT);
+        var almostSevenDays = Duration.ofDays(7).minusHours(1);
+
+        // Six days 23 hours idle: still cached; the read is a hit and restarts the 7-day idle period.
+        clock.advance(key(ALICE), almostSevenDays);
+        assertThat(cache.get(ALICE, conversation, 1).block(WAIT)).isEqualTo(window);
+        assertThat(redis.getExpire(key(ALICE)).block(WAIT)).isGreaterThan(Duration.ofDays(7).minusMinutes(1));
+
+        // Another 6 days 23 hours: still cached, because the last read renewed it.
+        clock.advance(key(ALICE), almostSevenDays);
+        assertThat(cache.get(ALICE, conversation, 1).block(WAIT)).isEqualTo(window);
+
+        // Seven full days without any access: gone, the next read is a miss (the database serves it).
+        clock.advance(key(ALICE), Duration.ofDays(7));
+        assertThat(cache.get(ALICE, conversation, 1).blockOptional(WAIT)).isEmpty();
+        assertThat(redis.hasKey(key(ALICE)).block(WAIT)).isFalse();
+    }
+
     @Test
     void windowIsCappedAtHundredMessagesKeepingTheNewestAndHasMore() {
         cache.put(ALICE, conversation, 1, new HistoryWindow(messages(1, 150, "m"), false, 1)).block(WAIT);
