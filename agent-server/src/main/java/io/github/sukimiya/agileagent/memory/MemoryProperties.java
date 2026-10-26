@@ -46,6 +46,63 @@ public class MemoryProperties {
 
     public Summary getSummary() { return summary; }
 
+    private final Recall recall = new Recall();
+
+    public Recall getRecall() { return recall; }
+
+    /** {@code app.memory.recall.*}: basic recall over turn records and original-text chunks (M2a Task 5, D22/D24). */
+    public static class Recall {
+        /** Off: no retrieval and no reference message, prompts as before Task 5 (chunks are still indexed). */
+        private boolean enabled = true;
+        /** At most this many recalled turns per call (D24). */
+        private int maxItems = 5;
+        /** Share of the history budget the reference message may take, only when there are hits (D24). */
+        private double budgetShare = 0.25;
+        /** Candidates kept per turn after merging, before the budget. */
+        private int candidateLimit = 20;
+        /** A full-text hit is trusted only with at least this many distinct query terms in it. */
+        private int minMatchedTerms = 2;
+        /** Cross-conversation recall searches at most this many of the owner's newest other conversations. */
+        private int maxConversations = 50;
+        /** Un-indexed completed turns of the current conversation scanned directly per recall. */
+        private int backfillTurns = 20;
+        /** Newest turn records scanned for entity names contained in the question. */
+        private int entityScanRecords = 200;
+        /** Chunk size limit in estimated tokens; longer turns are split by paragraph. */
+        private int chunkMaxTokens = 1_500;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxItems() { return maxItems; }
+        public void setMaxItems(int v) { this.maxItems = positive("max-items", v); }
+        public double getBudgetShare() { return budgetShare; }
+        public void setBudgetShare(double v) {
+            if (!(v > 0 && v <= 1)) {
+                throw new IllegalArgumentException("app.memory.recall.budget-share must be in (0, 1]");
+            }
+            this.budgetShare = v;
+        }
+        public int getCandidateLimit() { return candidateLimit; }
+        public void setCandidateLimit(int v) { this.candidateLimit = positive("candidate-limit", v); }
+        public int getMinMatchedTerms() { return minMatchedTerms; }
+        public void setMinMatchedTerms(int v) { this.minMatchedTerms = positive("min-matched-terms", v); }
+        public int getMaxConversations() { return maxConversations; }
+        public void setMaxConversations(int v) { this.maxConversations = positive("max-conversations", v); }
+        public int getBackfillTurns() { return backfillTurns; }
+        public void setBackfillTurns(int v) { this.backfillTurns = positive("backfill-turns", v); }
+        public int getEntityScanRecords() { return entityScanRecords; }
+        public void setEntityScanRecords(int v) { this.entityScanRecords = positive("entity-scan-records", v); }
+        public int getChunkMaxTokens() { return chunkMaxTokens; }
+        public void setChunkMaxTokens(int v) { this.chunkMaxTokens = positive("chunk-max-tokens", v); }
+
+        private static int positive(String name, int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.recall." + name + " must be positive");
+            }
+            return v;
+        }
+    }
+
     /** {@code app.memory.summary.*}: background segment summaries (M2a Task 4, D4/D5). */
     public static class Summary {
         /** Summary generation; off by default (D4). Off: no SUMMARIZE handler, jobs wait unclaimed. */

@@ -318,8 +318,8 @@ class MemoryDeletionTest {
         assertThat(runPending()).isEqualTo(1);
         assertThat(jobs(conversation, "DONE")).isEqualTo(1);
         assertThat(messages(conversation)).isZero();
-        assertThat(count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ? AND job_type = 'INDEX_CHUNKS'"
-                + " AND attempts = 0", conversation)).as("index jobs wait for their M2a handler").isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ? AND job_type = 'INDEX_CHUNKS'",
+                conversation)).as("pending index jobs go with the deletion transaction").isZero();
     }
 
     @Test

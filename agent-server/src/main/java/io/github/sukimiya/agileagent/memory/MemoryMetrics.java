@@ -72,6 +72,10 @@ public class MemoryMetrics {
     private final DistributionSummary injectedMessages;
     private final DistributionSummary injectedTokens;
     private final java.util.concurrent.atomic.AtomicLong summaryBacklog = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicInteger recallFeature = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile Timer recallLatency;
+    private volatile DistributionSummary recallItems;
+    private volatile Counter recallCoverageLimited;
 
     public MemoryMetrics(MeterRegistry meters) {
         this.meters = meters;
@@ -99,11 +103,12 @@ public class MemoryMetrics {
                 .baseUnit("estimated_tokens")
                 .description("Estimated tokens of injected prompt history per turn (heuristic, not a tokenizer)")
                 .register(meters);
-        for (var feature : List.of("recall", "consolidation")) {
-            Gauge.builder("memory.feature.enabled", () -> 0).tag("feature", feature)
-                    .description("1 when the memory feature is implemented and enabled; M1 has neither")
-                    .register(meters);
-        }
+        Gauge.builder("memory.feature.enabled", recallFeature, java.util.concurrent.atomic.AtomicInteger::get)
+                .tag("feature", "recall")
+                .description("1 when the memory feature is implemented and enabled").register(meters);
+        Gauge.builder("memory.feature.enabled", () -> 0).tag("feature", "consolidation")
+                .description("1 when the memory feature is implemented and enabled; consolidation comes in M2b")
+                .register(meters);
     }
 
     public void accepted(boolean replay) {
@@ -194,14 +199,53 @@ public class MemoryMetrics {
                 .register(meters).record(ratio);
     }
 
-    /** Recall is not implemented in M1: not applicable, never 0 ms. */
-    public Reading recallLatency() {
-        return new Reading("memory.recall.latency", Availability.NOT_APPLICABLE, null, "Recall 在 M2a 实现");
+    /**
+     * Registers the recall meters and sets {@code memory.feature.enabled{feature=recall}} to 1; called by the
+     * retriever when recall is enabled. Until then recall readings are not applicable (never 0 ms or 0 items).
+     */
+    public synchronized void enableRecall() {
+        if (recallLatency == null) {
+            recallItems = DistributionSummary.builder("memory.recall.items")
+                    .description("Trusted recall candidates per question (long-term recall, not history injection)")
+                    .register(meters);
+            recallCoverageLimited = Counter.builder("memory.recall.coverage.limited")
+                    .description("Recalls where some turns in scope were neither indexed nor scanned").register(meters);
+            recallLatency = Timer.builder("memory.recall.latency").description("Recall latency per question")
+                    .register(meters);
+        }
+        recallFeature.set(1);
     }
 
-    /** Long-term memory recall items, counted separately from history injection; not applicable in M1. */
+    /** One recall: its latency, trusted candidates and whether coverage was limited. */
+    public void recalled(Duration latency, int items, boolean coverageLimited) {
+        var timer = recallLatency;
+        if (timer == null) {
+            return;
+        }
+        timer.record(latency);
+        recallItems.record(items);
+        if (coverageLimited) {
+            recallCoverageLimited.increment();
+        }
+    }
+
+    /** Mean recall latency once recall is enabled; not applicable before (never 0 ms). */
+    public Reading recallLatency() {
+        var timer = recallLatency;
+        if (timer == null) {
+            return new Reading("memory.recall.latency", Availability.NOT_APPLICABLE, null, "Recall 未启用");
+        }
+        return new Reading("memory.recall.latency", Availability.REPORTED,
+                timer.count() == 0 ? null : timer.mean(java.util.concurrent.TimeUnit.MILLISECONDS), null);
+    }
+
+    /** Long-term recall items, counted separately from history injection; not applicable before recall is enabled. */
     public Reading recallItems() {
-        return new Reading("memory.recall.items", Availability.NOT_APPLICABLE, null, "Recall 在 M2a 实现");
+        var items = recallItems;
+        if (items == null) {
+            return new Reading("memory.recall.items", Availability.NOT_APPLICABLE, null, "Recall 未启用");
+        }
+        return new Reading("memory.recall.items", Availability.REPORTED, items.totalAmount(), null);
     }
 
     /** No consolidation jobs exist in M1 (deletion jobs are maintenance, not consolidation): disabled, not 0. */

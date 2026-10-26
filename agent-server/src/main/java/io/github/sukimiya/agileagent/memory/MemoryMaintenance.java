@@ -29,11 +29,11 @@ import reactor.util.retry.Retry;
  * <ol>
  * <li>{@link #deleteConversation}: one transaction tombstones the session (clears its title, bumps its revision),
  * interrupts any active turn with an incremented fence (error code {@code CONVERSATION_DELETED}; its open tool
- * calls become UNCERTAIN) and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
+ * calls become UNCERTAIN), drops the conversation's pending chunk-index jobs and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
  * upload and download sees the tombstone or the stale fence. The session row is locked first, the same order as
  * turn acceptance, so a concurrent accept either fails with 404 or is interrupted by the delete.</li>
  * <li>The {@link JobType#CONVERSATION_CLEANUP} handler, run by {@link MemoryJobWorker} from {@link #runPending}:
- * retryable physical cleanup of messages, tool records, the cached window (replaced by a cache tombstone that
+ * retryable physical cleanup of messages, tool records, recall chunks, turn records, the cached window (replaced by a cache tombstone that
  * refuses later refills) and the conversation's local attachment directory. Failed jobs are retried with
  * backoff; jobs left RUNNING by a dead process are reclaimed after their lease.</li>
  * </ol>
@@ -163,7 +163,9 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 1
-                        ? revokeTurns(scope, conversationId, interrupted).then(enqueue(scope, conversationId))
+                        ? revokeTurns(scope, conversationId, interrupted)
+                                .then(dropPendingIndexJobs(scope, conversationId))
+                                .then(enqueue(scope, conversationId))
                                 .then(readTombstone(conversationId))
                         : alreadyDeletedByOwner(scope, conversationId));
     }
@@ -206,6 +208,18 @@ public class MemoryMaintenance implements SmartLifecycle {
         return turns.then(tools).then();
     }
 
+    /**
+     * Pending chunk-index jobs of the conversation go with the tombstone (a running one finds the session deleted
+     * and writes nothing); their dedupe keys are turn ids, which never come back.
+     */
+    private Mono<Void> dropPendingIndexJobs(MemoryScope scope, String conversationId) {
+        return db.sql("DELETE FROM memory_jobs WHERE job_type = '" + JobType.INDEX_CHUNKS.name() + "'"
+                        + " AND status = 'PENDING' AND conversation_id = :c AND tenant_id = :tenantId"
+                        + " AND subject = :subject")
+                .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated().then();
+    }
+
     /** One cleanup job per conversation: the tombstone transition happens once, so the key never repeats. */
     private Mono<Void> enqueue(MemoryScope scope, String conversationId) {
         return jobs.enqueue(scope, conversationId, JobType.CONVERSATION_CLEANUP, CLEANUP_KEY_PREFIX + conversationId,
@@ -245,6 +259,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                         : Mono.error(new IllegalStateException("cleanup target is not a deleted conversation")))
                 .then(scopedDelete("chat_messages", scope, c))
                 .then(scopedDelete("chat_tool_events", scope, c))
+                .then(scopedDelete("memory_chunks", scope, c))
                 .then(scopedDelete("memory_summaries", scope, c))
                 .then(scopedDelete("memory_index_progress", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))

@@ -27,6 +27,7 @@ import io.github.sukimiya.agileagent.memory.context.AssembledContext;
 import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
 import io.github.sukimiya.agileagent.memory.context.ContextBudget;
 import io.github.sukimiya.agileagent.memory.context.ContextPurpose;
+import io.github.sukimiya.agileagent.memory.recall.RecallResult;
 import io.github.sukimiya.agileagent.memory.context.ModelWindow;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.service.LlmClient;
@@ -171,7 +172,7 @@ public class Orchestrator {
         var finalText = new AtomicReference<String>();
         Flux<String> body = history.userInput(ticket)
                 .flatMapMany(userMessage -> {
-                    var call = new Call(ticket, llm, window, usage);
+                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
                     var answer = new FinalAnswer(recorder, finalText);
                     return route(call, userMessage)
                             .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
@@ -214,8 +215,12 @@ public class Orchestrator {
     /** Where the final model answer's deltas are checkpointed and its full text staged. */
     private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text) {}
 
-    /** What every model call of one turn shares: the turn, the model, its window and the usage total. */
-    private record Call(TurnTicket ticket, LlmClient llm, ModelWindow window, UsageAccumulator usage) {}
+    /**
+     * What every model call of one turn shares: the turn, the model, its window, the usage total and the turn's
+     * recall (run once, on first use; M2a Task 5).
+     */
+    private record Call(TurnTicket ticket, LlmClient llm, ModelWindow window, UsageAccumulator usage,
+            Mono<RecallResult> recall) {}
 
     private List<LlmClient.Message> routingPrefix() {
         return List.of(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
@@ -245,7 +250,8 @@ public class Orchestrator {
 
     private Mono<List<String>> route(Call call, String userMessage) {
         long start = System.currentTimeMillis();
-        return assembler.assemble(call.ticket(), ContextPurpose.ROUTING, call.window(), routingPrefix(), userMessage)
+        return assembler.assemble(call.ticket(), ContextPurpose.ROUTING, call.window(), routingPrefix(), userMessage,
+                        call.recall())
                 .flatMapMany(context -> stream(call, ContextPurpose.ROUTING, context))
                 .collectList()
                 .map(events -> events.stream()
@@ -285,7 +291,7 @@ public class Orchestrator {
     private Flux<String> answerDirectly(Call call, FinalAnswer answer, String userMessage) {
         log.info("routing no-capability, answering directly");
         return assembler.assemble(call.ticket(), ContextPurpose.DIRECT_ANSWER, call.window(),
-                        List.of(LlmClient.Message.system(DIRECT_ANSWER_PROMPT)), userMessage)
+                        List.of(LlmClient.Message.system(DIRECT_ANSWER_PROMPT)), userMessage, call.recall())
                 .flatMapMany(context -> streamFinalAnswer(answer, stream(call, ContextPurpose.DIRECT_ANSWER, context)));
     }
 
@@ -301,7 +307,8 @@ public class Orchestrator {
         // Candidate background: the recent completed turns that fit next to the question alone. Each domain agent
         // fits it to its own prompt and tool schemas. Off: no background (M1 behaviour).
         Mono<AssembledContext> candidate = budget.enabled()
-                ? assembler.assemble(ticket, ContextPurpose.CAPABILITY, call.window(), List.of(), userMessage)
+                ? assembler.assemble(ticket, ContextPurpose.CAPABILITY, call.window(), List.of(), userMessage,
+                        call.recall())
                 : Mono.just(new AssembledContext(List.of(LlmClient.Message.user(userMessage)), 0, false, List.of(),
                         0));
         var results = new ArrayList<AgentEvent>();
@@ -337,7 +344,7 @@ public class Orchestrator {
         String summary = fittedResults(prefix, userMessage, capabilityResults, call.window());
 
         return assembler.assemble(call.ticket(), ContextPurpose.AGGREGATE, call.window(), prefix, userMessage,
-                        List.of(LlmClient.Message.user(RESULTS_HEADER + summary)))
+                        List.of(LlmClient.Message.user(RESULTS_HEADER + summary)), call.recall())
                 .flatMapMany(context -> streamFinalAnswer(answer, stream(call, ContextPurpose.AGGREGATE, context)))
                 .doOnComplete(() -> log.info("aggregate capabilities={} totalElapsedMs={}", capabilityCodes, System.currentTimeMillis() - start));
     }
