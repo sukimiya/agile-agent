@@ -16,6 +16,8 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemSourceRepository;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
 import io.github.sukimiya.agileagent.service.FileStorageService;
 import io.r2dbc.spi.ConnectionFactory;
@@ -71,6 +73,8 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final TransactionalOperator transactions;
     private final MemoryJobQueue jobs;
     private final MemoryJobWorker worker;
+    private final MemoryItemSourceRepository itemSources;
+    private final MemoryItemRepository memoryItems;
     private volatile Disposable schedule;
 
     /** Standalone wiring (tests): its own worker, which never pauses for an instance conflict. */
@@ -91,6 +95,8 @@ public class MemoryMaintenance implements SmartLifecycle {
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.jobs = new MemoryJobQueue(db);
         this.worker = worker;
+        this.itemSources = new MemoryItemSourceRepository(db);
+        this.memoryItems = new MemoryItemRepository(db);
         worker.register(JobType.CONVERSATION_CLEANUP, job -> cleanup(job.scope(), job.conversationId()));
     }
 
@@ -165,6 +171,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .flatMap(n -> n == 1
                         ? revokeTurns(scope, conversationId, interrupted)
                                 .then(dropPendingIndexJobs(scope, conversationId))
+                                .then(detachMemorySources(scope, conversationId))
                                 .then(enqueue(scope, conversationId))
                                 .then(readTombstone(conversationId))
                         : alreadyDeletedByOwner(scope, conversationId));
@@ -261,9 +268,33 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .then(scopedDelete("chat_tool_events", scope, c))
                 .then(scopedDelete("memory_chunks", scope, c))
                 .then(scopedDelete("memory_summaries", scope, c))
+                .then(deleteSessionScopedItems(scope, c))
                 .then(scopedDelete("memory_index_progress", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))
                 .then(Mono.defer(() -> files.deleteConversationFiles(c)));
+    }
+
+
+    /**
+     * Removes item sources that came from this conversation and deactivates items left with no sources
+     * (M2b Task 3). Multi-source user-level items keep remaining sources.
+     */
+    private Mono<Void> detachMemorySources(MemoryScope scope, String conversationId) {
+        return itemSources.deleteByConversation(scope, conversationId)
+                .concatMap(itemId -> itemSources.countForItem(itemId)
+                        .flatMap(n -> n > 0 ? Mono.<Void>empty() : memoryItems.markInactive(scope, itemId).then()))
+                .then();
+    }
+
+    /** Physically removes session-scoped memory items (and their leftover sources) of a deleted conversation. */
+    private Mono<Void> deleteSessionScopedItems(MemoryScope scope, String conversationId) {
+        return db.sql("DELETE FROM memory_item_sources WHERE conversation_id = :c")
+                .bind("c", conversationId).fetch().rowsUpdated()
+                .then(db.sql("DELETE FROM memory_items WHERE conversation_id = :c AND tenant_id = :tenantId"
+                                + " AND subject = :subject")
+                        .bind("c", conversationId).bind("tenantId", scope.tenantId())
+                        .bind("subject", scope.subject()).fetch().rowsUpdated())
+                .then();
     }
 
     private Mono<Long> scopedDelete(String table, MemoryScope scope, String conversationId) {

@@ -158,6 +158,27 @@ public class MemoryMetrics {
                 .register(meters).increment();
     }
 
+
+    /** A long-term memory item was written by judgement (M2b Task 3). */
+    public void judgementWritten() {
+        Counter.builder("memory.judgement.written").description("Long-term memory items written by judgement")
+                .register(meters).increment();
+    }
+
+    /** A judgement action was rejected by the validator; {@code reason} is a short code. */
+    public void judgementRejected(String reason) {
+        Counter.builder("memory.judgement.rejected").tag("reason", reason == null ? "UNKNOWN" : reason)
+                .description("Judgement actions discarded by provenance / anti-poison checks")
+                .register(meters).increment();
+    }
+
+    /** A judgement attempt failed (model / timeout / invalid JSON). */
+    public void judgementFailed(String reason) {
+        Counter.builder("memory.judgement.failures").tag("reason", reason == null ? "UNKNOWN" : reason)
+                .description("Judgement attempts that failed")
+                .register(meters).increment();
+    }
+
     /** A turn memory record was written (M2a Task 4). */
     public void summaryGenerated() {
         Counter.builder("memory.summary.generated").description("Turn memory records written")

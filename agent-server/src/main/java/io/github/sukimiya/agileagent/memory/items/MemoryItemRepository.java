@@ -75,6 +75,39 @@ public class MemoryItemRepository {
                 .defaultIfEmpty(Optional.empty());
     }
 
+
+    /**
+     * Compare-and-set status / content / assertion / superseded_by when {@code expectedRevision} matches;
+     * bumps revision on success.
+     */
+    public Mono<Boolean> casUpdate(MemoryScope scope, String id, long expectedRevision, ItemStatus status,
+            String content, MemoryItem.Assertion assertion, String supersededBy, String reason) {
+        var spec = db.sql("UPDATE memory_items SET status = :status, content = COALESCE(:content, content),"
+                        + " assertion = COALESCE(:assertion, assertion), superseded_by = :supersededBy,"
+                        + " reason = COALESCE(:reason, reason), revision = revision + 1,"
+                        + " updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject"
+                        + " AND revision = :rev")
+                .bind("status", status.name()).bind("id", id).bind("tenantId", scope.tenantId())
+                .bind("subject", scope.subject()).bind("rev", expectedRevision);
+        spec = content == null ? spec.bindNull("content", String.class) : spec.bind("content", content);
+        spec = assertion == null ? spec.bindNull("assertion", String.class)
+                : spec.bind("assertion", assertion.name());
+        spec = supersededBy == null ? spec.bindNull("supersededBy", String.class)
+                : spec.bind("supersededBy", supersededBy);
+        spec = reason == null ? spec.bindNull("reason", String.class) : spec.bind("reason", reason);
+        return spec.fetch().rowsUpdated().map(n -> n == 1);
+    }
+
+    public Mono<Boolean> markInactive(MemoryScope scope, String id) {
+        return db.sql("UPDATE memory_items SET status = 'INACTIVE', revision = revision + 1,"
+                        + " updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject"
+                        + " AND status NOT IN ('DELETED', 'SUPERSEDED')")
+                .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated().map(n -> n == 1);
+    }
+
     private static <T> DatabaseClient.GenericExecuteSpec nullable(DatabaseClient.GenericExecuteSpec spec,
             String name, T value, Class<T> type) {
         return value == null ? spec.bindNull(name, type) : spec.bind(name, value);

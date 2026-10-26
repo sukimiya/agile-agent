@@ -97,6 +97,18 @@
 - 排查：`SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'INDEX_CHUNKS' GROUP BY status`；长期 PENDING 的积压会让 `memory.recall.coverage.limited` 上升。检索失败时日志为 `memory.recall failed, answering without recall errorType=…`（不含内容），该轮不带召回资料继续回答。
 
 
+
+## 记忆判断（M2b Task 3，D10，默认关闭）
+
+闲置后对未判断轮次调用租户模型 + classpath Rules，写入 `memory_items` / `memory_item_sources`。
+
+- 配置 `app.memory.judgement.*`：`enabled`（默认 `false`）、`max-source-tokens`（默认 12000）、`max-output-tokens`（默认 1200）、`job-timeout`（默认 120s）。
+- 触发：与轮次记录共用 `IdleConversationScanner`（D19）；启用 judgement 或 summary 任一即可扫描；去重键 `judge:<conversationId>:<lastSeq>`。
+- 进度：`memory_index_progress.judged_through_sequence`（V12）。
+- 跨会话开关关闭时只写 `conversation_id` 非空的会话级条目。
+- 删除会话：事务内移除该会话来源；无剩余来源的条目标为 `INACTIVE`；物理清理删除会话级条目。
+- 指标：`memory.judgement.written`、`memory.judgement.rejected{reason}`、`memory.judgement.failures{reason}`。
+
 ## 整理 Token 额度（M2b Task 2，D11=A）
 
 后台 LLM 整理任务（`SUMMARIZE`、`JUDGE_MEMORY`、`REBUILD_PROFILE`、`REPLAY_RULES`）受每租户每日 Token 上限约束。

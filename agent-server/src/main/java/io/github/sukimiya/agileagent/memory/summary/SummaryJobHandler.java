@@ -285,7 +285,7 @@ public class SummaryJobHandler {
     }
 
     /** The longest prefix of {@code text} whose estimate stays within {@code cap}. */
-    static String truncate(String text, int cap) {
+    public static String truncate(String text, int cap) {
         int low = 0;
         int high = text.length();
         while (low < high) {

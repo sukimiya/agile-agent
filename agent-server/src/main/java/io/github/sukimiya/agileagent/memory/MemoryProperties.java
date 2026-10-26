@@ -54,6 +54,49 @@ public class MemoryProperties {
 
     public Consolidation getConsolidation() { return consolidation; }
 
+    private final Judgement judgement = new Judgement();
+
+    public Judgement getJudgement() { return judgement; }
+
+    /**
+     * {@code app.memory.judgement.*}: idle-triggered LLM memory judgement (M2b Task 3, D10).
+     * Shares idle detection with {@link Summary} (D19).
+     */
+    public static class Judgement {
+        /** Off by default (cost control); without a handler JUDGE_MEMORY jobs wait unclaimed. */
+        private boolean enabled;
+        /** {@code max_tokens} of the judgement call. */
+        private int maxOutputTokens = 1_200;
+        /** Upper bound of one judgement model call. */
+        private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
+        /** Largest transcript (estimated tokens) one judgement call sends. */
+        private int maxSourceTokens = 12_000;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.judgement.max-output-tokens must be > 0");
+            }
+            this.maxOutputTokens = v;
+        }
+        public java.time.Duration getJobTimeout() { return jobTimeout; }
+        public void setJobTimeout(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.judgement.job-timeout must be positive");
+            }
+            this.jobTimeout = v;
+        }
+        public int getMaxSourceTokens() { return maxSourceTokens; }
+        public void setMaxSourceTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.judgement.max-source-tokens must be > 0");
+            }
+            this.maxSourceTokens = v;
+        }
+    }
+
     /**
      * {@code app.memory.consolidation.*}: per-tenant daily token budget and concurrency for background LLM
      * jobs (SUMMARIZE / JUDGE_MEMORY / REBUILD_PROFILE / REPLAY_RULES). D11=A.

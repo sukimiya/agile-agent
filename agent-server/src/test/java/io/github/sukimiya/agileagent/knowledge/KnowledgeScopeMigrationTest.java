@@ -45,7 +45,7 @@ class KnowledgeScopeMigrationTest {
                 .containsExactly("approved summary", "pending summary", "rejected summary");
         assertThat(jdbc.queryForList("SELECT \"version\" FROM \"" + historyTable()
                 + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' ORDER BY \"installed_rank\"",
-                String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10.1", "11");
+                String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10.1", "11", "12");
 
         flyway(dataSource).migrate();
 
