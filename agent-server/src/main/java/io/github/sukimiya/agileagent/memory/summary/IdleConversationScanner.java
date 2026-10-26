@@ -21,12 +21,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * The idle trigger of turn memory records (M2a Task 4, D19). Every {@code app.memory.summary.idle-scan-interval}
- * (default 5 min) it looks for conversations that are done: live, no active turn, no turn created or finished
- * within {@code idle-timeout} (default 30 min, database time; a recent failed or cancelled turn also counts as a
- * new message), and with completed messages after the record position. Each one gets a SUMMARIZE job with dedupe
- * key {@code summarize:<conversationId>:<last completed sequence>}: one job per idle period, since a key is never
- * reused (D19); new messages give the next period a new key. At most {@code idle-scan-batch} conversations per
+ * The idle trigger of turn memory records (M2a Task 4 / M2b D10+D19). Every
+ * {@code app.memory.summary.idle-scan-interval} (default 30s) it looks for conversations that are idle: live, no
+ * active turn, no turn created or finished within the effective cutoff {@code min(idle-timeout, idle-deadline)}
+ * (defaults 1m / 30m, database time; a recent failed or cancelled turn also counts as a new message), and with
+ * completed messages after the record position. Each one gets a SUMMARIZE job with dedupe key
+ * {@code summarize:<conversationId>:<last completed sequence>}: one job per idle period (D19); M2b judgement
+ * shares this idle detection (no accumulate-4-turns trigger). At most {@code idle-scan-batch} conversations per
  * scan. Runs only with {@code app.memory.summary.enabled=true} (default off, D4) and pauses while the
  * single-instance guard reports a peer.
  */
@@ -66,7 +67,7 @@ public class IdleConversationScanner implements SmartLifecycle {
             if (!props.getSummary().isEnabled() || conflict.getAsBoolean()) {
                 return Mono.just(0);
             }
-            long idleMicros = Math.max(1, props.getSummary().getIdleTimeout().toNanos() / 1_000);
+            long idleMicros = Math.max(1, props.getSummary().effectiveIdleCutoff().toNanos() / 1_000);
             var cutoff = "TIMESTAMPADD(MICROSECOND, -%s, CURRENT_TIMESTAMP(6))";
             return db.sql("SELECT t.conversation_id AS c, t.tenant_id AS tenant_id, t.subject AS subject,"
                             + " MAX(m.sequence) AS last_seq, COUNT(DISTINCT t.id) AS turns FROM chat_turns t"

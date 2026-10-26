@@ -19,7 +19,7 @@ import io.github.sukimiya.agileagent.memory.MemoryTestStack;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
 
 /**
- * The idle trigger (D19): a conversation with no new message for {@code idle-timeout} (default 30 min) and no
+ * The idle trigger (D19): a conversation with no new message for {@code idle-timeout} (defaults 1m / 30m) and no
  * active turn, with completed turns after the record position, gets one SUMMARIZE job per idle period (dedupe key
  * conversation + last completed sequence). H2 here; {@link IdleConversationScannerMySqlIntegrationTest} on MySQL.
  */
@@ -84,12 +84,10 @@ class IdleConversationScannerTest {
         completedTurn(conversation, "问题一");
         long last = completedTurn(conversation, "问题二");
 
-        // Not idle yet: the last message is fresh.
-        assertThat(scan()).isZero();
-        age(conversation, 29);
+        // Not idle yet: the last message is fresh (default idle-timeout is 1 minute).
         assertThat(scan()).isZero();
 
-        age(conversation, 2);
+        age(conversation, 1);
         assertThat(scan()).isEqualTo(1);
         assertThat(jobs()).singleElement().satisfies(job -> assertThat(job)
                 .containsEntry("DEDUPE_KEY", "summarize:" + conversation + ":" + last)
@@ -162,8 +160,10 @@ class IdleConversationScannerTest {
         assertThat(disabled.scan().block(WAIT)).isZero();
         assertThat(jobs()).isEmpty();
 
-        assertThat(off.getSummary().getIdleTimeout()).isEqualTo(Duration.ofMinutes(30));
-        assertThat(off.getSummary().getIdleScanInterval()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(off.getSummary().getIdleTimeout()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(off.getSummary().getIdleDeadline()).isEqualTo(Duration.ofMinutes(30));
+        assertThat(off.getSummary().getIdleScanInterval()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(off.getSummary().effectiveIdleCutoff()).isEqualTo(Duration.ofMinutes(1));
         assertThat(off.getSummary().getMaxInvalidAttempts()).isEqualTo(3);
         assertThat(scanner.isAutoStartup()).isEqualTo(stack.props().isRecoveryEnabled());
         assertThat(scan()).isEqualTo(1);
@@ -175,6 +175,20 @@ class IdleConversationScannerTest {
         completedTurn(conversation, "问题一");
         age(conversation, 6);
 
+        assertThat(scan()).isEqualTo(1);
+    }
+
+    @Test
+    void idleDeadlineCapsALongerTimeout() {
+        // Misconfigured long timeout still cannot delay past the 30m deadline (effective = min).
+        stack.props().getSummary().setIdleTimeout(Duration.ofHours(2));
+        stack.props().getSummary().setIdleDeadline(Duration.ofMinutes(30));
+        assertThat(stack.props().getSummary().effectiveIdleCutoff()).isEqualTo(Duration.ofMinutes(30));
+
+        completedTurn(conversation, "问题一");
+        age(conversation, 29);
+        assertThat(scan()).isZero();
+        age(conversation, 2);
         assertThat(scan()).isEqualTo(1);
     }
 }

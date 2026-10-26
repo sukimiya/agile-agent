@@ -113,10 +113,19 @@ public class MemoryProperties {
         private int maxOutputTokens = 800;
         /** Upper bound of one summary call. */
         private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
-        /** No new message for this long (and no active turn) means the conversation is done (D19). */
-        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(30);
-        /** How often the idle scan looks for done conversations (D19). */
-        private java.time.Duration idleScanInterval = java.time.Duration.ofMinutes(5);
+        /**
+         * No new message for this long (and no active turn) means the conversation is idle and may be
+         * enqueued (D19, 2026-10-26): default 1 minute. Shared with judgement enqueue (D10).
+         */
+        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(1);
+        /**
+         * Latest fallback (D19): by this age since the last message, pending record/judgement work must still
+         * be picked up. Effective cutoff is {@code min(idleTimeout, idleDeadline)} so a mis-set long timeout
+         * cannot delay past the deadline. Default 30 minutes.
+         */
+        private java.time.Duration idleDeadline = java.time.Duration.ofMinutes(30);
+        /** How often the idle scan looks for idle conversations (D19): default 30 seconds. */
+        private java.time.Duration idleScanInterval = java.time.Duration.ofSeconds(30);
         /** Conversations enqueued per idle scan at most. */
         private int idleScanBatch = 100;
         /** Invalid model outputs for one turn before the turn is skipped (D23). */
@@ -140,18 +149,37 @@ public class MemoryProperties {
         }
         public java.time.Duration getJobTimeout() { return jobTimeout; }
         public java.time.Duration getIdleTimeout() { return idleTimeout; }
-        public void setIdleTimeout(java.time.Duration v) { this.idleTimeout = v; }
+        public void setIdleTimeout(java.time.Duration v) {
+            this.idleTimeout = requirePositive("idle-timeout", v);
+        }
+        public java.time.Duration getIdleDeadline() { return idleDeadline; }
+        public void setIdleDeadline(java.time.Duration v) {
+            this.idleDeadline = requirePositive("idle-deadline", v);
+        }
+        /**
+         * Cutoff used by the idle scan: the sooner of {@link #getIdleTimeout()} and {@link #getIdleDeadline()},
+         * so the 30-minute deadline remains a hard upper bound if timeout is misconfigured longer.
+         */
+        public java.time.Duration effectiveIdleCutoff() {
+            return idleTimeout.compareTo(idleDeadline) <= 0 ? idleTimeout : idleDeadline;
+        }
         public java.time.Duration getIdleScanInterval() { return idleScanInterval; }
-        public void setIdleScanInterval(java.time.Duration v) { this.idleScanInterval = v; }
+        public void setIdleScanInterval(java.time.Duration v) {
+            this.idleScanInterval = requirePositive("idle-scan-interval", v);
+        }
         public int getIdleScanBatch() { return idleScanBatch; }
         public void setIdleScanBatch(int v) { this.idleScanBatch = v; }
         public int getMaxInvalidAttempts() { return maxInvalidAttempts; }
         public void setMaxInvalidAttempts(int v) { this.maxInvalidAttempts = v; }
         public void setJobTimeout(java.time.Duration v) {
+            this.jobTimeout = requirePositive("job-timeout", v);
+        }
+
+        private static java.time.Duration requirePositive(String name, java.time.Duration v) {
             if (v == null || v.isNegative() || v.isZero()) {
-                throw new IllegalArgumentException("app.memory.summary.job-timeout must be positive");
+                throw new IllegalArgumentException("app.memory.summary." + name + " must be positive");
             }
-            this.jobTimeout = v;
+            return v;
         }
     }
 

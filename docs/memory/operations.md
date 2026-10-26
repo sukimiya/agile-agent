@@ -65,7 +65,7 @@
 轮次记忆记录是长期记忆的**检索索引**，不是上下文压缩：会话结束（闲置）后，为每个尚未建立记录的已完成轮次生成一条结构化记录，存入 `memory_summaries`。记录**不进入提示词**；检索命中后交给模型的是该轮原文（见下文“基础 Recall”）。决定见计划 D18–D25（用户已确认 2026-10-26）。
 
 - 配置 `app.memory.summary.*`（闲置口径 **D19，2026-10-26 修订**，与 M2b 记忆判断共用）：`enabled`（默认 `false`，D4）、`idle-timeout`（默认 **1m**：无新消息且无进行中的轮次达到此时长即视为闲置并登记生成）、`idle-deadline`（默认 **30m**：最迟兜底，到点仍有待建记录的会话必须被扫到并执行）、`idle-scan-interval`（默认 **30s**，可配 30–60s；原 5m 在 1m 闲置下过粗）、`idle-scan-batch`（默认 100：每次扫描最多登记的会话数）、`max-source-tokens`（默认 12000：一轮送给模型的对话记录上限，按估算 Token 计）、`max-output-tokens`（默认 800，作为 `max_tokens` 发送）、`job-timeout`（默认 120 秒：单次模型调用上限）、`max-invalid-attempts`（默认 3）。
-  - **实现现状：** M2a 合入时产品默认仍是 `idle-timeout=30m`、`idle-scan-interval=5m`，尚无 `idle-deadline` 配置项。上表是已确认的目标口径；默认值与配置项在 M2b Task 1（或紧随的配置修订）中落地。
+  - **实现现状（M2b Task 1）：** 产品默认已落地为 `idle-timeout=1m`、`idle-deadline=30m`、`idle-scan-interval=30s`；扫描实际使用 `min(idle-timeout, idle-deadline)` 作为截止时间。
 - 闲置扫描：每 `idle-scan-interval` 按数据库时间查找闲置会话（未删除；没有进行中的轮次；没有在 `idle-timeout` 内创建或结束的轮次，失败或取消的新轮次也算新消息；或已满 `idle-deadline` 的兜底队列；有记录位置之后的已完成消息），每个会话登记一个 `SUMMARIZE` 任务（M2b 起同一次扫描还可登记 `JUDGE_MEMORY`），去重键 `summarize:<会话 ID>:<最后一条已完成消息的序号>`：同一次闲置只登记一次，之后有新消息、再次闲置时才会登记新任务。**不**按“累计 4 轮”提前触发。关闭时不扫描、不注册处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。另有实例冲突时暂停。全局并发为 1：单实例的任务处理器逐个执行任务。
 - 生成：用租户自己的模型，每轮一次调用（JSON 模式，`response_format: json_object`），只读已完成（COMPLETED）的轮次；一轮超过输入上限时截断后生成，这一轮仍算已记录；租户窗口较小时上限再收紧到窗口能容纳的大小。
 - 记录格式 `memory-record-v1`（`record_json`）：`summary`（≤ 80 字）、`entities`（专名，逐字）、`key_facts`（编号、数字、版本、名称、日期、金额，逐字）、`decision`、`keywords`（≤ 10）、`memory_type`（`FACT` / `EVENT`）、`source`（轮次 ID 与序号范围，由服务端填写）。`search_text` 由概括、专名、要点和关键词拼成，MySQL 上建 ngram FULLTEXT 索引，H2 用 LIKE。
