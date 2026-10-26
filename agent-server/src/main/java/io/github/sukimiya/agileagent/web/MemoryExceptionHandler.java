@@ -48,6 +48,7 @@ public class MemoryExceptionHandler {
             case TURN_IN_PROGRESS -> "A reply is already being generated for this conversation";
             case TURN_TERMINATED -> "This request already ended; retry with a new Idempotency-Key";
             case MESSAGE_TOO_LARGE -> "Message is too large";
+            case CONTEXT_BUDGET_EXCEEDED -> "Message does not fit the model context window; shorten it";
             case STORAGE_UNAVAILABLE -> "Storage is temporarily unavailable";
             case INSTANCE_CONFLICT -> "Another service instance is active";
         };

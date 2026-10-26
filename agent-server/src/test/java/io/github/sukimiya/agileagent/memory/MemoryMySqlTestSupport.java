@@ -15,7 +15,7 @@ import io.r2dbc.spi.ConnectionFactoryOptions;
  * it, and only a loopback host with a database name ending in {@code _it} is accepted, so these tests can never
  * clean a shared or production schema.
  */
-final class MemoryMySqlTestSupport {
+public final class MemoryMySqlTestSupport {
 
     static final String HOST = "MEMORY_MYSQL_IT_HOST";
     static final String PORT = "MEMORY_MYSQL_IT_PORT";
@@ -28,7 +28,7 @@ final class MemoryMySqlTestSupport {
     private MemoryMySqlTestSupport() {}
 
     /** Drops every object in the configured test database, re-runs all migrations and returns a fixture. */
-    static MemoryTestFixture freshDatabase() {
+    public static MemoryTestFixture freshDatabase() {
         var host = required(HOST);
         var port = Integer.parseInt(required(PORT));
         var database = required(DATABASE);
@@ -44,7 +44,8 @@ final class MemoryMySqlTestSupport {
                 + "?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC";
         var dataSource = new DriverManagerDataSource(jdbcUrl, user, password);
         dataSource.setDriverClassName("com.mysql.cj.jdbc.Driver");
-        var flyway = Flyway.configure().dataSource(dataSource).cleanDisabled(false).load();
+        var flyway = Flyway.configure().dataSource(dataSource).cleanDisabled(false)
+                .locations("classpath:db/migration", "classpath:db/vendor/mysql").load();
         flyway.clean();
         flyway.migrate();
         var options = ConnectionFactoryOptions.builder()

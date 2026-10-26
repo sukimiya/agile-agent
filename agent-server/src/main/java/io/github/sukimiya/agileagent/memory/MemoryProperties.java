@@ -38,6 +38,170 @@ public class MemoryProperties {
     private Duration instanceHeartbeatInterval = Duration.ofSeconds(10);
     private Duration instanceStaleAfter = Duration.ofSeconds(30);
     private boolean instanceGuardEnabled = true;
+    private final Context context = new Context();
+
+    public Context getContext() { return context; }
+
+    private final Summary summary = new Summary();
+
+    public Summary getSummary() { return summary; }
+
+    private final Recall recall = new Recall();
+
+    public Recall getRecall() { return recall; }
+
+    /** {@code app.memory.recall.*}: basic recall over turn records and original-text chunks (M2a Task 5, D22/D24). */
+    public static class Recall {
+        /** Off: no retrieval and no reference message, prompts as before Task 5 (chunks are still indexed). */
+        private boolean enabled = true;
+        /** At most this many recalled turns per call (D24). */
+        private int maxItems = 5;
+        /** Share of the history budget the reference message may take, only when there are hits (D24). */
+        private double budgetShare = 0.25;
+        /** Candidates kept per turn after merging, before the budget. */
+        private int candidateLimit = 20;
+        /** A full-text hit is trusted only with at least this many distinct query terms in it. */
+        private int minMatchedTerms = 2;
+        /** Cross-conversation recall searches at most this many of the owner's newest other conversations. */
+        private int maxConversations = 50;
+        /** Un-indexed completed turns of the current conversation scanned directly per recall. */
+        private int backfillTurns = 20;
+        /** Newest turn records scanned for entity names contained in the question. */
+        private int entityScanRecords = 200;
+        /** Chunk size limit in estimated tokens; longer turns are split by paragraph. */
+        private int chunkMaxTokens = 1_500;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxItems() { return maxItems; }
+        public void setMaxItems(int v) { this.maxItems = positive("max-items", v); }
+        public double getBudgetShare() { return budgetShare; }
+        public void setBudgetShare(double v) {
+            if (!(v > 0 && v <= 1)) {
+                throw new IllegalArgumentException("app.memory.recall.budget-share must be in (0, 1]");
+            }
+            this.budgetShare = v;
+        }
+        public int getCandidateLimit() { return candidateLimit; }
+        public void setCandidateLimit(int v) { this.candidateLimit = positive("candidate-limit", v); }
+        public int getMinMatchedTerms() { return minMatchedTerms; }
+        public void setMinMatchedTerms(int v) { this.minMatchedTerms = positive("min-matched-terms", v); }
+        public int getMaxConversations() { return maxConversations; }
+        public void setMaxConversations(int v) { this.maxConversations = positive("max-conversations", v); }
+        public int getBackfillTurns() { return backfillTurns; }
+        public void setBackfillTurns(int v) { this.backfillTurns = positive("backfill-turns", v); }
+        public int getEntityScanRecords() { return entityScanRecords; }
+        public void setEntityScanRecords(int v) { this.entityScanRecords = positive("entity-scan-records", v); }
+        public int getChunkMaxTokens() { return chunkMaxTokens; }
+        public void setChunkMaxTokens(int v) { this.chunkMaxTokens = positive("chunk-max-tokens", v); }
+
+        private static int positive(String name, int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.recall." + name + " must be positive");
+            }
+            return v;
+        }
+    }
+
+    /** {@code app.memory.summary.*}: background segment summaries (M2a Task 4, D4/D5). */
+    public static class Summary {
+        /** Summary generation; off by default (D4). Off: no SUMMARIZE handler, jobs wait unclaimed. */
+        private boolean enabled;
+        /** Largest transcript one job sends, in estimated tokens (D5 source range). */
+        private int maxSourceTokens = 12_000;
+        /** {@code max_tokens} of the summary call (D5). */
+        private int maxOutputTokens = 800;
+        /** Upper bound of one summary call. */
+        private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
+        /** No new message for this long (and no active turn) means the conversation is done (D19). */
+        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(30);
+        /** How often the idle scan looks for done conversations (D19). */
+        private java.time.Duration idleScanInterval = java.time.Duration.ofMinutes(5);
+        /** Conversations enqueued per idle scan at most. */
+        private int idleScanBatch = 100;
+        /** Invalid model outputs for one turn before the turn is skipped (D23). */
+        private int maxInvalidAttempts = 3;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxSourceTokens() { return maxSourceTokens; }
+        public void setMaxSourceTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.summary.max-source-tokens must be > 0");
+            }
+            this.maxSourceTokens = v;
+        }
+        public int getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.summary.max-output-tokens must be > 0");
+            }
+            this.maxOutputTokens = v;
+        }
+        public java.time.Duration getJobTimeout() { return jobTimeout; }
+        public java.time.Duration getIdleTimeout() { return idleTimeout; }
+        public void setIdleTimeout(java.time.Duration v) { this.idleTimeout = v; }
+        public java.time.Duration getIdleScanInterval() { return idleScanInterval; }
+        public void setIdleScanInterval(java.time.Duration v) { this.idleScanInterval = v; }
+        public int getIdleScanBatch() { return idleScanBatch; }
+        public void setIdleScanBatch(int v) { this.idleScanBatch = v; }
+        public int getMaxInvalidAttempts() { return maxInvalidAttempts; }
+        public void setMaxInvalidAttempts(int v) { this.maxInvalidAttempts = v; }
+        public void setJobTimeout(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.summary.job-timeout must be positive");
+            }
+            this.jobTimeout = v;
+        }
+    }
+
+    /** {@code app.memory.context.*}: per-call context budget (M2a). */
+    public static class Context {
+        /** Budget enforcement; off means every call gets the full history (M1 behaviour). */
+        private boolean enabled = true;
+        /** Window used when the provider preset leaves it unset (D2). */
+        private int defaultContextWindowTokens = 32_768;
+        /** Output reserve used when the provider preset leaves it unset (D2). */
+        private int defaultMaxOutputTokens = 4_096;
+        /** Safety factor on the heuristic token estimate (D3). */
+        private double estimateFactor = 1.3;
+        /**
+         * Share of a capability call's remaining budget its background (recent conversation) may use, so tool
+         * results keep the rest (D5 recent-window share; the two newest turns are kept whenever they fit).
+         */
+        private double capabilityBackgroundShare = 0.5;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getDefaultContextWindowTokens() { return defaultContextWindowTokens; }
+        public void setDefaultContextWindowTokens(int v) {
+            if (v <= 1) {
+                throw new IllegalArgumentException("app.memory.context.default-context-window-tokens must be > 1");
+            }
+            this.defaultContextWindowTokens = v;
+        }
+        public int getDefaultMaxOutputTokens() { return defaultMaxOutputTokens; }
+        public void setDefaultMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.context.default-max-output-tokens must be > 0");
+            }
+            this.defaultMaxOutputTokens = v;
+        }
+        public double getEstimateFactor() { return estimateFactor; }
+        public void setEstimateFactor(double v) {
+            if (!(v >= 1.0)) {
+                throw new IllegalArgumentException("app.memory.context.estimate-factor must be >= 1");
+            }
+            this.estimateFactor = v;
+        }
+        public double getCapabilityBackgroundShare() { return capabilityBackgroundShare; }
+        public void setCapabilityBackgroundShare(double v) {
+            if (!(v > 0.0 && v <= 1.0)) {
+                throw new IllegalArgumentException("app.memory.context.capability-background-share must be in (0, 1]");
+            }
+            this.capabilityBackgroundShare = v;
+        }
+    }
 
     /** Rejects a serialized message over {@link #getMaxMessageBytes()} with {@link ErrorCode#MESSAGE_TOO_LARGE}. */
     public void checkMessageSize(String serialized) {

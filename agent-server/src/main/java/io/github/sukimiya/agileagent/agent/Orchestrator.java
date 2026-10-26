@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,7 +23,15 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.memory.TurnRecorder;
+import io.github.sukimiya.agileagent.memory.context.AssembledContext;
+import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
+import io.github.sukimiya.agileagent.memory.context.ContextBudget;
+import io.github.sukimiya.agileagent.memory.context.ContextPurpose;
+import io.github.sukimiya.agileagent.memory.recall.RecallResult;
+import io.github.sukimiya.agileagent.memory.context.ModelWindow;
+import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
 
@@ -80,13 +89,45 @@ public class Orchestrator {
     private final CapabilityRegistry capabilities;
     private final TurnLifecycle lifecycle;
     private final ConversationHistory history;
+    private final ContextAssembler assembler;
+    private final ContextBudget budget;
 
+    /** Without a context budget: every call gets the full history (M1 behaviour). */
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
                         ConversationHistory history) {
+        this(dispatcher, capabilities, lifecycle, history, ContextAssembler.unbudgeted(history));
+    }
+
+    @Autowired
+    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
+                        ConversationHistory history, ContextAssembler assembler) {
         this.dispatcher = dispatcher;
         this.capabilities = capabilities;
         this.lifecycle = lifecycle;
         this.history = history;
+        this.assembler = assembler;
+        this.budget = assembler.budget();
+    }
+
+    /**
+     * Refuses, before the turn is accepted, a question that cannot fit the model's input budget even without any
+     * history: {@code CONTEXT_BUDGET_EXCEEDED} (413). Checks the routing and the direct-answer call, whose fixed
+     * parts are known up front. Synchronous and cheap (an estimate, no I/O).
+     */
+    public void requireWithinBudget(String userMessage, ResolvedModel model) {
+        var window = windowOf(model);
+        var user = LlmClient.Message.user(userMessage);
+        budget.requireFits(List.of(routingPrefix().getFirst(), user), window);
+        budget.requireFits(List.of(LlmClient.Message.system(DIRECT_ANSWER_PROMPT), user), window);
+    }
+
+    private ModelWindow windowOf(ResolvedModel model) {
+        return budget.windowFor(model.presetId(), model.contextWindowTokens(), model.maxOutputTokens());
+    }
+
+    /** Streams one accepted turn for the tenant's resolved model, budgeting every call to its window. */
+    public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, ResolvedModel model) {
+        return chat(accepted, accessToken, identity, model.client(), windowOf(model));
     }
 
     /**
@@ -95,6 +136,11 @@ public class Orchestrator {
      * once, so a second subscription gets an error line instead of a second model call).
      */
     public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm) {
+        return chat(accepted, accessToken, identity, llm, budget.defaultWindow());
+    }
+
+    private Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm,
+            ModelWindow window) {
         var ticket = accepted.ticket();
         if (accepted.replay()) {
             return replay(accepted);
@@ -107,7 +153,8 @@ public class Orchestrator {
             String traceId = NonBlockingIds.shortUuid();
             return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
-                        lifecycle.execute(ticket, recorder -> runTurn(recorder, accessToken, executionIdentity, llm)),
+                        lifecycle.execute(ticket,
+                                recorder -> runTurn(recorder, accessToken, executionIdentity, llm, window)),
                         Flux.just(controlLine("done", null)))
                 .onErrorResume(e -> {
                     String code = errorCode(e);
@@ -118,20 +165,20 @@ public class Orchestrator {
         });
     }
 
-    private Flux<String> runTurn(TurnRecorder recorder, String accessToken, IdentityContext identity, LlmClient llm) {
+    private Flux<String> runTurn(TurnRecorder recorder, String accessToken, IdentityContext identity, LlmClient llm,
+            ModelWindow window) {
         var ticket = recorder.ticket();
         var usage = new UsageAccumulator();
         var finalText = new AtomicReference<String>();
-        Flux<String> body = Mono.zip(history.contextBefore(ticket), history.userInput(ticket))
-                .flatMapMany(prompt -> {
-                    var past = prompt.getT1();
-                    var userMessage = prompt.getT2();
+        Flux<String> body = history.userInput(ticket)
+                .flatMapMany(userMessage -> {
+                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
                     var answer = new FinalAnswer(recorder, finalText);
-                    return route(llm, usage, past, userMessage)
+                    return route(call, userMessage)
                             .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
-                                    ? answerDirectly(llm, usage, answer, past, userMessage)
-                                    : answerViaCapabilities(llm, usage, answer, ticket, past, userMessage,
-                                            capabilityCodes, accessToken, identity));
+                                    ? answerDirectly(call, answer, userMessage)
+                                    : answerViaCapabilities(call, answer, userMessage, capabilityCodes,
+                                            accessToken, identity));
                 });
         return Flux.concat(
                 body.timeout(TOTAL_BUDGET),
@@ -168,13 +215,44 @@ public class Orchestrator {
     /** Where the final model answer's deltas are checkpointed and its full text staged. */
     private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text) {}
 
-    private Mono<List<String>> route(LlmClient llm, UsageAccumulator usage, List<LlmClient.Message> history, String userMessage) {
-        var messages = new ArrayList<LlmClient.Message>();
-        messages.add(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
-        messages.addAll(history);
-        messages.add(LlmClient.Message.user(userMessage));
+    /**
+     * What every model call of one turn shares: the turn, the model, its window, the usage total and the turn's
+     * recall (run once, on first use; M2a Task 5).
+     */
+    private record Call(TurnTicket ticket, LlmClient llm, ModelWindow window, UsageAccumulator usage,
+            Mono<RecallResult> recall) {}
+
+    private List<LlmClient.Message> routingPrefix() {
+        return List.of(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
+    }
+
+    /**
+     * The request options of a call in this window: the effective output reserve is sent as {@code max_tokens}
+     * while the budget is on; with it off nothing is sent (M1 behaviour).
+     */
+    static Flux<LlmClient.LlmEvent> modelCall(LlmClient llm, List<LlmClient.Message> messages,
+            List<LlmClient.ToolDefinition> tools, ContextBudget budget, ModelWindow window) {
+        return budget != null && budget.enabled() && window != null
+                ? llm.chatStream(messages, tools, new LlmClient.CallOptions(window.maxOutputTokens()))
+                : llm.chatStream(messages, tools);
+    }
+
+    /** One budgeted model call: adds usage to the turn total and records the estimate deviation. */
+    private Flux<LlmClient.LlmEvent> stream(Call call, ContextPurpose purpose, AssembledContext context) {
+        return modelCall(call.llm(), context.messages(), List.of(), budget, call.window())
+                .doOnNext(event -> {
+            call.usage().add(event);
+            if (event instanceof LlmClient.LlmEvent.Usage value) {
+                assembler.recordUsage(context, purpose, value.promptTokens());
+            }
+        });
+    }
+
+    private Mono<List<String>> route(Call call, String userMessage) {
         long start = System.currentTimeMillis();
-        return llm.chatStream(messages, List.of()).doOnNext(usage::add)
+        return assembler.assemble(call.ticket(), ContextPurpose.ROUTING, call.window(), routingPrefix(), userMessage,
+                        call.recall())
+                .flatMapMany(context -> stream(call, ContextPurpose.ROUTING, context))
                 .collectList()
                 .map(events -> events.stream()
                         .filter(LlmClient.LlmEvent.Completed.class::isInstance)
@@ -210,14 +288,11 @@ public class Orchestrator {
         }
     }
 
-    private Flux<String> answerDirectly(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
-                                        List<LlmClient.Message> history, String userMessage) {
+    private Flux<String> answerDirectly(Call call, FinalAnswer answer, String userMessage) {
         log.info("routing no-capability, answering directly");
-        var messages = new ArrayList<LlmClient.Message>();
-        messages.add(LlmClient.Message.system(DIRECT_ANSWER_PROMPT));
-        messages.addAll(history);
-        messages.add(LlmClient.Message.user(userMessage));
-        return streamFinalAnswer(llm, usage, answer, messages);
+        return assembler.assemble(call.ticket(), ContextPurpose.DIRECT_ANSWER, call.window(),
+                        List.of(LlmClient.Message.system(DIRECT_ANSWER_PROMPT)), userMessage, call.recall())
+                .flatMapMany(context -> streamFinalAnswer(answer, stream(call, ContextPurpose.DIRECT_ANSWER, context)));
     }
 
     /**
@@ -225,16 +300,28 @@ public class Orchestrator {
      * returned Flux cancels the dispatch itself (a shared {@code cache()} would keep it running). The aggregate
      * model call starts only after the dispatch completed normally.
      */
-    private Flux<String> answerViaCapabilities(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
-                                               TurnTicket ticket, List<LlmClient.Message> history, String userMessage,
+    private Flux<String> answerViaCapabilities(Call call, FinalAnswer answer, String userMessage,
                                                List<String> capabilityCodes, String accessToken, IdentityContext identity) {
-        var tasks = capabilityCodes.stream()
-                .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code, userMessage,
-                        accessToken, identity, ticket))
-                .toList();
+        var ticket = call.ticket();
+        var taskWindow = budget.enabled() ? call.window() : null;
+        // Candidate background: the recent completed turns that fit next to the question alone. Each domain agent
+        // fits it to its own prompt and tool schemas. Off: no background (M1 behaviour).
+        Mono<AssembledContext> candidate = budget.enabled()
+                ? assembler.assemble(ticket, ContextPurpose.CAPABILITY, call.window(), List.of(), userMessage,
+                        call.recall())
+                : Mono.just(new AssembledContext(List.of(LlmClient.Message.user(userMessage)), 0, false, List.of(),
+                        0));
         var results = new ArrayList<AgentEvent>();
-        Flux<String> progress = dispatcher.dispatch(tasks, llm)
-                .doOnNext(usage::add)
+        Flux<String> progress = candidate.flatMapMany(context -> {
+                    var background = context.messages().subList(0, context.messages().size() - 1);
+                    var tasks = capabilityCodes.stream()
+                            .map(code -> new DomainTask(NonBlockingIds.uuid(), ticket.conversationId(), code,
+                                    userMessage, accessToken, identity, ticket, taskWindow, background,
+                                    context.historyTruncated()))
+                            .toList();
+                    return dispatcher.dispatch(tasks, call.llm());
+                })
+                .doOnNext(call.usage()::add)
                 .handle((event, sink) -> {
                     if (event instanceof AgentEvent.ToolCalled called) {
                         sink.next(controlLine("tool_call", called.tool()));
@@ -243,25 +330,49 @@ public class Orchestrator {
                     }
                 });
         return progress.concatWith(Flux.defer(() ->
-                aggregate(llm, usage, answer, history, userMessage, List.copyOf(results))));
+                aggregate(call, answer, userMessage, List.copyOf(results))));
     }
 
-    private Flux<String> aggregate(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
-                                   List<LlmClient.Message> history, String userMessage,
-                                    List<AgentEvent> capabilityResults) {
+    private static final String RESULTS_HEADER = "各能力执行结果：\n";
+
+    private Flux<String> aggregate(Call call, FinalAnswer answer, String userMessage,
+                                   List<AgentEvent> capabilityResults) {
         long start = System.currentTimeMillis();
-        String summary = capabilityResults.stream().map(this::describe).collect(Collectors.joining("\n\n"));
         List<String> capabilityCodes = capabilityResults.stream().map(this::roleOf).toList();
         log.info("aggregate capabilities={}", capabilityCodes);
+        var prefix = List.of(LlmClient.Message.system(AGGREGATE_PROMPT));
+        String summary = fittedResults(prefix, userMessage, capabilityResults, call.window());
 
-        var messages = new ArrayList<LlmClient.Message>();
-        messages.add(LlmClient.Message.system(AGGREGATE_PROMPT));
-        messages.addAll(history);
-        messages.add(LlmClient.Message.user(userMessage));
-        messages.add(LlmClient.Message.user("各能力执行结果：\n" + summary));
-
-        return streamFinalAnswer(llm, usage, answer, messages)
+        return assembler.assemble(call.ticket(), ContextPurpose.AGGREGATE, call.window(), prefix, userMessage,
+                        List.of(LlmClient.Message.user(RESULTS_HEADER + summary)), call.recall())
+                .flatMapMany(context -> streamFinalAnswer(answer, stream(call, ContextPurpose.AGGREGATE, context)))
                 .doOnComplete(() -> log.info("aggregate capabilities={} totalElapsedMs={}", capabilityCodes, System.currentTimeMillis() - start));
+    }
+
+    /**
+     * The capability results for the aggregate call, in order. A result that no longer fits next to the fixed
+     * parts and the results before it is replaced by a placeholder (the capability's tool records keep the data).
+     */
+    private String fittedResults(List<LlmClient.Message> prefix, String userMessage, List<AgentEvent> results,
+            ModelWindow window) {
+        var parts = new ArrayList<String>();
+        var fixed = new ArrayList<>(prefix);
+        fixed.add(LlmClient.Message.user(userMessage));
+        fixed.add(LlmClient.Message.user(RESULTS_HEADER));
+        var available = budget.availableInput(window);
+        for (var event : results) {
+            var text = describe(event);
+            var separator = parts.isEmpty() ? "" : "\n\n";
+            var sofar = new AssembledContext(fixed, budget.estimate(fixed), false, List.of(), available);
+            if (!budget.fitsToolResult(sofar, separator + text)) {
+                var role = event instanceof AgentEvent.Finished f ? f.role() : roleOf(event);
+                text = role + "：" + ContextBudget.omittedToolResult(role,
+                        budget.scale(TokenEstimator.estimate(text)));
+            }
+            parts.add(text);
+            fixed.set(fixed.size() - 1, LlmClient.Message.user(RESULTS_HEADER + String.join("\n\n", parts)));
+        }
+        return String.join("\n\n", parts);
     }
 
     private String describe(AgentEvent event) {
@@ -285,9 +396,8 @@ public class Orchestrator {
     }
 
     /** Streams the final answer: each delta is checkpointed before it is emitted; Completed stages the text. */
-    private Flux<String> streamFinalAnswer(LlmClient llm, UsageAccumulator usage, FinalAnswer answer,
-                                           List<LlmClient.Message> messages) {
-        return llm.chatStream(messages, List.of()).doOnNext(usage::add)
+    private Flux<String> streamFinalAnswer(FinalAnswer answer, Flux<LlmClient.LlmEvent> events) {
+        return events
                 .concatMap(event -> switch (event) {
                     case LlmClient.LlmEvent.ContentDelta d ->
                             answer.recorder().delta(d.text()).thenReturn(controlLine("delta", d.text())).flux();

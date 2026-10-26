@@ -33,7 +33,8 @@ class KnowledgeDocumentRepositoryTest {
         var dataSource = new DriverManagerDataSource(
                 "jdbc:h2:mem:" + dbName + ";MODE=MySQL;DB_CLOSE_DELAY=-1", "sa", "");
         dataSource.setDriverClassName("org.h2.Driver");
-        Flyway.configure().dataSource(dataSource).load().migrate();
+        Flyway.configure().dataSource(dataSource)
+                .locations("classpath:db/migration", "classpath:db/vendor/h2").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
         var options = ConnectionFactoryOptions.builder()
                 .option(ConnectionFactoryOptions.DRIVER, "h2")

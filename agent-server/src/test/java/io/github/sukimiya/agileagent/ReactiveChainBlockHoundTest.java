@@ -21,7 +21,12 @@ import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.config.KnowledgeProperties;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCatalog;
 import io.github.sukimiya.agileagent.knowledge.KnowledgeCapabilityProvider;
+import io.github.sukimiya.agileagent.memory.MemoryMetrics;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryTestDoubles;
+import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
+import io.github.sukimiya.agileagent.memory.context.ContextBudget;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.sukimiya.agileagent.service.*;
 
 import reactor.blockhound.BlockHound;
@@ -55,6 +60,16 @@ class ReactiveChainBlockHoundTest {
 
     @Test
     void orchestratorChatChainHasNoBlockingCallsOnParallelScheduler(@TempDir Path libDir) throws Exception {
+        runKnowledgeTurn(libDir, false);
+    }
+
+    /** The same turn with the M2a context budget on: assembly, estimates and tool-result checks stay non-blocking. */
+    @Test
+    void budgetedOrchestratorChatChainHasNoBlockingCallsOnParallelScheduler(@TempDir Path libDir) throws Exception {
+        runKnowledgeTurn(libDir, true);
+    }
+
+    private void runKnowledgeTurn(Path libDir, boolean budgeted) throws Exception {
         String knowledgeId = "00000000-0000-0000-0000-000000000001";
         Files.writeString(libDir.resolve(knowledgeId + ".v1.md"), "# Stage API\nstage.set(key, value)", StandardCharsets.UTF_8);
         Files.writeString(libDir.resolve(knowledgeId + ".v1.meta.json"),
@@ -71,6 +86,8 @@ class ReactiveChainBlockHoundTest {
                 new io.github.sukimiya.agileagent.knowledge.KnowledgeAccessPolicy());
 
         LlmClient llm = mock(LlmClient.class);
+        // Budgeted calls carry max_tokens; the interface default forwards them to the scripted plain call.
+        when(llm.chatStream(any(), any(), any())).thenCallRealMethod();
         var toolCall = new LlmClient.ToolCall("c1", "readKnowledgeDoc", "{\"id\":\"" + knowledgeId + "\"}");
         when(llm.chatStream(any(), any())).thenReturn(
                         // 1) routing
@@ -87,13 +104,23 @@ class ReactiveChainBlockHoundTest {
                                 .subscribeOn(Schedulers.parallel()));
 
         var capabilities = new CapabilityRegistry(List.of(new KnowledgeCapabilityProvider(knowledgeCatalog)));
-        var domainAgent = new DomainAgent(capabilities, MemoryTestDoubles.noopToolRecorder());
+        var history = MemoryTestDoubles.fixedHistory("stage.set 怎么用", List.of(
+                LlmClient.Message.user("上一个问题"), LlmClient.Message.assistantText("上一个回答")));
+        var budget = new ContextBudget(new MemoryProperties());
+        var domainAgent = budgeted
+                ? new DomainAgent(capabilities, MemoryTestDoubles.noopToolRecorder(), budget)
+                : new DomainAgent(capabilities, MemoryTestDoubles.noopToolRecorder());
         var dispatcher = new InProcessTaskDispatcher(domainAgent);
-        var orchestrator = new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(),
-                MemoryTestDoubles.fixedHistory("stage.set 怎么用", List.of()));
+        var orchestrator = budgeted
+                ? new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(), history,
+                        new ContextAssembler(history, budget, new MemoryMetrics(new SimpleMeterRegistry())))
+                : new Orchestrator(dispatcher, capabilities, MemoryTestDoubles.passThroughLifecycle(), history);
+        var accepted = MemoryTestDoubles.acceptedTurn("conv-1");
+        var chat = budgeted
+                ? orchestrator.chat(accepted, "sl-tok", null, new TenantLlmClientResolver.ResolvedModel(llm, 8192, 1024))
+                : orchestrator.chat(accepted, "sl-tok", null, llm);
 
-        StepVerifier.create(orchestrator.chat(MemoryTestDoubles.acceptedTurn("conv-1"), "sl-tok", null, llm)
-                        .subscribeOn(Schedulers.parallel()))
+        StepVerifier.create(chat.subscribeOn(Schedulers.parallel()))
                 .expectNextCount(4) // thinking + tool_call + 聚合回答 + done
                 .verifyComplete();
     }

@@ -55,6 +55,12 @@ public final class MemoryTestDoubles {
     public static ConversationHistory fixedHistory(String userInput, List<LlmClient.Message> context) {
         var history = mock(ConversationHistory.class);
         when(history.contextBefore(any())).thenReturn(Mono.just(context));
+        var messages = new java.util.ArrayList<ConversationHistory.HistoryMessage>();
+        for (int i = 0; i < context.size(); i++) {
+            messages.add(new ConversationHistory.HistoryMessage("msg-" + i, context.get(i)));
+        }
+        when(history.completedTurnsBefore(any())).thenReturn(Mono.just(context.isEmpty() ? List.of()
+                : List.of(new ConversationHistory.HistoryTurn("turn-0", List.copyOf(messages)))));
         when(history.userInput(any())).thenReturn(Mono.just(userInput));
         return history;
     }

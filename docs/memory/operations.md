@@ -11,11 +11,20 @@
 
 ## 会话删除清理
 
-- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `DELETE_CONVERSATION` 任务。物理清理由 `MemoryMaintenance` 执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
-- 清理内容：`chat_messages`、`chat_tool_events`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
-- 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.delete cleanup failed`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
-- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`；V10 之前叫 `DELETE_CONVERSATION`，升级时未完成的任务由迁移改名后继续执行）。物理清理由 `MemoryMaintenance` 注册给 `MemoryJobWorker` 的处理器执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
+- 删除事务内同时删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务；正在执行的切块任务会发现会话已删除，不写入任何片段。
+- 清理内容：`chat_messages`、`chat_tool_events`、M2a 的 `memory_chunks`、`memory_summaries` 与 `memory_index_progress`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
+- 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
+- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
 - 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+
+### 后台任务（M2a 起）
+
+- `memory_jobs.job_type` 取值见 `JobType`：`CONVERSATION_CLEANUP`、`INDEX_CHUNKS`、`SUMMARIZE`。同一 `(job_type, dedupe_key)` 只登记一次；`payload` 是任务参数 JSON。
+- 每个 COMPLETED 的轮次在写入终态的同一事务内登记一个 `INDEX_CHUNKS` 任务（`dedupe_key` 为 turnId）。终态写入回滚时任务也不存在。
+- 没有注册处理器的类型不会被领取，保持 PENDING、`attempts = 0`。`INDEX_CHUNKS` 的处理器从 M2a Task 5 起始终注册（与 `app.memory.recall.enabled` 无关），升级前累积的任务会按登记顺序逐个处理。
+- 排查：`SELECT job_type, status, COUNT(*) FROM memory_jobs GROUP BY job_type, status`。
 
 ### 删除审计日志（受保护的删除清单）
 
@@ -42,10 +51,54 @@
 - 为什么冲突时拒绝而不只是告警：多实例下取消信号、执行权和清理任务的可靠性都没有保证，只告警不拒绝仍属于不受支持的部署。
 - `app.memory.instance-guard-enabled=false` 会关闭心跳（仅用于没有 memory 表的测试），生产环境保持默认值 `true`。
 
+## 上下文预算（M2a 起）
+
+- 配置：`app.memory.context.enabled`（默认 `true`）、`default-context-window-tokens`（默认 32768）、`default-max-output-tokens`（默认 4096）、`estimate-factor`（默认 1.3，必须 ≥ 1，否则启动失败）、`capability-background-share`（默认 0.5，取值 (0, 1]：能力调用的背景最多占扣除固定部分后预算的比例，其余留给工具结果）。按模型的窗口在模型预设上设置（`contextWindowTokens`、`maxOutputTokens`，可空）。
+- 输出预留不小于窗口时（例如预设只填了很小的窗口、输出预留用默认值，或两个默认值配反了），预算改用窗口的 1/4 作为输出预留（同时作为 `max_tokens` 发送），每个预设的每种配置只记一次 WARN 日志（预设改成另一种仍放不下的配置时再记一次）。
+- 历史被截断时记一行 INFO 日志 `memory.context history truncated purpose=… keptTurns=… droppedTurns=… budgetTokens=…`（不含内容）。
+- 能力背景被截断时记 INFO 日志 `memory.context background truncated role=… keptMessages=… droppedTurns=…`（不含内容），并计入 `purpose=CAPABILITY`（每个能力任务一次）。
+- 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
+- `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。
+
+## 轮次记忆记录（M2a Task 4，默认关闭）
+
+轮次记忆记录是长期记忆的**检索索引**，不是上下文压缩：会话结束（闲置）后，为每个尚未建立记录的已完成轮次生成一条结构化记录，存入 `memory_summaries`。记录**不进入提示词**；检索命中后交给模型的是该轮原文（见下文“基础 Recall”）。决定见计划 D18–D25（用户已确认 2026-10-26）。
+
+- 配置 `app.memory.summary.*`：`enabled`（默认 `false`，D4）、`idle-timeout`（默认 30m：最后一条消息之后这么久没有新消息、且没有进行中的轮次，就算会话结束）、`idle-scan-interval`（默认 5m）、`idle-scan-batch`（默认 100：每次扫描最多登记的会话数）、`max-source-tokens`（默认 12000：一轮送给模型的对话记录上限，按估算 Token 计）、`max-output-tokens`（默认 800，作为 `max_tokens` 发送）、`job-timeout`（默认 120 秒：单次模型调用上限）、`max-invalid-attempts`（默认 3）。
+- 闲置扫描：每 `idle-scan-interval` 按数据库时间查找结束的会话（未删除；没有进行中的轮次；没有在 `idle-timeout` 内创建或结束的轮次，失败或取消的新轮次也算新消息；有记录位置之后的已完成消息），每个会话登记一个 `SUMMARIZE` 任务，去重键 `summarize:<会话 ID>:<最后一条已完成消息的序号>`：同一次闲置只登记一次，之后有新消息、再次闲置时才会登记新任务。关闭时不扫描、不注册处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。另有实例冲突时暂停。全局并发为 1：单实例的任务处理器逐个执行任务。
+- 生成：用租户自己的模型，每轮一次调用（JSON 模式，`response_format: json_object`），只读已完成（COMPLETED）的轮次；一轮超过输入上限时截断后生成，这一轮仍算已记录；租户窗口较小时上限再收紧到窗口能容纳的大小。
+- 记录格式 `memory-record-v1`（`record_json`）：`summary`（≤ 80 字）、`entities`（专名，逐字）、`key_facts`（编号、数字、版本、名称、日期、金额，逐字）、`decision`、`keywords`（≤ 10）、`memory_type`（`FACT` / `EVENT`）、`source`（轮次 ID 与序号范围，由服务端填写）。`search_text` 由概括、专名、要点和关键词拼成，MySQL 上建 ngram FULLTEXT 索引，H2 用 LIKE。
+- 校验：模型返回空内容、不是 JSON 对象、缺字段或类型不对都视为不合规；`entities[].name` 与 `key_facts[].text` 必须能在该轮原文中逐字找到（区分大小写和空格），找不到的条目丢弃；`summary` 与 `keywords` 不做原文核对，只截断长度和条数。所有文本写入前经过与工具记录相同的脱敏（密码、密钥、令牌）；含密钥的专名或要点保留，密钥部分替换为 `[REDACTED]`。
+- 租约：一个任务按顺序处理会话中所有待建记录的轮次，每轮模型调用前把任务租约续到“现在 + 5 分钟”，积压很多轮也不会超出租约；续期失败（任务已不归本实例）时停止该任务。
+- 写入：记录与处理位置（`memory_index_progress.summarized_through_sequence`）在同一事务中按位置比较后写入；重复或并发的任务不会写出重复记录。缺少租户模型、模型报错或超时都不推进位置，任务按退避重试（30 秒起倍增，最多 30 分钟）。
+- 不合规输出：本次尝试失败并按退避重试，同一轮的连续不合规次数记在 `memory_index_progress.summary_invalid_attempts`；达到 `max-invalid-attempts`（默认第 3 次）时跳过这一轮（不写记录，位置越过这一轮，`memory.summary.skipped` 加 1），任务继续处理后面的轮次。被跳过的轮次原文仍在，Task 5 起可通过原文片段召回。模型报错和超时不计入不合规次数。
+- 已删除的会话：记录、原文和检索命中立即不可用（读取时校验删除标记），清理任务删除记录与处理位置；晚到的任务直接跳过，不调用模型。
+- 迁移：本功能直接修改了尚未上线的 V10（D21）。已在本地跑过旧 V10 的开发库需要重建（或删库后重新迁移）；`flyway repair` 只修校验和，不会改表结构。
+- 指标：`memory.summary.generated`（写入的记录数）、`memory.summary.failures{reason}`（`MODEL_MISSING`、`MODEL_ERROR`、`TIMEOUT`、`INVALID_OUTPUT`）、`memory.summary.skipped`（不合规而跳过的轮次）、`memory.summary.lag`（轮次结束到读取该轮准备生成记录的时间，数据库时间，不含模型调用时间）、`memory.summary.backlog`（最近一次闲置扫描找到的会话中尚无记录的已完成轮次数，受 `idle-scan-batch` 限制；只在启用时注册）。
+- 上线前跟进项：闲置扫描目前每次对 `chat_turns` 与 `chat_messages` 分组查询（每次最多 `idle-scan-batch` 个会话），内部验收规模足够；上线前改为只扫描最近有更新的会话，避免全表分组。
+- 排查：`SELECT status, attempts, last_error FROM memory_jobs WHERE job_type = 'SUMMARIZE' AND status <> 'DONE'`；`last_error = 'InvalidRecordException'` 表示模型输出不合规，`SELECT summary_invalid_turn_id, summary_invalid_attempts FROM memory_index_progress WHERE conversation_id = ?` 查看当前计数。
+
+## 基础 Recall（M2a Task 5，默认开启）
+
+接口层面的行为见 `docs/memory/api.md`“基础 Recall”与“记忆设置”。
+
+- 配置 `app.memory.recall.*`：`enabled`（默认 `true`；关闭后不检索、不注入，片段照常建立）、`max-items`（默认 5）、`budget-share`（默认 0.25，取值 (0, 1]）、`candidate-limit`（默认 20：合并后保留的候选轮次）、`min-matched-terms`（默认 2）、`max-conversations`（默认 50：跨会话时最多检索的其他会话数）、`backfill-turns`（默认 20：当前会话未切块轮次的直接扫描上限）、`entity-scan-records`（默认 200：扫描专名的最新记录数）、`chunk-max-tokens`（默认 1500：单个片段的估算 Token 上限）。取值不合法时启动失败。
+- 切块：每个 COMPLETED 轮次的 `INDEX_CHUNKS` 任务把该轮的用户消息和最终回答写成一个片段（`用户：…\n助手：…`，工具调用过程不入片段），超过 `chunk-max-tokens` 时按段落拆分（单段过长再硬切）。片段带上编号类字符串（`entities_json`）、来源类别，并与同一会话的前后片段双向链接；片段与 `memory_index_progress.indexed_through_sequence` 在同一事务中写入，会话行先加锁（与删除事务同一顺序）。重复执行、轮次未完成或会话已删除时不写入。
+- 全文索引（D7）：MySQL 8.4 上 `ft_memory_chunks_content` 与 `ft_memory_summaries_search_text` 使用 ngram 解析器，`ngram_token_size=2`（服务器默认值，这是选定值；在 `my.cnf` 的 `[mysqld]` 中显式写上 `ngram_token_size=2` 以免被改动）。检索用自然语言模式，查询为问题的双字词；结果再由服务端按命中的不同词数重新计分，所以 MySQL 与 H2 的取舍规则一致。H2 没有 ngram，用 LIKE 代替，只用于开发与测试，不适合生产数据量。
+- 重建全文索引（修改 `ngram_token_size` 之后必须执行；该参数只能在启动时设置，需要重启 MySQL）：
+  1. 停止写入（或在维护窗口内执行），确认 `SHOW VARIABLES LIKE 'ngram_token_size'` 为新值。
+  2. `ALTER TABLE memory_chunks DROP INDEX ft_memory_chunks_content, ADD FULLTEXT INDEX ft_memory_chunks_content (content) WITH PARSER ngram;`
+  3. `ALTER TABLE memory_summaries DROP INDEX ft_memory_summaries_search_text, ADD FULLTEXT INDEX ft_memory_summaries_search_text (search_text) WITH PARSER ngram;`
+  4. 大量删除后只想整理索引时可用 `SET GLOBAL innodb_optimize_fulltext_only=ON; OPTIMIZE TABLE memory_chunks; SET GLOBAL innodb_optimize_fulltext_only=OFF;`。
+- 重建某个会话的片段（例如修复切块错误后）：删除该会话的片段，再把它已完成的切块任务改回待执行，处理器会重新切块（任务幂等，去重键仍是 turnId）：`DELETE FROM memory_chunks WHERE conversation_id = ?;` 然后 `UPDATE memory_jobs SET status = 'PENDING', attempts = 0, available_at = CURRENT_TIMESTAMP(6), last_error = NULL WHERE job_type = 'INDEX_CHUNKS' AND conversation_id = ? AND status = 'DONE';`。在此期间当前会话的最新 `backfill-turns` 轮仍可通过直接扫描召回。
+- 跨会话开关存于 `user_memory_settings`（按租户 + subject），每次检索时读取，不缓存，因此修改无需清理任何缓存。
+- 指标（仅在启用时注册，同时 `memory.feature.enabled{feature=recall}` 为 1）：`memory.recall.latency`（每个问题的检索耗时）、`memory.recall.items`（每个问题采用的候选轮次数，注入前；最终注入多少还受预算限制）、`memory.recall.coverage.limited`（存在未切块且未被扫描的轮次的检索次数）。
+- 排查：`SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'INDEX_CHUNKS' GROUP BY status`；长期 PENDING 的积压会让 `memory.recall.coverage.limited` 上升。检索失败时日志为 `memory.recall failed, answering without recall errorType=…`（不含内容），该轮不带召回资料继续回答。
+
 ## 基础指标与评测
 
 - 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。
-- 未实现的能力不以数字上报：Recall 相关指标为“不适用”（不注册），整理积压为“功能未启用”（不注册）。看板上缺这些指标属于正常情况，不要用 0 补齐。
+- 未启用的能力不以数字上报：Recall 关闭时其指标为“不适用”（不注册，`memory.feature.enabled{feature=recall}` 为 0），整理积压为“功能未启用”（不注册，M2b 才启用）。看板上缺这些指标属于正常情况，不要用 0 补齐。
 - `memory.finalizer.failures` 持续增长时，检查数据库可用性；这些执行由恢复扫描在租约过期后标记为 INTERRUPTED。
 - 真实模型评测（`-Pmemory-eval-live`）只在隔离环境手动运行，API key 通过环境变量提供，不写入仓库或报告。
 
@@ -66,7 +119,7 @@
 
 **恢复对象。**
 
-- MySQL：`sessions`（含删除标记）、`chat_turns`、`chat_messages`、`chat_tool_events`、`memory_jobs`、`service_instances`，以及 `tenant_llm_config` 等原有业务表。这是唯一的权威数据。
+- MySQL：`sessions`（含删除标记）、`chat_turns`、`chat_messages`、`chat_tool_events`、`memory_jobs`、`service_instances`、M2a 的 `memory_summaries`、`memory_chunks`、`memory_index_progress`、`user_memory_settings`，以及 `tenant_llm_config` 等原有业务表。这是唯一的权威数据。
 - 密钥：`LLM_CONFIG_SECRET`。`tenant_llm_config` 中的租户 API key 用它加密，缺少对应版本的密钥就无法解密，只能让租户重新录入。
 - Redis 只是可重建缓存，不备份，也不从生产复制。
 - 附件原件（`${app.upload.dir}`）**不在 M1 恢复范围内**，不保证长期可恢复。恢复后消息中的文件名仍在，原件可能不存在。
@@ -76,7 +129,7 @@
 - 全量备份与连续 binlog 归档（`binlog_format=ROW`，建议开启 GTID）存放在**与数据库不同的故障域**（不同主机、可用区或账号）。只放在数据库同一台机器或同一磁盘上的备份不算数。
 - 日志交付延迟必须给 15 分钟 RPO 留出余量：binlog 至少每 5 分钟轮转或流式上传一次，并对“最新已归档 binlog 的时间距现在超过 10 分钟”告警。全量备份周期由 RTO 决定：全量恢复加 binlog 回放的实测时间必须远小于 4 小时。
 - `LLM_CONFIG_SECRET` 保存在密钥管理系统中，与数据库备份分属不同故障域，并保留历史版本；记录每个版本的生效时间段，以便确定恢复点对应哪个版本。
-- 删除清单：删除标记（`sessions.deleted_at`）和 `DELETE_CONVERSATION` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
+- 删除清单：删除标记（`sessions.deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
 
 ### 2. 准备隔离环境
 
@@ -93,7 +146,7 @@
 
 ### 4. 核对删除记录（开放访问前）
 
-- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `DELETE_CONVERSATION` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
+- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
 - 如果 binlog 一直回放到故障时刻（Tlast 等于故障时间），就没有遗漏的删除。
 - 如果 Tlast 早于故障时间，(Tlast, 故障时间] 之间的删除不在数据库中，需要在**服务启动前**（服务停止、隔离环境、不开放访问）按删除审计日志人工复放：
   1. **确认日志覆盖范围。** 在日志存储中确认这个部署所有实例的日志都已经接收到故障时间。删除并不频繁，没有删除日志不能证明期间没有删除，所以只能以日志管道的接收时间为准。如果覆盖范围早于故障时间，那么从覆盖终点到故障时间这段无法核实，按第 4 条处理。
@@ -107,9 +160,9 @@
        ```sql
        UPDATE sessions SET deleted_at = '<deletedAt>', title = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
         WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND deleted_at IS NULL;
-       INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, available_at, created_at, updated_at)
-       VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'DELETE_CONVERSATION', 'PENDING', 0,
-               CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
+       INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, dedupe_key, available_at, created_at, updated_at)
+       VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'CONVERSATION_CLEANUP', 'PENDING', 0,
+               CONCAT('cleanup:', '<conversationId>'), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
        ```
 
        服务启动后，清理任务会删除消息、工具记录、缓存和附件目录。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。

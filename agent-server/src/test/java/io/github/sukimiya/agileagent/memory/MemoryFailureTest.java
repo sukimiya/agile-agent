@@ -247,7 +247,8 @@ class MemoryFailureTest {
 
         assertGone(stack, conversation);
         // Messages go first; the file step failed, so the job records one attempt and only the error type.
-        assertThat(stack.rows("SELECT attempts, last_error FROM memory_jobs WHERE conversation_id = ?", conversation))
+        assertThat(stack.rows("SELECT attempts, last_error FROM memory_jobs WHERE conversation_id = ?"
+                + " AND job_type = 'CONVERSATION_CLEANUP'", conversation))
                 .singleElement().satisfies(row -> {
                     assertThat(((Number) row.get("ATTEMPTS")).intValue()).isEqualTo(1);
                     assertThat(String.valueOf(row.get("LAST_ERROR"))).doesNotContain("disk unavailable");
@@ -255,7 +256,7 @@ class MemoryFailureTest {
 
         // A restarted process retries once the backoff has passed.
         stack.sql("UPDATE memory_jobs SET available_at = TIMESTAMPADD(SECOND, -1, CURRENT_TIMESTAMP(6))"
-                + " WHERE conversation_id = ?", conversation);
+                + " WHERE conversation_id = ? AND job_type = 'CONVERSATION_CLEANUP'", conversation);
         var restarted = maintenance(stack, files);
         assertThat(restarted.runPending(10).block(WAIT)).isEqualTo(1);
 
@@ -305,7 +306,8 @@ class MemoryFailureTest {
     }
 
     private static java.util.Map<String, Object> job(MemoryTestStack stack, String conversation) {
-        return stack.rows("SELECT status FROM memory_jobs WHERE conversation_id = ?", conversation).getFirst();
+        return stack.rows("SELECT status FROM memory_jobs WHERE conversation_id = ?"
+                + " AND job_type = 'CONVERSATION_CLEANUP'", conversation).getFirst();
     }
 
     /** History, cache-backed first page and a new turn on the same id are all refused: nothing came back. */

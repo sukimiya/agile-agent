@@ -19,9 +19,16 @@ final class MemoryEvalCases {
 
     static final String RESOURCE = "/memory-eval/cases.jsonl";
 
-    /** Components implemented in M1; every other component a case names is not applicable in this phase. */
+    /** Components implemented in M1. */
     static final Set<String> M1_COMPONENTS = Set.of("persistence", "terminal", "history-injection", "paging",
             "isolation", "tool-provenance", "size-limit");
+
+    /** Components added in M2a (context budget, turn records, basic recall, capability background). */
+    static final Set<String> M2A_COMPONENTS = Set.of("context-budget", "summary", "recall", "capability-background");
+
+    /** Implemented through M2a; any other component a case names (M2b) is not applicable in this phase. */
+    static final Set<String> IMPLEMENTED = java.util.stream.Stream.concat(M1_COMPONENTS.stream(),
+            M2A_COMPONENTS.stream()).collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Filler(int chars, String insert, Double at) {}
@@ -32,9 +39,21 @@ final class MemoryEvalCases {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Expect(List<String> all, List<String> any, List<String> none) {}
 
+    /** Model window of a case (null: the configured defaults). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Window(Integer contextWindowTokens, Integer maxOutputTokens) {}
+
+    /**
+     * One case. Setup fields (M2a): {@code window} model window; {@code crossConversation} turns the owner's
+     * cross-conversation recall switch on; {@code recallSource} index of the turn the probe should recall (null:
+     * nothing should be recalled); {@code recallReason} the expected recall reason of that turn;
+     * {@code probeTool} the probe goes through the inventory capability in the engineering run.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Case(String id, String category, String requires, boolean answer, List<String> components,
-            List<Turn> turns, String probe, boolean probeInNewConversation, Expect expect, String note) {}
+            List<Turn> turns, String probe, boolean probeInNewConversation, Expect expect, String note,
+            Window window, boolean crossConversation, Integer recallSource, String recallReason,
+            boolean probeTool) {}
 
     enum Verdict { CORRECT, PARTIAL, WRONG, ERROR }
 

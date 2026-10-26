@@ -130,9 +130,12 @@ class MemoryDeletionTest {
     }
 
     private int jobs(String conversationId, String status) {
-        return count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ? AND status = ?", conversationId,
-                status);
+        return count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ? AND status = ?"
+                + CLEANUP_ONLY, conversationId, status);
     }
+
+    /** Completed turns also queue INDEX_CHUNKS jobs (M2a); these tests look at the cleanup job only. */
+    private static final String CLEANUP_ONLY = " AND job_type = 'CONVERSATION_CLEANUP'";
 
     private Path attachment(String conversationId, String name) throws Exception {
         var dir = Files.createDirectories(uploadDir.resolve(conversationId));
@@ -268,7 +271,7 @@ class MemoryDeletionTest {
         delete(ALICE, conversation);
         delete(ALICE, conversation);
 
-        assertThat(count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ?", conversation)).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ?" + CLEANUP_ONLY, conversation)).isEqualTo(1);
         assertThat(runPending()).isEqualTo(1);
         assertThat(runPending()).isZero();
         delete(ALICE, conversation);
@@ -289,17 +292,34 @@ class MemoryDeletionTest {
 
         assertThat(runPending()).isZero();
         assertThat(jobs(conversation, "PENDING")).isEqualTo(1);
-        var job = fixture.jdbc().queryForMap("SELECT attempts, last_error FROM memory_jobs WHERE conversation_id = ?",
-                conversation);
+        var job = fixture.jdbc().queryForMap("SELECT attempts, last_error FROM memory_jobs WHERE conversation_id = ?"
+                + CLEANUP_ONLY, conversation);
         assertThat(((Number) job.get("ATTEMPTS")).intValue()).isEqualTo(1);
         assertThat((String) job.get("LAST_ERROR")).isEqualTo("IOException").doesNotContain("/secret");
         assertThat(maintenance.runPending(10).block(WAIT)).as("backoff: not yet due").isZero();
 
-        fixture.jdbc().update("UPDATE memory_jobs SET available_at = CURRENT_TIMESTAMP(6) WHERE conversation_id = ?",
-                conversation);
+        fixture.jdbc().update("UPDATE memory_jobs SET available_at = CURRENT_TIMESTAMP(6) WHERE conversation_id = ?"
+                + CLEANUP_ONLY, conversation);
         assertThat(runPending()).isEqualTo(1);
         assertThat(uploadDir.resolve(conversation)).doesNotExist();
         assertThat(messages(conversation)).isZero();
+    }
+
+    @Test
+    void cleanupJobStillWorksAfterRefactor() {
+        var conversation = newConversationId();
+        completedTurn(ALICE, conversation, "q", "a");
+
+        delete(ALICE, conversation);
+
+        var job = fixture.jdbc().queryForMap("SELECT job_type, dedupe_key, status FROM memory_jobs"
+                + " WHERE conversation_id = ? AND job_type <> 'INDEX_CHUNKS'", conversation);
+        assertThat(job.values()).containsExactly("CONVERSATION_CLEANUP", "cleanup:" + conversation, "PENDING");
+        assertThat(runPending()).isEqualTo(1);
+        assertThat(jobs(conversation, "DONE")).isEqualTo(1);
+        assertThat(messages(conversation)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM memory_jobs WHERE conversation_id = ? AND job_type = 'INDEX_CHUNKS'",
+                conversation)).as("pending index jobs go with the deletion transaction").isZero();
     }
 
     @Test
@@ -309,8 +329,8 @@ class MemoryDeletionTest {
         delete(ALICE, conversation);
         // A cleanup that started on a process which then died: RUNNING with an expired lease.
         fixture.jdbc().update("UPDATE memory_jobs SET status = 'RUNNING', lease_owner = 'dead',"
-                + " lease_expires_at = TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP(6)) WHERE conversation_id = ?",
-                conversation);
+                + " lease_expires_at = TIMESTAMPADD(SECOND, -60, CURRENT_TIMESTAMP(6)) WHERE conversation_id = ?"
+                + CLEANUP_ONLY, conversation);
 
         assertThat(runPending()).isEqualTo(1);
         assertThat(jobs(conversation, "DONE")).isEqualTo(1);

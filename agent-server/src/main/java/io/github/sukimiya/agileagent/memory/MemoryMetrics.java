@@ -30,7 +30,12 @@ import io.micrometer.core.instrument.Timer;
  * <li>{@code memory.instance.conflict}: registered by {@link InstanceGuard} (0/1).</li>
  * <li>{@code memory.history.injected.messages} / {@code memory.history.injected.tokens}: earlier messages (and
  * their estimated tokens) injected as prompt history per executed turn. This is history injection, not long-term
- * memory recall, which M1 does not implement.</li>
+ * memory recall, which M1 does not implement. From M2a only the history that fits the answer call's budget is
+ * counted, once per turn.</li>
+ * <li>{@code memory.context.history.truncated{purpose}}: model calls whose budgeted context left out older
+ * completed turns.</li>
+ * <li>{@code memory.context.estimate.ratio{purpose}}: provider {@code prompt_tokens} over the raw heuristic estimate
+ * of the same call, for tuning {@code app.memory.context.estimate-factor}.</li>
  * </ul>
  * Not implemented in M1, so never reported as a number: Recall ({@code memory.recall.*}: not applicable, never
  * 0 ms or 0 items) and consolidation ({@code memory.consolidation.backlog}: feature disabled, never a backlog of 0).
@@ -66,6 +71,11 @@ public class MemoryMetrics {
     private final Counter finalizerFailures;
     private final DistributionSummary injectedMessages;
     private final DistributionSummary injectedTokens;
+    private final java.util.concurrent.atomic.AtomicLong summaryBacklog = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicInteger recallFeature = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile Timer recallLatency;
+    private volatile DistributionSummary recallItems;
+    private volatile Counter recallCoverageLimited;
 
     public MemoryMetrics(MeterRegistry meters) {
         this.meters = meters;
@@ -93,11 +103,12 @@ public class MemoryMetrics {
                 .baseUnit("estimated_tokens")
                 .description("Estimated tokens of injected prompt history per turn (heuristic, not a tokenizer)")
                 .register(meters);
-        for (var feature : List.of("recall", "consolidation")) {
-            Gauge.builder("memory.feature.enabled", () -> 0).tag("feature", feature)
-                    .description("1 when the memory feature is implemented and enabled; M1 has neither")
-                    .register(meters);
-        }
+        Gauge.builder("memory.feature.enabled", recallFeature, java.util.concurrent.atomic.AtomicInteger::get)
+                .tag("feature", "recall")
+                .description("1 when the memory feature is implemented and enabled").register(meters);
+        Gauge.builder("memory.feature.enabled", () -> 0).tag("feature", "consolidation")
+                .description("1 when the memory feature is implemented and enabled; consolidation comes in M2b")
+                .register(meters);
     }
 
     public void accepted(boolean replay) {
@@ -136,14 +147,105 @@ public class MemoryMetrics {
         injectedTokens.record(estimateTokens(history));
     }
 
-    /** Recall is not implemented in M1: not applicable, never 0 ms. */
-    public Reading recallLatency() {
-        return new Reading("memory.recall.latency", Availability.NOT_APPLICABLE, null, "Recall 在 M2a 实现");
+    /** A model call whose context left out older completed turns (M2a budget; summaries arrive in Task 4). */
+    public void historyTruncated(String purpose) {
+        Counter.builder("memory.context.history.truncated").tag("purpose", purpose)
+                .description("Model calls whose budgeted context left out older completed turns")
+                .register(meters).increment();
     }
 
-    /** Long-term memory recall items, counted separately from history injection; not applicable in M1. */
+    /** A turn memory record was written (M2a Task 4). */
+    public void summaryGenerated() {
+        Counter.builder("memory.summary.generated").description("Turn memory records written")
+                .register(meters).increment();
+    }
+
+    /**
+     * A record attempt failed; {@code reason}: MODEL_MISSING, MODEL_ERROR, TIMEOUT or INVALID_OUTPUT (the model's
+     * answer was not a valid memory-record-v1 object, D23).
+     */
+    public void summaryFailed(String reason) {
+        Counter.builder("memory.summary.failures").tag("reason", reason)
+                .description("Turn record attempts that failed (retried, or skipped after repeated invalid output)")
+                .register(meters).increment();
+    }
+
+    /** A turn was skipped without a record after repeated invalid output (D23). */
+    public void summarySkipped() {
+        Counter.builder("memory.summary.skipped").description("Turns skipped after repeated invalid record output")
+                .register(meters).increment();
+    }
+
+    /** Time from a turn's completion to the moment its record was built (database clock). */
+    public void summaryLag(Duration lag) {
+        Timer.builder("memory.summary.lag").description("Turn completion to record written")
+                .register(meters).record(lag.isNegative() ? Duration.ZERO : lag);
+    }
+
+    /**
+     * Completed turns without a record in the conversations the last idle scan found (bounded by the scan batch),
+     * registered by the scanner only when records are enabled, so a disabled feature never reports a 0 backlog.
+     */
+    public void summaryBacklog(long turns) {
+        summaryBacklog.set(turns);
+        Gauge.builder("memory.summary.backlog", summaryBacklog, java.util.concurrent.atomic.AtomicLong::get)
+                .description("Completed turns waiting for a record, as of the last idle scan").register(meters);
+    }
+
+    /** Provider {@code prompt_tokens} divided by the raw (unscaled) estimate of the same call. */
+    public void estimateRatio(String purpose, double ratio) {
+        DistributionSummary.builder("memory.context.estimate.ratio").tag("purpose", purpose)
+                .description("Provider prompt tokens over the heuristic estimate, per model call")
+                .register(meters).record(ratio);
+    }
+
+    /**
+     * Registers the recall meters and sets {@code memory.feature.enabled{feature=recall}} to 1; called by the
+     * retriever when recall is enabled. Until then recall readings are not applicable (never 0 ms or 0 items).
+     */
+    public synchronized void enableRecall() {
+        if (recallLatency == null) {
+            recallItems = DistributionSummary.builder("memory.recall.items")
+                    .description("Trusted recall candidates per question (long-term recall, not history injection)")
+                    .register(meters);
+            recallCoverageLimited = Counter.builder("memory.recall.coverage.limited")
+                    .description("Recalls where some turns in scope were neither indexed nor scanned").register(meters);
+            recallLatency = Timer.builder("memory.recall.latency").description("Recall latency per question")
+                    .register(meters);
+        }
+        recallFeature.set(1);
+    }
+
+    /** One recall: its latency, trusted candidates and whether coverage was limited. */
+    public void recalled(Duration latency, int items, boolean coverageLimited) {
+        var timer = recallLatency;
+        if (timer == null) {
+            return;
+        }
+        timer.record(latency);
+        recallItems.record(items);
+        if (coverageLimited) {
+            recallCoverageLimited.increment();
+        }
+    }
+
+    /** Mean recall latency once recall is enabled; not applicable before (never 0 ms). */
+    public Reading recallLatency() {
+        var timer = recallLatency;
+        if (timer == null) {
+            return new Reading("memory.recall.latency", Availability.NOT_APPLICABLE, null, "Recall 未启用");
+        }
+        return new Reading("memory.recall.latency", Availability.REPORTED,
+                timer.count() == 0 ? null : timer.mean(java.util.concurrent.TimeUnit.MILLISECONDS), null);
+    }
+
+    /** Long-term recall items, counted separately from history injection; not applicable before recall is enabled. */
     public Reading recallItems() {
-        return new Reading("memory.recall.items", Availability.NOT_APPLICABLE, null, "Recall 在 M2a 实现");
+        var items = recallItems;
+        if (items == null) {
+            return new Reading("memory.recall.items", Availability.NOT_APPLICABLE, null, "Recall 未启用");
+        }
+        return new Reading("memory.recall.items", Availability.REPORTED, items.totalAmount(), null);
     }
 
     /** No consolidation jobs exist in M1 (deletion jobs are maintenance, not consolidation): disabled, not 0. */
@@ -189,40 +291,12 @@ public class MemoryMetrics {
      * Rough token estimate (not a tokenizer): one token per CJK character, one per four other non-space
      * characters. Used only to describe prompt size in metrics and eval baselines.
      */
+    /** The M1 heuristic; implemented by {@link io.github.sukimiya.agileagent.memory.context.TokenEstimator}. */
     public static long estimateTokens(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-        long cjk = 0;
-        long other = 0;
-        for (int i = 0; i < text.length(); ) {
-            int cp = text.codePointAt(i);
-            i += Character.charCount(cp);
-            if (Character.isWhitespace(cp)) {
-                continue;
-            }
-            var script = Character.UnicodeScript.of(cp);
-            if (script == Character.UnicodeScript.HAN || script == Character.UnicodeScript.HIRAGANA
-                    || script == Character.UnicodeScript.KATAKANA || script == Character.UnicodeScript.HANGUL
-                    || (cp >= 0x3000 && cp <= 0x303F) || (cp >= 0xFF00 && cp <= 0xFFEF)) {
-                cjk++;
-            } else {
-                other++;
-            }
-        }
-        return cjk + (other + 3) / 4;
+        return io.github.sukimiya.agileagent.memory.context.TokenEstimator.estimate(text);
     }
 
     public static long estimateTokens(List<LlmClient.Message> messages) {
-        long total = 0;
-        for (var message : messages) {
-            total += estimateTokens(message.content());
-            if (message.toolCalls() != null) {
-                for (var call : message.toolCalls()) {
-                    total += estimateTokens(call.name()) + estimateTokens(call.argumentsJson());
-                }
-            }
-        }
-        return total;
+        return io.github.sukimiya.agileagent.memory.context.TokenEstimator.estimate(messages);
     }
 }

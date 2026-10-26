@@ -202,7 +202,7 @@ class MemorySchemaTest {
     void jobAndInstanceTablesExist() {
         var now = LocalDateTime.now();
         fixture.jdbc().update("INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, "
-                + "available_at, created_at, updated_at) VALUES ('j1', 'tenant-1', 'alice', 'c1', 'DELETE_CONVERSATION', "
+                + "available_at, created_at, updated_at) VALUES ('j1', 'tenant-1', 'alice', 'c1', 'CONVERSATION_CLEANUP', "
                 + "'PENDING', ?, ?, ?)", now, now, now);
         fixture.jdbc().update("INSERT INTO service_instances (instance_id, namespace, started_at, heartbeat_at) "
                 + "VALUES ('i1', 'default', ?, ?)", now, now);

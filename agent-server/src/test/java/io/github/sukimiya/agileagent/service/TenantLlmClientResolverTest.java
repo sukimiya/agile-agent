@@ -281,6 +281,26 @@ class TenantLlmClientResolverTest {
         }
     }
 
+    @Test
+    void resolvedModelExposesThePresetWindowOrNulls() {
+        var fixture = new Fixture();
+        fixture.add("tenant-a", "preset-a", "https://a.example/v1", "model-a", RAW_KEY);
+        when(fixture.configs.findByTenantId("tenant-b")).thenReturn(
+                Mono.just(config("tenant-b", "preset-b", fixture.crypto.encrypt(RAW_KEY))));
+        when(fixture.presets.findById("preset-b")).thenReturn(Mono.just(new LlmProviderPresetRepository.LlmProviderPresetRow(
+                "preset-b", "Preset", "https://b.example/v1", "model-b", null, "admin", NOW, NOW, 128_000, 8_192)));
+
+        var plain = fixture.resolver.resolveModel("tenant-a").block();
+        assertThat(plain.client()).isSameAs(fixture.resolver.resolve("tenant-a").block());
+        assertThat(plain.contextWindowTokens()).isNull();
+        assertThat(plain.maxOutputTokens()).isNull();
+        var sized = fixture.resolver.resolveModel("tenant-b").block();
+        assertThat(sized.contextWindowTokens()).isEqualTo(128_000);
+        assertThat(sized.maxOutputTokens()).isEqualTo(8_192);
+        assertThat(plain.presetId()).isEqualTo("preset-a");
+        assertThat(sized.presetId()).isEqualTo("preset-b");
+    }
+
     private static TenantLlmConfigRepository.TenantLlmConfigRow config(String tenant, String preset, String encrypted) {
         return new TenantLlmConfigRepository.TenantLlmConfigRow("id-" + tenant, tenant, preset, encrypted, NOW, NOW);
     }

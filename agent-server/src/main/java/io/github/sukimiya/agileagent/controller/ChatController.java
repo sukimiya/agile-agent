@@ -33,9 +33,9 @@ import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
-import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.web.CurrentUser;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
@@ -46,7 +46,8 @@ import reactor.core.publisher.Mono;
 /**
  * Both chat entry points share one acceptance path: resolve the tenant scope (403), validate the optional
  * {@code Idempotency-Key} (400), check read-only that a client-supplied conversation is unused or the caller's
- * (404), resolve the tenant model (428, before any write), then durably accept the turn (409/413/503 via
+ * (404), resolve the tenant model (428, before any write), check the question fits the model's input budget
+ * (413 {@code CONTEXT_BUDGET_EXCEEDED}, before any write), then durably accept the turn (409/413/503 via
  * {@code MemoryExceptionHandler}). Only after acceptance is the 200 SSE response returned. Without a
  * {@code conversationId} no id is generated here: {@link TurnLifecycle#accept} looks the key up in the caller's
  * scope first and creates a conversation only for a new request, so a retried first request is replayed.
@@ -97,7 +98,7 @@ public class ChatController {
     }
 
     private Flux<String> openAiStream(AcceptedTurn accepted, AuthSessionStore.AuthUser user, String chunkId,
-                                      LlmClient llm) {
+                                      ResolvedModel llm) {
         return orchestrator.chat(accepted, user.accessToken(), user.identity(), llm)
                 .flatMap(line -> toOpenAiChunk(line, chunkId).map(Flux::just).orElseGet(Flux::empty))
                 .concatWithValues("[DONE]");
@@ -105,7 +106,7 @@ public class ChatController {
 
     private Mono<ResponseEntity<?>> startTurn(AuthSessionStore.AuthUser user, String endpoint, String conversationId,
                                               String idempotencyKey, String text,
-                                              BiFunction<AcceptedTurn, LlmClient, Flux<String>> stream) {
+                                              BiFunction<AcceptedTurn, ResolvedModel, Flux<String>> stream) {
         return Mono.defer(() -> {
             // A client-supplied id is used exactly as given or rejected (400); null means "new conversation".
             if (conversationId != null) {
@@ -120,7 +121,10 @@ public class ChatController {
                     List.of());
             var access = conversationId == null ? Mono.<Void>empty() : sessionService.verifyAccess(conversationId, scope);
             return access
-                    .then(Mono.defer(() -> llmResolver.resolve(scope.tenantId())))
+                    .then(Mono.defer(() -> llmResolver.resolveModel(scope.tenantId())))
+                    // A question that cannot fit the model's input even without history is refused (413) here,
+                    // before anything is written.
+                    .doOnNext(llm -> orchestrator.requireWithinBudget(command.text(), llm))
                     .flatMap(llm -> lifecycle.accept(command)
                             .<ResponseEntity<?>>map(accepted -> ResponseEntity.ok()
                                     .contentType(MediaType.TEXT_EVENT_STREAM)

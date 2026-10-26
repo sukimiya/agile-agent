@@ -39,6 +39,7 @@ import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
@@ -106,12 +107,12 @@ class ChatControllerTest {
                 .bodyValue("{\"conversationId\":\"" + conversationId + "\",\"message\":\"hi\"}");
     }
 
-    private LlmClient stubAcceptedTurn(String conversationId) {
-        var llm = mock(LlmClient.class);
+    private ResolvedModel stubAcceptedTurn(String conversationId) {
+        var llm = new ResolvedModel(mock(LlmClient.class), null, null);
         when(sessionService.verifyAccess(conversationId, SCOPE)).thenReturn(Mono.empty());
-        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(llm));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.just(llm));
         when(lifecycle.accept(command(conversationId, "hi"))).thenReturn(Mono.just(accepted(conversationId)));
-        when(orchestrator.chat(eq(accepted(conversationId)), eq("sl-tok"), eq(user1Identity()), same(llm)))
+        when(orchestrator.chat(eq(accepted(conversationId)), eq("sl-tok"), eq(user1Identity()), eq(llm)))
                 .thenReturn(Flux.just("hello back"));
         return llm;
     }
@@ -125,7 +126,7 @@ class ChatControllerTest {
 
         var order = inOrder(sessionService, llmResolver, lifecycle, orchestrator);
         order.verify(sessionService).verifyAccess(CONV, SCOPE);
-        order.verify(llmResolver).resolve("tenant-1");
+        order.verify(llmResolver).resolveModel("tenant-1");
         order.verify(lifecycle).accept(command(CONV, "hi"));
         order.verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm);
     }
@@ -193,7 +194,7 @@ class ChatControllerTest {
     void activeTurnReturns409WithTurnIdOnBothEndpoints() {
         asUser1();
         when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
-        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(mock(LlmClient.class), null, null)));
         when(lifecycle.accept(any())).thenReturn(Mono.error(MemoryException.turnInProgress("turn-9", CONV)));
 
         postCompletions(CONV).exchange()
@@ -203,14 +204,14 @@ class ChatControllerTest {
                 .expectStatus().isEqualTo(409)
                 .expectBody().json("{\"code\":\"TURN_IN_PROGRESS\",\"turnId\":\"turn-9\",\"conversationId\":\"" + CONV + "\"}");
 
-        verifyNoInteractions(orchestrator);
+        verifyNoTurnStreamed();
     }
 
     @Test
     void storageFailureIs503WithoutInternalDetail() {
         asUser1();
         when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
-        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(mock(LlmClient.class), null, null)));
         when(lifecycle.accept(any())).thenReturn(Mono.error(new MemoryException(ErrorCode.STORAGE_UNAVAILABLE,
                 new IllegalStateException("jdbc:secret-host"))));
 
@@ -225,7 +226,7 @@ class ChatControllerTest {
     void bothChatEndpointsReturnExact428BeforeStartingSseWhenTenantHasNoLlm() {
         asUser1();
         when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
-        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
 
         postCompletions(CONV).exchange()
                 .expectStatus().isEqualTo(428)
@@ -302,14 +303,20 @@ class ChatControllerTest {
     void instanceConflictReturns503OnBothEntries() {
         asUser1();
         when(sessionService.verifyAccess(CONV, SCOPE)).thenReturn(Mono.empty());
-        when(llmResolver.resolve("tenant-1")).thenReturn(Mono.just(mock(LlmClient.class)));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(mock(LlmClient.class), null, null)));
         when(lifecycle.accept(any())).thenReturn(Mono.error(new MemoryException(ErrorCode.INSTANCE_CONFLICT)));
 
         postCompletions(CONV).exchange().expectStatus().isEqualTo(503)
                 .expectBody().jsonPath("$.code").isEqualTo("INSTANCE_CONFLICT");
         postLegacy(CONV).exchange().expectStatus().isEqualTo(503)
                 .expectBody().jsonPath("$.code").isEqualTo("INSTANCE_CONFLICT");
-        verifyNoInteractions(orchestrator);
+        verifyNoTurnStreamed();
+    }
+
+    /** The budget pre-check may run (it is before accept); nothing may be streamed. */
+    private void verifyNoTurnStreamed() {
+        verify(orchestrator, never()).chat(any(), any(), any(), any(ResolvedModel.class));
+        verify(orchestrator, never()).chat(any(), any(), any(), any(LlmClient.class));
     }
 
     @Test

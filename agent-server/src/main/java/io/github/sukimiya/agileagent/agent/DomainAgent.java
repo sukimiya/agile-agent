@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -15,6 +16,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
 import io.github.sukimiya.agileagent.memory.ToolRecordSanitizer;
 import io.github.sukimiya.agileagent.memory.TurnToolRecorder;
+import io.github.sukimiya.agileagent.memory.MemoryMetrics;
+import io.github.sukimiya.agileagent.memory.context.AssembledContext;
+import io.github.sukimiya.agileagent.memory.context.ContextPurpose;
+import io.github.sukimiya.agileagent.memory.context.ContextBudget;
+import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.spi.capability.AgentCapabilityProvider;
 import io.github.sukimiya.agileagent.spi.capability.AgentExecutionContext;
@@ -29,6 +35,10 @@ import reactor.core.publisher.Mono;
  * before it executes and its outcome afterwards ({@link TurnToolRecorder}); a call whose start cannot be recorded
  * is not executed, and a call whose outcome cannot be recorded ends the run instead of being retried. Tool
  * results only ever become tool-role messages: they gain no instruction rights and cannot widen the allowed tools.
+ * With a budgeted task ({@link DomainTask#window()}), a result that would overflow the window reaches the model
+ * only as a placeholder; the recorded result stays complete. Its messages are
+ * {@code system(definition) -> background -> user(question)}: the background is the recent completed conversation
+ * that fits next to the prompt, question and tool schemas (M2a Task 3); the provider SPI is unchanged.
  */
 @Service
 public class DomainAgent {
@@ -40,10 +50,26 @@ public class DomainAgent {
 
     private final CapabilityRegistry capabilities;
     private final TurnToolRecorder tools;
+    private final ContextBudget budget;
+    private final MemoryMetrics metrics;
 
-    public DomainAgent(CapabilityRegistry capabilities, TurnToolRecorder tools) {
+    @Autowired
+    public DomainAgent(CapabilityRegistry capabilities, TurnToolRecorder tools, ContextBudget budget,
+            MemoryMetrics metrics) {
         this.capabilities = capabilities;
         this.tools = tools;
+        this.budget = budget;
+        this.metrics = metrics;
+    }
+
+    /** Budgeted, without truncation metrics. */
+    public DomainAgent(CapabilityRegistry capabilities, TurnToolRecorder tools, ContextBudget budget) {
+        this(capabilities, tools, budget, null);
+    }
+
+    /** Without a context budget: tool results always reach the model in full (M1 behaviour). */
+    public DomainAgent(CapabilityRegistry capabilities, TurnToolRecorder tools) {
+        this(capabilities, tools, null);
     }
 
     public Flux<AgentEvent> run(DomainTask task, LlmClient llm) {
@@ -58,6 +84,7 @@ public class DomainAgent {
                 .flatMapMany(definition -> {
                     var messages = new ArrayList<LlmClient.Message>();
                     messages.add(LlmClient.Message.system(definition.systemPrompt()));
+                    messages.addAll(background(task, selected.code(), definition));
                     messages.add(LlmClient.Message.user(task.userMessage()));
                     return round(llm, selected, definition, messages, task, context, 0)
                             .contextWrite(ctx -> ctx.put("role", selected.code()));
@@ -71,12 +98,9 @@ public class DomainAgent {
             return Flux.just(new AgentEvent.Failed(provider.code(), "已尽力但未能得到结果，请换个问法或重试"));
         }
         var allowedTools = definition.tools().stream().map(t -> t.name()).collect(Collectors.toUnmodifiableSet());
-        var llmTools = definition.tools().stream()
-                .map(tool -> new LlmClient.ToolDefinition(tool.name(), tool.description(),
-                        JSON.convertValue(tool.parametersSchema(),
-                                new TypeReference<java.util.Map<String, Object>>() {})))
-                .toList();
-        return llm.chatStream(messages, llmTools).concatMap(event -> switch (event) {
+        var llmTools = toolDefinitions(definition);
+        return Orchestrator.modelCall(llm, messages, llmTools, budget, task.window())
+                .concatMap(event -> switch (event) {
             case LlmClient.LlmEvent.ContentDelta d -> Flux.just(new AgentEvent.Delta(provider.code(), d.text()));
             case LlmClient.LlmEvent.Usage u -> Flux.just(new AgentEvent.Usage(provider.code(), u.promptTokens(),
                     u.completionTokens(), u.totalTokens()));
@@ -91,12 +115,74 @@ public class DomainAgent {
                         .concatMap(call -> Flux.concat(
                                 Flux.just(new AgentEvent.ToolCalled(provider.code(), call.name(), summarize(call.argumentsJson()))),
                                 recordedTool(provider, allowedTools, call, task, context).flatMapMany(result -> {
-                                    messages.add(LlmClient.Message.toolResult(call.id(), result));
+                                    messages.add(LlmClient.Message.toolResult(call.id(),
+                                            forModel(task, messages, llmTools, call, result)));
                                     return Flux.<AgentEvent>empty();
                                 })))
                         .concatWith(Flux.defer(() -> round(llm, provider, definition, messages, task, context, roundIndex + 1)));
             }
         });
+    }
+
+    /**
+     * The part of the task's candidate background this capability's call can carry next to its system prompt,
+     * the question and its tool schemas ({@link ContextBudget#fitBackground}). No budget or no window: none.
+     */
+    private List<LlmClient.Message> background(DomainTask task, String role, CapabilityDefinition definition) {
+        if (budget == null || task.window() == null || task.background().isEmpty()) {
+            return List.of();
+        }
+        var fixed = List.of(LlmClient.Message.system(definition.systemPrompt()),
+                LlmClient.Message.user(task.userMessage()),
+                LlmClient.Message.system(schemaText(toolDefinitions(definition))));
+        var fit = budget.fitBackground(fixed, task.background(), task.window());
+        if (fit.droppedTurns() > 0 || task.backgroundTruncated()) {
+            log.info("memory.context background truncated role={} keptMessages={} droppedTurns={}", role,
+                    fit.messages().size(), fit.droppedTurns());
+            if (metrics != null) {
+                metrics.historyTruncated(ContextPurpose.CAPABILITY.name());
+            }
+        }
+        return fit.messages();
+    }
+
+    private static List<LlmClient.ToolDefinition> toolDefinitions(CapabilityDefinition definition) {
+        return definition.tools().stream()
+                .map(tool -> new LlmClient.ToolDefinition(tool.name(), tool.description(),
+                        JSON.convertValue(tool.parametersSchema(),
+                                new TypeReference<java.util.Map<String, Object>>() {})))
+                .toList();
+    }
+
+    /**
+     * The tool result as the model gets it: in full while it fits the task's window next to the messages so far
+     * and the tool schemas, otherwise a placeholder naming the call id. Checked for every result, so each round
+     * is budgeted against what earlier rounds added; the recorder always keeps the full text.
+     */
+    private String forModel(DomainTask task, List<LlmClient.Message> messages, List<LlmClient.ToolDefinition> llmTools,
+                            LlmClient.ToolCall call, String result) {
+        if (budget == null || task.window() == null || !budget.enabled() || result == null) {
+            return result;
+        }
+        var sofar = new ArrayList<>(messages);
+        sofar.add(LlmClient.Message.system(schemaText(llmTools)));
+        var context = new AssembledContext(sofar, budget.estimate(sofar), false, List.of(),
+                budget.availableInput(task.window()));
+        if (budget.fitsToolResult(context, result)) {
+            return result;
+        }
+        var tokens = budget.scale(TokenEstimator.estimate(result));
+        log.info("tool result omitted from context callId={} estimatedTokens={} budgetTokens={}", call.id(), tokens,
+                context.budgetTokens());
+        return ContextBudget.omittedToolResult(call.id(), tokens);
+    }
+
+    private static String schemaText(List<LlmClient.ToolDefinition> llmTools) {
+        try {
+            return JSON.writeValueAsString(llmTools);
+        } catch (Exception e) {
+            return llmTools.toString();
+        }
     }
 
     /** Start record, then execution, then outcome record; the tool result text for the model. */

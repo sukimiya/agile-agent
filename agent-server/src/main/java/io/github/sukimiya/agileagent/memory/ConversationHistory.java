@@ -65,20 +65,62 @@ public class ConversationHistory {
                 : firstPage(scope, session, limit));
     }
 
-    /** Prompt history for a turn: messages of COMPLETED turns only, excluding the turn itself, in order. */
+    /**
+     * Prompt history for a turn: messages of COMPLETED turns only, excluding the turn itself, in order. Records the
+     * injected-history metrics (M1 path, used when the context budget is off or by the unbudgeted orchestrator).
+     */
     public Mono<List<LlmClient.Message>> contextBefore(TurnTicket ticket) {
+        return completedTurnsBefore(ticket)
+                .map(turns -> turns.stream().flatMap(turn -> turn.messages().stream())
+                        .map(HistoryMessage::message).toList())
+                .doOnNext(metrics::historyInjected);
+    }
+
+    /** One stored message of a completed turn, as it goes into a prompt. */
+    public record HistoryMessage(String id, LlmClient.Message message) {}
+
+    /** The messages of one completed turn in sequence order; a turn is the unit history is kept or dropped by. */
+    public record HistoryTurn(String turnId, List<HistoryMessage> messages) {}
+
+    /**
+     * The same history as {@link #contextBefore}, grouped by turn (oldest first), without recording metrics. The
+     * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND.
+     */
+    public Mono<List<HistoryTurn>> completedTurnsBefore(TurnTicket ticket) {
         return ownedSession(ticket.scope(), ticket.conversationId())
-                .flatMap(session -> db.sql("SELECT m.payload FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
+                .flatMap(session -> db.sql("SELECT m.id, m.turn_id, m.payload FROM chat_messages m"
+                                + " JOIN chat_turns t ON t.id = m.turn_id"
                                 + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
                                 + " AND t.status = 'COMPLETED' AND m.turn_id <> :turnId ORDER BY m.sequence")
                         .bind("c", ticket.conversationId())
                         .bind("tenantId", ticket.scope().tenantId())
                         .bind("subject", ticket.scope().subject())
                         .bind("turnId", ticket.turnId())
-                        .map(row -> conversations.deserialize(row.get("payload", String.class)))
+                        .map(row -> new String[] {row.get("id", String.class), row.get("turn_id", String.class),
+                                row.get("payload", String.class)})
                         .all()
                         .collectList())
-                .doOnNext(metrics::historyInjected);
+                .map(this::groupByTurn);
+    }
+
+    private List<HistoryTurn> groupByTurn(List<String[]> rows) {
+        var turns = new ArrayList<HistoryTurn>();
+        String current = null;
+        List<HistoryMessage> messages = null;
+        for (var row : rows) {
+            if (!row[1].equals(current)) {
+                current = row[1];
+                messages = new ArrayList<>();
+                turns.add(new HistoryTurn(current, messages));
+            }
+            messages.add(new HistoryMessage(row[0], conversations.deserialize(row[2])));
+        }
+        return turns.stream().map(t -> new HistoryTurn(t.turnId(), List.copyOf(t.messages()))).toList();
+    }
+
+    /** Records history injected into an answer call (once per turn), as {@link #contextBefore} does for M1. */
+    public void recordInjected(List<LlmClient.Message> injected) {
+        metrics.historyInjected(injected);
     }
 
     /** The turn's own user message text (the current question), read from durable storage. */

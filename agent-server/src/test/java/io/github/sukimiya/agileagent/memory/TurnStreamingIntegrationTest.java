@@ -34,6 +34,7 @@ import io.github.sukimiya.agileagent.controller.ChatController;
 import io.github.sukimiya.agileagent.service.AuthSessionStore.AuthUser;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
 import io.github.sukimiya.agileagent.web.AuthExceptionHandler;
@@ -74,7 +75,7 @@ class TurnStreamingIntegrationTest {
     void setUp() {
         stack = newStack();
         resolver = mock(TenantLlmClientResolver.class);
-        when(resolver.resolve("tenant-1")).thenReturn(Mono.just(llm));
+        when(resolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(llm, null, null)));
         answer = messages -> Flux.just(new LlmClient.LlmEvent.ContentDelta("你好"),
                 new LlmClient.LlmEvent.Completed("你好"), new LlmClient.LlmEvent.Usage(2, 3, 5));
         var orchestrator = new Orchestrator(mock(TaskDispatcher.class), new CapabilityRegistry(List.of()),
@@ -153,7 +154,7 @@ class TurnStreamingIntegrationTest {
     @Test
     void missingModelReturnsExact428WithoutTurn() {
         var conversation = MemoryTestStack.newConversationId();
-        when(resolver.resolve("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
+        when(resolver.resolveModel("tenant-1")).thenReturn(Mono.error(new TenantLlmConfigRequiredException()));
 
         legacy(conversation, null, "hi").exchange().expectStatus().isEqualTo(428)
                 .expectBody().json("{\"code\":\"LLM_CONFIG_REQUIRED\",\"message\":\"Current tenant has no LLM configuration\"}", true);
@@ -221,7 +222,7 @@ class TurnStreamingIntegrationTest {
                 .expectBody().jsonPath("$.code").isEqualTo("INVALID_IDEMPOTENCY_KEY");
 
         assertThat(stack.turnCount(conversation)).isZero();
-        verify(resolver, never()).resolve(any());
+        verify(resolver, never()).resolveModel(any());
     }
 
     @Test
@@ -390,7 +391,7 @@ class TurnStreamingIntegrationTest {
 
     @Test
     void keysAreScopedPerTenantAndSubject() {
-        when(resolver.resolve(any())).thenReturn(Mono.just(llm));
+        when(resolver.resolveModel(any())).thenReturn(Mono.just(new ResolvedModel(llm, null, null)));
         stream(legacy(null, "shared-key", "一"));
         identity = identity(new MemoryScope("tenant-1", "bob"));
         stream(legacy(null, "shared-key", "一"));

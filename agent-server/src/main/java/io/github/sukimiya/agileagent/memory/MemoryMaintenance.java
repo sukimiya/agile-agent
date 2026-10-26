@@ -4,6 +4,7 @@ import java.time.Duration;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.TransientDataAccessException;
@@ -13,8 +14,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
+import io.github.sukimiya.agileagent.memory.jobs.JobType;
+import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
+import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
 import io.github.sukimiya.agileagent.service.FileStorageService;
-import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -26,12 +29,13 @@ import reactor.util.retry.Retry;
  * <ol>
  * <li>{@link #deleteConversation}: one transaction tombstones the session (clears its title, bumps its revision),
  * interrupts any active turn with an incremented fence (error code {@code CONVERSATION_DELETED}; its open tool
- * calls become UNCERTAIN) and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
+ * calls become UNCERTAIN), drops the conversation's pending chunk-index jobs and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
  * upload and download sees the tombstone or the stale fence. The session row is locked first, the same order as
  * turn acceptance, so a concurrent accept either fails with 404 or is interrupted by the delete.</li>
- * <li>{@link #runPending}: retryable physical cleanup of messages, tool records, the cached window (replaced by a
- * cache tombstone that refuses later refills) and the conversation's local attachment directory. Failed jobs
- * are retried with backoff; jobs left RUNNING by a dead process are reclaimed after their lease.</li>
+ * <li>The {@link JobType#CONVERSATION_CLEANUP} handler, run by {@link MemoryJobWorker} from {@link #runPending}:
+ * retryable physical cleanup of messages, tool records, recall chunks, turn records, the cached window (replaced by a cache tombstone that
+ * refuses later refills) and the conversation's local attachment directory. Failed jobs are retried with
+ * backoff; jobs left RUNNING by a dead process are reclaimed after their lease.</li>
  * </ol>
  * The tombstone row (id, owner, deletion time; no content) is kept permanently so neither background work nor a
  * cache rebuild nor a reused id can bring the conversation back. Runs at startup and every
@@ -40,8 +44,9 @@ import reactor.util.retry.Retry;
 @Component
 public class MemoryMaintenance implements SmartLifecycle {
 
-    static final String DELETE_JOB = "DELETE_CONVERSATION";
     static final String DELETED_ERROR = "CONVERSATION_DELETED";
+    /** {@code memory_jobs.dedupe_key} of a conversation's cleanup job: prefix plus conversation id. */
+    static final String CLEANUP_KEY_PREFIX = "cleanup:";
 
     private static final Logger log = LoggerFactory.getLogger(MemoryMaintenance.class);
     /**
@@ -57,11 +62,6 @@ public class MemoryMaintenance implements SmartLifecycle {
             new com.fasterxml.jackson.databind.ObjectMapper();
     private static final int BATCH = 50;
     private static final int DELETE_ATTEMPTS = 4;
-    private static final Duration JOB_LEASE = Duration.ofMinutes(5);
-    private static final Duration FIRST_BACKOFF = Duration.ofSeconds(30);
-    private static final Duration MAX_BACKOFF = Duration.ofMinutes(30);
-    private static final String DUE = "((status = 'PENDING' AND available_at <= CURRENT_TIMESTAMP(6))"
-            + " OR (status = 'RUNNING' AND lease_expires_at <= CURRENT_TIMESTAMP(6)))";
 
     private final DatabaseClient db;
     private final HotMemoryCache cache;
@@ -69,20 +69,30 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final MemoryProperties props;
     private final MemoryMetrics metrics;
     private final TransactionalOperator transactions;
-    private final String instanceId = NonBlockingIds.uuid();
+    private final MemoryJobQueue jobs;
+    private final MemoryJobWorker worker;
     private volatile Disposable schedule;
 
+    /** Standalone wiring (tests): its own worker, which never pauses for an instance conflict. */
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
             FileStorageService files, MemoryProperties props, MemoryMetrics metrics) {
+        this(connectionFactory, db, cache, files, props, metrics, new MemoryJobWorker(db, () -> false));
+    }
+
+    /** Registers the {@link JobType#CONVERSATION_CLEANUP} handler on the shared worker. */
+    @Autowired
+    public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
+            FileStorageService files, MemoryProperties props, MemoryMetrics metrics, MemoryJobWorker worker) {
         this.metrics = metrics;
         this.db = db;
         this.cache = cache;
         this.files = files;
         this.props = props;
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
+        this.jobs = new MemoryJobQueue(db);
+        this.worker = worker;
+        worker.register(JobType.CONVERSATION_CLEANUP, job -> cleanup(job.scope(), job.conversationId()));
     }
-
-    private record Job(String id, MemoryScope scope, String conversationId) {}
 
     /** Outcome of the tombstone transaction; {@code deletedAt} is null when it was already deleted (a repeat). */
     private record Tombstone(java.time.LocalDateTime deletedAt, long revision) {
@@ -153,7 +163,9 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 1
-                        ? revokeTurns(scope, conversationId, interrupted).then(enqueue(scope, conversationId))
+                        ? revokeTurns(scope, conversationId, interrupted)
+                                .then(dropPendingIndexJobs(scope, conversationId))
+                                .then(enqueue(scope, conversationId))
                                 .then(readTombstone(conversationId))
                         : alreadyDeletedByOwner(scope, conversationId));
     }
@@ -196,17 +208,24 @@ public class MemoryMaintenance implements SmartLifecycle {
         return turns.then(tools).then();
     }
 
-    private Mono<Void> enqueue(MemoryScope scope, String conversationId) {
-        return db.sql("INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts,"
-                        + " available_at, created_at, updated_at) VALUES (:id, :tenantId, :subject, :c, '"
-                        + DELETE_JOB + "', 'PENDING', 0, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6),"
-                        + " CURRENT_TIMESTAMP(6))")
-                .bind("id", NonBlockingIds.uuid()).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
-                .bind("c", conversationId)
+    /**
+     * Pending chunk-index jobs of the conversation go with the tombstone (a running one finds the session deleted
+     * and writes nothing); their dedupe keys are turn ids, which never come back.
+     */
+    private Mono<Void> dropPendingIndexJobs(MemoryScope scope, String conversationId) {
+        return db.sql("DELETE FROM memory_jobs WHERE job_type = '" + JobType.INDEX_CHUNKS.name() + "'"
+                        + " AND status = 'PENDING' AND conversation_id = :c AND tenant_id = :tenantId"
+                        + " AND subject = :subject")
+                .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated().then();
     }
 
-    /** Runs up to {@code limit} due cleanup jobs one after another; emits how many completed. */
+    /** One cleanup job per conversation: the tombstone transition happens once, so the key never repeats. */
+    private Mono<Void> enqueue(MemoryScope scope, String conversationId) {
+        return jobs.enqueue(scope, conversationId, JobType.CONVERSATION_CLEANUP, CLEANUP_KEY_PREFIX + conversationId,
+                null).then();
+    }
+
     /**
      * Idempotency-Key retention: terminal turns accepted longer ago than {@code app.memory.idempotency-key-retention}
      * (default 24 h, database time) release their key, so it can be used again; the turn and its messages stay.
@@ -221,40 +240,16 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .fetch().rowsUpdated();
     }
 
+    /**
+     * Runs up to {@code limit} due jobs of every type registered on the worker (here: conversation cleanup) one
+     * after another; emits how many completed.
+     */
     public Mono<Integer> runPending(int limit) {
-        return db.sql("SELECT id, tenant_id, subject, conversation_id FROM memory_jobs WHERE job_type = '"
-                        + DELETE_JOB + "' AND " + DUE + " ORDER BY available_at LIMIT :limit")
-                .bind("limit", limit)
-                .map(row -> new Job(row.get("id", String.class),
-                        new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
-                        row.get("conversation_id", String.class)))
-                .all()
-                .concatMap(job -> claim(job).flatMap(claimed -> claimed ? runClaimed(job) : Mono.just(0)))
-                .reduce(0, Integer::sum);
-    }
-
-    private Mono<Boolean> claim(Job job) {
-        return db.sql("UPDATE memory_jobs SET status = 'RUNNING', lease_owner = :owner, lease_expires_at ="
-                        + " TIMESTAMPADD(MICROSECOND, :leaseMicros, CURRENT_TIMESTAMP(6)), attempts = attempts + 1,"
-                        + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND " + DUE)
-                .bind("owner", instanceId).bind("leaseMicros", JOB_LEASE.toNanos() / 1_000).bind("id", job.id())
-                .fetch().rowsUpdated().map(n -> n == 1);
-    }
-
-    private Mono<Integer> runClaimed(Job job) {
-        return cleanup(job)
-                .then(Mono.defer(() -> finishJob(job)))
-                .onErrorResume(e -> {
-                    log.warn("memory.delete cleanup failed jobId={} errorType={}", job.id(),
-                            e.getClass().getSimpleName());
-                    return retryLater(job, e).thenReturn(0);
-                });
+        return worker.runPending(limit);
     }
 
     /** Idempotent physical cleanup; refuses to touch a conversation that is not tombstoned. */
-    private Mono<Void> cleanup(Job job) {
-        var scope = job.scope();
-        var c = job.conversationId();
+    private Mono<Void> cleanup(MemoryScope scope, String c) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :c AND tenant_id = :tenantId"
                         + " AND user_id = :subject AND deleted_at IS NOT NULL")
                 .bind("c", c).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
@@ -264,6 +259,9 @@ public class MemoryMaintenance implements SmartLifecycle {
                         : Mono.error(new IllegalStateException("cleanup target is not a deleted conversation")))
                 .then(scopedDelete("chat_messages", scope, c))
                 .then(scopedDelete("chat_tool_events", scope, c))
+                .then(scopedDelete("memory_chunks", scope, c))
+                .then(scopedDelete("memory_summaries", scope, c))
+                .then(scopedDelete("memory_index_progress", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))
                 .then(Mono.defer(() -> files.deleteConversationFiles(c)));
     }
@@ -273,44 +271,6 @@ public class MemoryMaintenance implements SmartLifecycle {
                         + " AND tenant_id = :tenantId AND subject = :subject")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated());
-    }
-
-    private Mono<Integer> finishJob(Job job) {
-        return db.sql("UPDATE memory_jobs SET status = 'DONE', lease_owner = NULL, lease_expires_at = NULL,"
-                        + " last_error = NULL, updated_at = CURRENT_TIMESTAMP(6)"
-                        + " WHERE id = :id AND status = 'RUNNING' AND lease_owner = :owner")
-                .bind("id", job.id()).bind("owner", instanceId)
-                .fetch().rowsUpdated().map(n -> n == 1 ? 1 : 0);
-    }
-
-    /** Back to PENDING with exponential backoff; only the error type is stored (messages can carry paths). */
-    private Mono<Void> retryLater(Job job, Throwable error) {
-        return db.sql("SELECT attempts FROM memory_jobs WHERE id = :id")
-                .bind("id", job.id())
-                .map(row -> TurnRepository.number(row.get("attempts")))
-                .one()
-                .defaultIfEmpty(1L)
-                .flatMap(attempts -> db.sql("UPDATE memory_jobs SET status = 'PENDING', lease_owner = NULL,"
-                                + " lease_expires_at = NULL, available_at = TIMESTAMPADD(MICROSECOND, :delayMicros,"
-                                + " CURRENT_TIMESTAMP(6)), last_error = :error, updated_at = CURRENT_TIMESTAMP(6)"
-                                + " WHERE id = :id AND status = 'RUNNING' AND lease_owner = :owner")
-                        .bind("delayMicros", backoff(attempts).toNanos() / 1_000)
-                        .bind("error", errorType(error))
-                        .bind("id", job.id()).bind("owner", instanceId)
-                        .fetch().rowsUpdated())
-                .then()
-                .onErrorResume(e -> Mono.empty()); // the RUNNING lease expires and the job is reclaimed
-    }
-
-    static Duration backoff(long attempts) {
-        var exponent = Math.max(0, Math.min(attempts - 1, 10));
-        var delay = FIRST_BACKOFF.multipliedBy(1L << exponent);
-        return delay.compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : delay;
-    }
-
-    private static String errorType(Throwable error) {
-        var name = error.getClass().getSimpleName();
-        return name.length() <= 255 ? name : name.substring(0, 255);
     }
 
     private static boolean isTransient(Throwable e) {
@@ -334,13 +294,13 @@ public class MemoryMaintenance implements SmartLifecycle {
                             NestedExceptionUtils.getMostSpecificCause(e).toString());
                     return Mono.just(0L);
                 }).then(runPending(BATCH).onErrorResume(e -> {
-                    log.warn("memory.delete cleanup scan failed: {}",
+                    log.warn("memory.jobs scan failed: {}",
                             NestedExceptionUtils.getMostSpecificCause(e).toString());
                     return Mono.just(0);
                 })))
                 .subscribe(count -> {
                     if (count > 0) {
-                        log.info("memory.delete cleaned up {} deleted conversation(s)", count);
+                        log.info("memory.jobs completed {} job(s)", count);
                     }
                 });
     }

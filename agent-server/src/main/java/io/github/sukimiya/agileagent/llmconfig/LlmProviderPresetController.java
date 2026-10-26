@@ -56,15 +56,19 @@ public class LlmProviderPresetController {
 
     private static PresetResponse toResponse(LlmProviderPresetRow row) {
         return new PresetResponse(row.id(), row.name(), row.baseUrl(), row.model(), row.balancePath(),
-                row.createdBySubject(), row.createdAt(), row.updatedAt());
+                row.createdBySubject(), row.createdAt(), row.updatedAt(), row.contextWindowTokens(), row.maxOutputTokens());
     }
 
-    public record PresetRequest(String name, String baseUrl, String model, String balancePath) {
+    /** {@code contextWindowTokens} and {@code maxOutputTokens} are optional; omitted means the configured default. */
+    public record PresetRequest(String name, String baseUrl, String model, String balancePath,
+            Integer contextWindowTokens, Integer maxOutputTokens) {
         LlmProviderPresetService.PresetInput toInput() {
-            return new LlmProviderPresetService.PresetInput(name, baseUrl, model, balancePath);
+            return new LlmProviderPresetService.PresetInput(name, baseUrl, model, balancePath, contextWindowTokens,
+                    maxOutputTokens);
         }
     }
 
     public record PresetResponse(String id, String name, String baseUrl, String model, String balancePath,
-            String createdBySubject, LocalDateTime createdAt, LocalDateTime updatedAt) { }
+            String createdBySubject, LocalDateTime createdAt, LocalDateTime updatedAt,
+            Integer contextWindowTokens, Integer maxOutputTokens) { }
 }
