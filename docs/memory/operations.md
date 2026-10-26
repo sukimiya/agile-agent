@@ -67,12 +67,14 @@
 - 闲置扫描：每 `idle-scan-interval` 按数据库时间查找结束的会话（未删除；没有进行中的轮次；没有在 `idle-timeout` 内创建或结束的轮次，失败或取消的新轮次也算新消息；有记录位置之后的已完成消息），每个会话登记一个 `SUMMARIZE` 任务，去重键 `summarize:<会话 ID>:<最后一条已完成消息的序号>`：同一次闲置只登记一次，之后有新消息、再次闲置时才会登记新任务。关闭时不扫描、不注册处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。另有实例冲突时暂停。全局并发为 1：单实例的任务处理器逐个执行任务。
 - 生成：用租户自己的模型，每轮一次调用（JSON 模式，`response_format: json_object`），只读已完成（COMPLETED）的轮次；一轮超过输入上限时截断后生成，这一轮仍算已记录；租户窗口较小时上限再收紧到窗口能容纳的大小。
 - 记录格式 `memory-record-v1`（`record_json`）：`summary`（≤ 80 字）、`entities`（专名，逐字）、`key_facts`（编号、数字、版本、名称、日期、金额，逐字）、`decision`、`keywords`（≤ 10）、`memory_type`（`FACT` / `EVENT`）、`source`（轮次 ID 与序号范围，由服务端填写）。`search_text` 由概括、专名、要点和关键词拼成，MySQL 上建 ngram FULLTEXT 索引，H2 用 LIKE。
-- 校验：不是 JSON 对象、缺字段或类型不对视为不合规；`entities[].name` 与 `key_facts[].text` 必须能在该轮原文中逐字找到（区分大小写和空格），找不到的条目丢弃；`summary` 与 `keywords` 不做原文核对，只截断长度和条数。所有文本写入前经过与工具记录相同的脱敏（密码、密钥、令牌）。
+- 校验：模型返回空内容、不是 JSON 对象、缺字段或类型不对都视为不合规；`entities[].name` 与 `key_facts[].text` 必须能在该轮原文中逐字找到（区分大小写和空格），找不到的条目丢弃；`summary` 与 `keywords` 不做原文核对，只截断长度和条数。所有文本写入前经过与工具记录相同的脱敏（密码、密钥、令牌）；含密钥的专名或要点保留，密钥部分替换为 `[REDACTED]`。
+- 租约：一个任务按顺序处理会话中所有待建记录的轮次，每轮模型调用前把任务租约续到“现在 + 5 分钟”，积压很多轮也不会超出租约；续期失败（任务已不归本实例）时停止该任务。
 - 写入：记录与处理位置（`memory_index_progress.summarized_through_sequence`）在同一事务中按位置比较后写入；重复或并发的任务不会写出重复记录。缺少租户模型、模型报错或超时都不推进位置，任务按退避重试（30 秒起倍增，最多 30 分钟）。
 - 不合规输出：本次尝试失败并按退避重试，同一轮的连续不合规次数记在 `memory_index_progress.summary_invalid_attempts`；达到 `max-invalid-attempts`（默认第 3 次）时跳过这一轮（不写记录，位置越过这一轮，`memory.summary.skipped` 加 1），任务继续处理后面的轮次。被跳过的轮次原文仍在，Task 5 起可通过原文片段召回。模型报错和超时不计入不合规次数。
 - 已删除的会话：记录、原文和检索命中立即不可用（读取时校验删除标记），清理任务删除记录与处理位置；晚到的任务直接跳过，不调用模型。
 - 迁移：本功能直接修改了尚未上线的 V10（D21）。已在本地跑过旧 V10 的开发库需要重建（或删库后重新迁移）；`flyway repair` 只修校验和，不会改表结构。
-- 指标：`memory.summary.generated`（写入的记录数）、`memory.summary.failures{reason}`（`MODEL_MISSING`、`MODEL_ERROR`、`TIMEOUT`、`INVALID_OUTPUT`）、`memory.summary.skipped`（不合规而跳过的轮次）、`memory.summary.lag`（轮次结束到生成记录的时间，数据库时间）、`memory.summary.backlog`（最近一次闲置扫描找到的会话中尚无记录的已完成轮次数，受 `idle-scan-batch` 限制；只在启用时注册）。
+- 指标：`memory.summary.generated`（写入的记录数）、`memory.summary.failures{reason}`（`MODEL_MISSING`、`MODEL_ERROR`、`TIMEOUT`、`INVALID_OUTPUT`）、`memory.summary.skipped`（不合规而跳过的轮次）、`memory.summary.lag`（轮次结束到读取该轮准备生成记录的时间，数据库时间，不含模型调用时间）、`memory.summary.backlog`（最近一次闲置扫描找到的会话中尚无记录的已完成轮次数，受 `idle-scan-batch` 限制；只在启用时注册）。
+- 上线前跟进项：闲置扫描目前每次对 `chat_turns` 与 `chat_messages` 分组查询（每次最多 `idle-scan-batch` 个会话），内部验收规模足够；上线前改为只扫描最近有更新的会话，避免全表分组。
 - 排查：`SELECT status, attempts, last_error FROM memory_jobs WHERE job_type = 'SUMMARIZE' AND status <> 'DONE'`；`last_error = 'InvalidRecordException'` 表示模型输出不合规，`SELECT summary_invalid_turn_id, summary_invalid_attempts FROM memory_index_progress WHERE conversation_id = ?` 查看当前计数。
 
 ## 基础指标与评测

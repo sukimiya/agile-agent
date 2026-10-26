@@ -351,6 +351,30 @@ class SummaryJobHandlerTest {
     }
 
     @Test
+    void leaseRenewedBeforeEachTurn() {
+        completedTurn("问题一", "回答一");
+        completedTurn("问题二", "回答二");
+        long through = completedTurn("问题三", "回答三");
+        var leases = new CopyOnWriteArrayList<java.time.LocalDateTime>();
+        var plain = answer;
+        answer = messages -> {
+            leases.add(stack.fixture().jdbc().queryForObject("SELECT lease_expires_at FROM memory_jobs"
+                    + " WHERE job_type = 'SUMMARIZE'", java.time.LocalDateTime.class));
+            return Mono.delay(Duration.ofMillis(20)).thenMany(plain.apply(messages));
+        };
+        handler();
+        enqueue(through);
+
+        assertThat(worker.runPending(10).block(WAIT)).isEqualTo(1);
+
+        // One renewal per turn: each turn starts with a later lease than the one before.
+        assertThat(leases).hasSize(3);
+        assertThat(leases.get(1)).isAfter(leases.get(0));
+        assertThat(leases.get(2)).isAfter(leases.get(1));
+        assertThat(stored()).hasSize(3);
+    }
+
+    @Test
     void duplicateJobDoesNotCreateSameVersion() {
         long through = completedTurn("问题一", "回答一");
 

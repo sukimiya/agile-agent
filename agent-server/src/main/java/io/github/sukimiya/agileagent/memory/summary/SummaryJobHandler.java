@@ -50,6 +50,8 @@ import reactor.core.publisher.Mono;
  * <li>Invalid output (D23) fails the attempt the same way and is counted per turn; the
  * {@code max-invalid-attempts}-th (default 3) consecutive invalid output for one turn skips it: no record, the
  * position moves past it ({@code memory.summary.skipped}), and the job continues with the next turn.</li>
+ * <li>The job's lease is renewed before each turn, so a long backlog never outlives the 5 minute lease; a lost
+ * lease stops the job.</li>
  * <li>A deleted conversation is skipped without a model call; its rows are removed by the cleanup job.</li>
  * <li>Records are a search index only and never enter prompt assembly.</li>
  * </ul>
@@ -70,6 +72,7 @@ public class SummaryJobHandler {
     private final Function<String, Mono<SummaryModel>> models;
     private final MemoryProperties props;
     private final MemoryMetrics metrics;
+    private final MemoryJobWorker worker;
 
     @Autowired
     public SummaryJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, SummaryRepository summaries,
@@ -91,6 +94,7 @@ public class SummaryJobHandler {
         this.models = models;
         this.props = props;
         this.metrics = metrics;
+        this.worker = worker;
         if (props.getSummary().isEnabled()) {
             worker.register(JobType.SUMMARIZE, this::handle);
         }
@@ -109,17 +113,24 @@ public class SummaryJobHandler {
         return Mono.fromCallable(() -> JSON.readTree(job.payload()).path("throughSequence").asLong(-1))
                 .flatMap(through -> through < 0
                         ? Mono.error(new IllegalArgumentException("SUMMARIZE payload without throughSequence"))
-                        : summarize(job.scope(), job.conversationId(), through));
+                        : summarize(job.scope(), job.conversationId(), through, Mono.defer(() -> worker.renewLease(job)
+                                .flatMap(held -> held ? Mono.<Void>empty()
+                                        : Mono.error(new IllegalStateException("SUMMARIZE job lease lost"))))));
     }
 
     /** Records every completed turn after the current position, through at most {@code throughSequence}. */
     public Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence) {
+        return summarize(scope, conversationId, throughSequence, Mono.empty());
+    }
+
+    /** As above; {@code beforeTurn} runs before each turn's model call (the job's lease renewal). */
+    private Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence, Mono<Void> beforeTurn) {
         return summaries.summarizedThrough(scope, conversationId).flatMap(position -> position >= throughSequence
                 ? Mono.<Void>empty()
                 : summaries.isLive(scope, conversationId).flatMap(live -> !live ? Mono.<Void>empty()
                         : model(scope).flatMap(model -> sourceTurns(scope, conversationId, position, throughSequence)
                                 .flatMap(turns -> recordTurns(scope, conversationId, model, turns, 0, position,
-                                        throughSequence)))));
+                                        throughSequence, beforeTurn)))));
     }
 
     private Mono<SummaryModel> model(MemoryScope scope) {
@@ -164,15 +175,16 @@ public class SummaryJobHandler {
 
     /** Records {@code turns[index..]} one after another; stops early when a write loses the position race. */
     private Mono<Void> recordTurns(MemoryScope scope, String conversationId, SummaryModel model,
-            List<List<SourceMessage>> turns, int index, long position, long through) {
+            List<List<SourceMessage>> turns, int index, long position, long through, Mono<Void> beforeTurn) {
         if (index == turns.size()) {
             // Trailing messages of turns that did not complete: nothing to record, move past them.
             return position < through
                     ? transactions.transactional(summaries.skip(scope, conversationId, position, through)).then()
                     : Mono.empty();
         }
-        return recordTurn(scope, conversationId, model, turns.get(index), position)
-                .flatMap(next -> recordTurns(scope, conversationId, model, turns, index + 1, next, through));
+        return beforeTurn.then(Mono.defer(() -> recordTurn(scope, conversationId, model, turns.get(index), position)))
+                .flatMap(next -> recordTurns(scope, conversationId, model, turns, index + 1, next, through,
+                        beforeTurn));
     }
 
     /** Emits the new position after the turn, or completes empty when the position moved meanwhile. */

@@ -112,6 +112,19 @@ public class MemoryJobWorker {
                 });
     }
 
+    /**
+     * Extends the lease of a job this instance holds (RUNNING, own lease) by {@link #JOB_LEASE} from now, so a
+     * handler doing several bounded steps (one model call per turn) never outlives its lease. False when the job
+     * is no longer held: finished, failed back to PENDING, or reclaimed by someone else.
+     */
+    public Mono<Boolean> renewLease(ClaimedJob job) {
+        return db.sql("UPDATE memory_jobs SET lease_expires_at = TIMESTAMPADD(MICROSECOND, :leaseMicros,"
+                        + " CURRENT_TIMESTAMP(6)), updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND status = 'RUNNING' AND lease_owner = :owner")
+                .bind("leaseMicros", JOB_LEASE.toNanos() / 1_000).bind("id", job.id()).bind("owner", instanceId)
+                .fetch().rowsUpdated().map(n -> n == 1);
+    }
+
     private Mono<Integer> finish(ClaimedJob job) {
         return db.sql("UPDATE memory_jobs SET status = 'DONE', lease_owner = NULL, lease_expires_at = NULL,"
                         + " last_error = NULL, updated_at = CURRENT_TIMESTAMP(6)"

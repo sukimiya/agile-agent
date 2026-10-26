@@ -152,6 +152,31 @@ class MemoryJobQueueTest {
     }
 
     @Test
+    void renewLeaseExtendsOnlyTheHeldRunningJob() {
+        queue.enqueue(ALICE, "conv-1", JobType.INDEX_CHUNKS, "renew", null).block(WAIT);
+        var renewed = new java.util.concurrent.CopyOnWriteArrayList<Boolean>();
+        var leases = new java.util.concurrent.CopyOnWriteArrayList<java.time.LocalDateTime>();
+        java.util.function.Supplier<java.time.LocalDateTime> lease = () -> fixture.jdbc().queryForObject(
+                "SELECT lease_expires_at FROM memory_jobs WHERE dedupe_key = 'renew'", java.time.LocalDateTime.class);
+        var other = new MemoryJobWorker(fixture.databaseClient(), () -> false);
+        worker.register(JobType.INDEX_CHUNKS, job -> Mono.fromRunnable(() -> leases.add(lease.get()))
+                .then(Mono.delay(Duration.ofMillis(20)))
+                .then(worker.renewLease(job)).doOnNext(renewed::add)
+                .then(other.renewLease(job)).doOnNext(renewed::add)
+                .then(Mono.fromRunnable(() -> leases.add(lease.get()))));
+
+        assertThat(worker.runPending(10).block(WAIT)).isEqualTo(1);
+
+        // The holder extends its own lease; another instance cannot.
+        assertThat(renewed).containsExactly(true, false);
+        assertThat(leases.get(1)).isAfter(leases.get(0));
+        // Finished jobs have no lease to renew.
+        var done = new ClaimedJob(fixture.jdbc().queryForObject("SELECT id FROM memory_jobs WHERE dedupe_key = 'renew'",
+                String.class), JobType.INDEX_CHUNKS, ALICE, "conv-1", "renew", null, 1);
+        assertThat(worker.renewLease(done).block(WAIT)).isFalse();
+    }
+
+    @Test
     void abandonedRunningJobIsReclaimedAfterItsLease() {
         enqueue(JobType.INDEX_CHUNKS, "turn-1");
         fixture.jdbc().update("UPDATE memory_jobs SET status = 'RUNNING', lease_owner = 'dead', attempts = 1,"
