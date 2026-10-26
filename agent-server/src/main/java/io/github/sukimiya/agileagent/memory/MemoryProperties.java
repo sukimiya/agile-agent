@@ -56,6 +56,14 @@ public class MemoryProperties {
         private int maxOutputTokens = 800;
         /** Upper bound of one summary call. */
         private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
+        /** No new message for this long (and no active turn) means the conversation is done (D19). */
+        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(30);
+        /** How often the idle scan looks for done conversations (D19). */
+        private java.time.Duration idleScanInterval = java.time.Duration.ofMinutes(5);
+        /** Conversations enqueued per idle scan at most. */
+        private int idleScanBatch = 100;
+        /** Invalid model outputs for one turn before the turn is skipped (D23). */
+        private int maxInvalidAttempts = 3;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
@@ -74,6 +82,14 @@ public class MemoryProperties {
             this.maxOutputTokens = v;
         }
         public java.time.Duration getJobTimeout() { return jobTimeout; }
+        public java.time.Duration getIdleTimeout() { return idleTimeout; }
+        public void setIdleTimeout(java.time.Duration v) { this.idleTimeout = v; }
+        public java.time.Duration getIdleScanInterval() { return idleScanInterval; }
+        public void setIdleScanInterval(java.time.Duration v) { this.idleScanInterval = v; }
+        public int getIdleScanBatch() { return idleScanBatch; }
+        public void setIdleScanBatch(int v) { this.idleScanBatch = v; }
+        public int getMaxInvalidAttempts() { return maxInvalidAttempts; }
+        public void setMaxInvalidAttempts(int v) { this.maxInvalidAttempts = v; }
         public void setJobTimeout(java.time.Duration v) {
             if (v == null || v.isNegative() || v.isZero()) {
                 throw new IllegalArgumentException("app.memory.summary.job-timeout must be positive");

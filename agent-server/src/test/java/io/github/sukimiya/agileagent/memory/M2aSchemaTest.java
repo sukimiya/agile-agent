@@ -79,10 +79,11 @@ class M2aSchemaTest {
                 .map(m -> m.getVersion().getVersion()).toList();
         assertThat(applied).contains("10", "10.1");
 
-        jdbc().update("INSERT INTO memory_summaries (id, tenant_id, subject, conversation_id, from_sequence,"
-                + " to_sequence, from_message_id, to_message_id, content, source_type, generator_model, prompt_version,"
-                + " version, created_at) VALUES ('s1', 't', 'alice', 'c1', 1, 4, 'm1', 'm4', '摘要', 'MODEL_SUMMARY',"
-                + " 'summary-model', 'v1', 1, CURRENT_TIMESTAMP(6))");
+        jdbc().update("INSERT INTO memory_summaries (id, tenant_id, subject, conversation_id, turn_id, from_sequence,"
+                + " to_sequence, from_message_id, to_message_id, record_json, search_text, memory_type, has_decision,"
+                + " source_type, generator_model, schema_version, version, created_at) VALUES ('s1', 't', 'alice', 'c1',"
+                + " 'turn-1', 1, 2, 'm1', 'm2', '{}', '摘要', 'FACT', FALSE, 'MODEL_SUMMARY', 'record-model',"
+                + " 'memory-record-v1', 1, CURRENT_TIMESTAMP(6))");
         jdbc().update("INSERT INTO memory_chunks (id, tenant_id, subject, conversation_id, turn_id, from_sequence,"
                 + " to_sequence, content, source_types, created_at) VALUES ('k1', 't', 'alice', 'c1', 'turn-1', 1, 2,"
                 + " '片段', 'USER_INPUT,ASSISTANT', CURRENT_TIMESTAMP(6))");
@@ -97,10 +98,14 @@ class M2aSchemaTest {
         assertThat(settings.values()).containsExactly(false, 0L);
 
         assertThatThrownBy(() -> jdbc().update("INSERT INTO memory_summaries (id, tenant_id, subject,"
-                + " conversation_id, from_sequence, to_sequence, from_message_id, to_message_id, content, source_type,"
-                + " generator_model, prompt_version, version, created_at) VALUES ('s2', 't', 'alice', 'c1', 1, 4,"
-                + " 'm1', 'm4', 'again', 'MODEL_SUMMARY', 'm', 'v1', 1, CURRENT_TIMESTAMP(6))"))
-                .as("one summary per range and prompt version").isInstanceOf(DataIntegrityViolationException.class);
+                + " conversation_id, turn_id, from_sequence, to_sequence, from_message_id, to_message_id, record_json,"
+                + " search_text, memory_type, has_decision, source_type, generator_model, schema_version, version,"
+                + " created_at) VALUES ('s2', 't', 'alice', 'c1', 'turn-1', 1, 2, 'm1', 'm2', '{}', 'again', 'EVENT',"
+                + " TRUE, 'MODEL_SUMMARY', 'm', 'memory-record-v1', 1, CURRENT_TIMESTAMP(6))"))
+                .as("one record per turn and schema version").isInstanceOf(DataIntegrityViolationException.class);
+        var progress = jdbc().queryForMap("SELECT summary_invalid_turn_id, summary_invalid_attempts"
+                + " FROM memory_index_progress");
+        assertThat(progress.values()).containsExactly(null, 0);
 
         jdbc().update("INSERT INTO llm_provider_preset (id, name, base_url, model, created_by_subject, created_at,"
                 + " updated_at) VALUES ('p1', 'n', 'https://x', 'm', 'admin', CURRENT_TIMESTAMP(6),"

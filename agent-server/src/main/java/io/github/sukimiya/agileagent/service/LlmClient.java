@@ -55,8 +55,15 @@ public interface LlmClient {
 
     reactor.core.publisher.Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools);
 
-    /** Per-call request options; {@code maxTokens == null} means the provider default (nothing is sent). */
-    record CallOptions(Integer maxTokens) {}
+    /**
+     * Per-call request options; {@code maxTokens == null} means the provider default (nothing is sent).
+     * {@code jsonObject} asks an OpenAI-compatible provider for JSON mode ({@code response_format: json_object}).
+     */
+    record CallOptions(Integer maxTokens, boolean jsonObject) {
+        public CallOptions(Integer maxTokens) {
+            this(maxTokens, false);
+        }
+    }
 
     /**
      * A call with request options. Clients that cannot apply them (test doubles, adapters) inherit this default,

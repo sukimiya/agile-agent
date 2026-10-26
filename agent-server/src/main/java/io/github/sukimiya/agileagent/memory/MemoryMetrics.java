@@ -71,6 +71,7 @@ public class MemoryMetrics {
     private final Counter finalizerFailures;
     private final DistributionSummary injectedMessages;
     private final DistributionSummary injectedTokens;
+    private final java.util.concurrent.atomic.AtomicLong summaryBacklog = new java.util.concurrent.atomic.AtomicLong();
 
     public MemoryMetrics(MeterRegistry meters) {
         this.meters = meters;
@@ -148,17 +149,42 @@ public class MemoryMetrics {
                 .register(meters).increment();
     }
 
-    /** A summary was written (M2a Task 4). */
+    /** A turn memory record was written (M2a Task 4). */
     public void summaryGenerated() {
-        Counter.builder("memory.summary.generated").description("Segment summaries written")
+        Counter.builder("memory.summary.generated").description("Turn memory records written")
                 .register(meters).increment();
     }
 
-    /** A summary job attempt failed; {@code reason}: MODEL_MISSING, MODEL_ERROR or TIMEOUT. */
+    /**
+     * A record attempt failed; {@code reason}: MODEL_MISSING, MODEL_ERROR, TIMEOUT or INVALID_OUTPUT (the model's
+     * answer was not a valid memory-record-v1 object, D23).
+     */
     public void summaryFailed(String reason) {
         Counter.builder("memory.summary.failures").tag("reason", reason)
-                .description("Summary job attempts that failed and will be retried")
+                .description("Turn record attempts that failed (retried, or skipped after repeated invalid output)")
                 .register(meters).increment();
+    }
+
+    /** A turn was skipped without a record after repeated invalid output (D23). */
+    public void summarySkipped() {
+        Counter.builder("memory.summary.skipped").description("Turns skipped after repeated invalid record output")
+                .register(meters).increment();
+    }
+
+    /** Time from a turn's completion to the moment its record was built (database clock). */
+    public void summaryLag(Duration lag) {
+        Timer.builder("memory.summary.lag").description("Turn completion to record written")
+                .register(meters).record(lag.isNegative() ? Duration.ZERO : lag);
+    }
+
+    /**
+     * Completed turns without a record in the conversations the last idle scan found (bounded by the scan batch),
+     * registered by the scanner only when records are enabled, so a disabled feature never reports a 0 backlog.
+     */
+    public void summaryBacklog(long turns) {
+        summaryBacklog.set(turns);
+        Gauge.builder("memory.summary.backlog", summaryBacklog, java.util.concurrent.atomic.AtomicLong::get)
+                .description("Completed turns waiting for a record, as of the last idle scan").register(meters);
     }
 
     /** Provider {@code prompt_tokens} divided by the raw (unscaled) estimate of the same call. */

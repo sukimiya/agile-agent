@@ -102,6 +102,16 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
+    void jsonModeSendsResponseFormatOnlyWhenAsked() throws Exception {
+        var messages = List.of(LlmClient.Message.user("hello json"));
+        assertThat(sendAndReadRequest(messages, List.of(), new LlmClient.CallOptions(800)).has("response_format"))
+                .isFalse();
+        var json = sendAndReadRequest(messages, List.of(), new LlmClient.CallOptions(800, true));
+        assertThat(json.path("response_format").path("type").asText()).isEqualTo("json_object");
+        assertThat(json.path("max_tokens").asInt()).isEqualTo(800);
+    }
+
+    @Test
     void defaultCallOptionsMethodDelegatesToThePlainCall() {
         LlmClient plain = (messages, tools) -> reactor.core.publisher.Flux.just(
                 new LlmClient.LlmEvent.Completed("plain"));

@@ -19,7 +19,6 @@ import io.github.sukimiya.agileagent.memory.ConversationRepository;
 import io.github.sukimiya.agileagent.memory.MemoryMetrics;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
-import io.github.sukimiya.agileagent.memory.ToolRecordSanitizer;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.memory.jobs.ClaimedJob;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
@@ -32,21 +31,27 @@ import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Mono;
 
 /**
- * Runs {@link JobType#SUMMARIZE} jobs (M2a Task 4): summarizes the completed messages after the conversation's
- * summary position, up to the job's {@code throughSequence}.
+ * Runs {@link JobType#SUMMARIZE} jobs (M2a Task 4, D18–D23): writes one {@code memory-record-v1} record for each
+ * completed turn after the conversation's record position, up to the job's {@code throughSequence}. Jobs come
+ * from {@link IdleConversationScanner} once a conversation has been idle (D19).
  * <ul>
  * <li>Registered on the job worker only with {@code app.memory.summary.enabled=true} (default off, D4); without a
  * handler SUMMARIZE jobs wait unclaimed. The worker runs jobs one after another on the single instance, so at
- * most one summary call runs at a time (D4 global concurrency 1).</li>
- * <li>Input is capped per job (D4/D5, {@code max-source-tokens}, default 12,000 estimated tokens, and never more
- * than the tenant model's window leaves): whole turns oldest first; a single turn above the cap is cut to it and
- * still counts as covered. The rest of the range is left for the next job. Only COMPLETED turns are read.</li>
- * <li>The call uses the tenant's model with {@code max_tokens = max-output-tokens} (default 800) and a timeout
- * ({@code job-timeout}, default 120 s). The text is sanitized before it is stored.</li>
- * <li>The summary and the new position commit together as a compare-and-set on the position
- * ({@link SummaryRepository#save}); a repeated or raced job writes nothing. Any failure (missing tenant model,
- * model error, timeout) leaves the position as it was and the worker retries with backoff.</li>
+ * most one record call runs at a time (D4 global concurrency 1).</li>
+ * <li>One model call per turn (D20), oldest first. Input is capped per turn ({@code max-source-tokens}, default
+ * 12,000 estimated tokens, and never more than the tenant model's window leaves): a longer turn is cut to the
+ * cap and still counts as recorded. Only COMPLETED turns are read.</li>
+ * <li>The call uses the tenant's model in JSON mode with {@code max_tokens = max-output-tokens} (default 800) and
+ * a timeout ({@code job-timeout}, default 120 s). {@link MemoryRecordValidator} checks the schema, drops entities
+ * and key facts not found verbatim in the turn, and masks secrets.</li>
+ * <li>Each record and the new position commit together as a compare-and-set on the position
+ * ({@link SummaryRepository#save}); a repeated or raced job writes nothing. A missing tenant model, model error
+ * or timeout leaves the position as it was and the worker retries with backoff.</li>
+ * <li>Invalid output (D23) fails the attempt the same way and is counted per turn; the
+ * {@code max-invalid-attempts}-th (default 3) consecutive invalid output for one turn skips it: no record, the
+ * position moves past it ({@code memory.summary.skipped}), and the job continues with the next turn.</li>
  * <li>A deleted conversation is skipped without a model call; its rows are removed by the cleanup job.</li>
+ * <li>Records are a search index only and never enter prompt assembly.</li>
  * </ul>
  */
 @Component
@@ -107,16 +112,14 @@ public class SummaryJobHandler {
                         : summarize(job.scope(), job.conversationId(), through));
     }
 
-    /** Summarizes the next capped range after the current position, through at most {@code throughSequence}. */
+    /** Records every completed turn after the current position, through at most {@code throughSequence}. */
     public Mono<Void> summarize(MemoryScope scope, String conversationId, long throughSequence) {
         return summaries.summarizedThrough(scope, conversationId).flatMap(position -> position >= throughSequence
                 ? Mono.<Void>empty()
                 : summaries.isLive(scope, conversationId).flatMap(live -> !live ? Mono.<Void>empty()
                         : model(scope).flatMap(model -> sourceTurns(scope, conversationId, position, throughSequence)
-                                .flatMap(turns -> turns.isEmpty()
-                                        ? transactions.transactional(summaries.skip(scope, conversationId, position,
-                                                throughSequence)).then()
-                                        : summarizeRange(scope, conversationId, position, model, turns)))));
+                                .flatMap(turns -> recordTurns(scope, conversationId, model, turns, 0, position,
+                                        throughSequence)))));
     }
 
     private Mono<SummaryModel> model(MemoryScope scope) {
@@ -126,11 +129,12 @@ public class SummaryJobHandler {
                         ? "MODEL_MISSING" : "MODEL_ERROR"));
     }
 
-    private record SourceMessage(String id, long sequence, String turnId, LlmClient.Message message) {}
+    private record SourceMessage(String id, long sequence, String turnId, long ageMicros, LlmClient.Message message) {}
 
     private Mono<List<List<SourceMessage>>> sourceTurns(MemoryScope scope, String conversationId, long after,
             long through) {
-        return db.sql("SELECT m.id, m.sequence, m.turn_id, m.payload FROM chat_messages m"
+        return db.sql("SELECT m.id, m.sequence, m.turn_id, m.payload,"
+                        + " TIMESTAMPDIFF(MICROSECOND, t.finished_at, CURRENT_TIMESTAMP(6)) AS age_us FROM chat_messages m"
                         + " JOIN chat_turns t ON t.id = m.turn_id WHERE m.conversation_id = :c"
                         + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED'"
                         + " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence")
@@ -138,6 +142,7 @@ public class SummaryJobHandler {
                 .bind("after", after).bind("through", through)
                 .map(row -> new SourceMessage(row.get("id", String.class), SummaryRepository.number(
                         row.get("sequence")), row.get("turn_id", String.class),
+                        row.get("age_us") == null ? 0 : SummaryRepository.number(row.get("age_us")),
                         conversations.deserialize(row.get("payload", String.class))))
                 .all()
                 .collectList()
@@ -157,44 +162,73 @@ public class SummaryJobHandler {
         return turns;
     }
 
-    private Mono<Void> summarizeRange(MemoryScope scope, String conversationId, long position, SummaryModel model,
-            List<List<SourceMessage>> turns) {
-        int cap = sourceCap(model);
-        var included = new ArrayList<SourceMessage>();
-        var transcript = new StringBuilder();
-        for (var turn : turns) {
-            var text = String.join("\n", turn.stream().map(m -> SummaryPrompt.line(m.message())).toList());
-            var candidate = transcript.isEmpty() ? text : transcript + "\n" + text;
-            if (TokenEstimator.estimate(candidate) > cap) {
-                if (included.isEmpty()) {
-                    // One turn alone exceeds the cap: summarize its beginning, the turn still counts as covered.
-                    transcript.append(truncate(text, cap));
-                    included.addAll(turn);
-                }
-                break;
-            }
-            transcript.setLength(0);
-            transcript.append(candidate);
-            included.addAll(turn);
+    /** Records {@code turns[index..]} one after another; stops early when a write loses the position race. */
+    private Mono<Void> recordTurns(MemoryScope scope, String conversationId, SummaryModel model,
+            List<List<SourceMessage>> turns, int index, long position, long through) {
+        if (index == turns.size()) {
+            // Trailing messages of turns that did not complete: nothing to record, move past them.
+            return position < through
+                    ? transactions.transactional(summaries.skip(scope, conversationId, position, through)).then()
+                    : Mono.empty();
         }
-        var first = included.getFirst();
-        var last = included.getLast();
-        return call(model, transcript.toString())
-                .flatMap(content -> transactions.transactional(summaries.save(scope, conversationId,
-                        new Summary(NonBlockingIds.uuid(), first.sequence(), last.sequence(), first.id(), last.id(),
-                                content, model.model(), SummaryPrompt.VERSION, 1), position)))
-                .doOnNext(saved -> {
-                    if (saved) {
+        return recordTurn(scope, conversationId, model, turns.get(index), position)
+                .flatMap(next -> recordTurns(scope, conversationId, model, turns, index + 1, next, through));
+    }
+
+    /** Emits the new position after the turn, or completes empty when the position moved meanwhile. */
+    private Mono<Long> recordTurn(MemoryScope scope, String conversationId, SummaryModel model,
+            List<SourceMessage> turn, long position) {
+        var first = turn.getFirst();
+        var last = turn.getLast();
+        var text = String.join("\n", turn.stream().map(m -> SummaryPrompt.line(m.message())).toList());
+        int cap = sourceCap(model);
+        var transcript = TokenEstimator.estimate(text) > cap ? truncate(text, cap) : text;
+        return call(model, transcript).flatMap(output -> {
+            MemoryRecordValidator.Content content;
+            try {
+                content = MemoryRecordValidator.validate(output, transcript);
+            } catch (MemoryRecordValidator.InvalidRecordException e) {
+                return invalid(scope, conversationId, first.turnId(), position, last.sequence(), e);
+            }
+            var record = new MemoryRecord(NonBlockingIds.uuid(), first.turnId(), first.sequence(), last.sequence(),
+                    first.id(), last.id(), content.summary(), content.entities(), content.keyFacts(),
+                    content.decision(), content.keywords(), content.memoryType(), model.model(), SummaryPrompt.VERSION,
+                    1);
+            return transactions.transactional(summaries.save(scope, conversationId, record, position))
+                    .flatMap(saved -> {
+                        if (!saved) {
+                            return Mono.<Long>empty();
+                        }
                         metrics.summaryGenerated();
-                        log.info("memory.summary written conversationId={} from={} to={} messages={}",
-                                conversationId, first.sequence(), last.sequence(), included.size());
-                    }
-                })
-                .then();
+                        metrics.summaryLag(java.time.Duration.ofNanos(first.ageMicros() * 1_000));
+                        log.info("memory.record written conversationId={} turnId={} from={} to={}", conversationId,
+                                first.turnId(), first.sequence(), last.sequence());
+                        return Mono.just(last.sequence());
+                    });
+        });
+    }
+
+    /** D23: count the invalid output; fail the attempt (backoff), or skip the turn at the limit. */
+    private Mono<Long> invalid(MemoryScope scope, String conversationId, String turnId, long position, long end,
+            MemoryRecordValidator.InvalidRecordException error) {
+        metrics.summaryFailed("INVALID_OUTPUT");
+        return transactions.transactional(summaries.recordInvalid(scope, conversationId, turnId))
+                .flatMap(attempts -> attempts < props.getSummary().getMaxInvalidAttempts() ? Mono.<Long>error(error)
+                        : transactions.transactional(summaries.skip(scope, conversationId, position, end))
+                                .flatMap(moved -> {
+                                    if (!moved) {
+                                        return Mono.<Long>empty();
+                                    }
+                                    metrics.summarySkipped();
+                                    log.warn("memory.record skipped after {} invalid outputs conversationId={}"
+                                            + " turnId={} reason={}", attempts, conversationId, turnId,
+                                            error.getMessage());
+                                    return Mono.just(end);
+                                }));
     }
 
     /**
-     * The largest transcript (raw estimate) one job sends: {@code max-source-tokens}, and no more than the
+     * The largest transcript (raw estimate) one call sends: {@code max-source-tokens}, and no more than the
      * tenant window leaves after the prompt and the output reserve (with the context safety factor).
      */
     private int sourceCap(SummaryModel model) {
@@ -223,16 +257,15 @@ public class SummaryJobHandler {
         return text.substring(0, low);
     }
 
+    /** The model's raw output (possibly blank: the validator decides); errors are counted by reason. */
     private Mono<String> call(SummaryModel model, String transcript) {
-        var options = new LlmClient.CallOptions(props.getSummary().getMaxOutputTokens());
+        var options = new LlmClient.CallOptions(props.getSummary().getMaxOutputTokens(), true);
         return model.client().chatStream(SummaryPrompt.messages(transcript), List.of(), options)
                 .ofType(LlmClient.LlmEvent.Completed.class)
                 .next()
-                .map(LlmClient.LlmEvent.Completed::fullText)
-                .filter(text -> text != null && !text.isBlank())
-                .switchIfEmpty(Mono.error(new IllegalStateException("empty summary")))
+                .map(completed -> completed.fullText() == null ? "" : completed.fullText())
+                .defaultIfEmpty("")
                 .timeout(props.getSummary().getJobTimeout())
-                .map(ToolRecordSanitizer::sanitize)
                 .doOnError(e -> metrics.summaryFailed(e instanceof TimeoutException ? "TIMEOUT" : "MODEL_ERROR"));
     }
 }

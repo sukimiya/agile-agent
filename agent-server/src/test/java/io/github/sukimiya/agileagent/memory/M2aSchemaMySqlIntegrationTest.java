@@ -22,6 +22,6 @@ class M2aSchemaMySqlIntegrationTest extends M2aSchemaTest {
 
     @Override
     protected Set<String> expectedFulltextIndexes() {
-        return Set.of("memory_chunks.ft_memory_chunks_content", "memory_summaries.ft_memory_summaries_content");
+        return Set.of("memory_chunks.ft_memory_chunks_content", "memory_summaries.ft_memory_summaries_search_text");
     }
 }
