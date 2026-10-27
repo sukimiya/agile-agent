@@ -22,7 +22,8 @@ import reactor.core.publisher.Mono;
 public class ChunkRepository {
 
     static final String LIVE_SESSION = " JOIN sessions se ON se.id = %s.conversation_id"
-            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.deleted_at IS NULL";
+            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.is_valid = 1"
+            + " AND %<s.is_valid = 1";
 
     /** One completed turn as recall sees it: the user message and the final answer, with its message range. */
     public record TurnText(String turnId, String conversationId, long fromSequence, long toSequence,
@@ -161,7 +162,7 @@ public class ChunkRepository {
     /** The owner's other live conversations, most recently updated first, at most {@code limit}. */
     public Flux<String> otherLiveConversations(MemoryScope scope, String currentId, int limit) {
         return db.sql("SELECT id FROM sessions WHERE tenant_id = :tenantId AND user_id = :subject"
-                        + " AND deleted_at IS NULL AND id <> :current ORDER BY updated_at DESC, id LIMIT :limit")
+                        + " AND is_valid = 1 AND id <> :current ORDER BY updated_at DESC, id LIMIT :limit")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("current", currentId)
                 .bind("limit", limit)
                 .map(row -> row.get("id", String.class))

@@ -184,7 +184,7 @@ class ProfileServiceTest {
                     fixture.connectionFactory(), fixture.databaseClient(), stack.cache(),
                     new io.github.sukimiya.agileagent.service.FileStorageService(uploads), props,
                     new MemoryMetrics(new SimpleMeterRegistry()),
-                    new MemoryJobWorker(fixture.databaseClient(), () -> false), cache);
+                    new MemoryJobWorker(fixture.databaseClient(), () -> false), cache, null);
             var c = NonBlockingIds.uuid();
             fixture.jdbc().update("INSERT INTO sessions (id, tenant_id, user_id, title, revision, created_at, updated_at)"
                     + " VALUES (?, ?, ?, 't', 0, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))",

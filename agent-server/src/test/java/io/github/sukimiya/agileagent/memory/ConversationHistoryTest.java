@@ -287,7 +287,7 @@ class ConversationHistoryTest {
         var conversation = newConversationId();
         seed(conversation, 2);
         page(conversation, null, 10);
-        support.fixture.jdbc().update("UPDATE sessions SET deleted_at = ? WHERE id = ?", LocalDateTime.now(), conversation);
+        support.fixture.jdbc().update("UPDATE sessions SET deleted_at = ?, is_valid = 0 WHERE id = ?", LocalDateTime.now(), conversation);
         var revisionAtDeletion = support.revision(conversation);
 
         assertThatThrownBy(() -> page(conversation, null, 10)).isInstanceOfSatisfying(MemoryException.class,

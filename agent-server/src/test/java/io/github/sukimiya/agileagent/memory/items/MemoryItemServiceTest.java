@@ -54,7 +54,7 @@ class MemoryItemServiceTest {
         settings = new MemorySettingsService(db, cache);
         graph = new EntityGraphRepository(db);
         profiles = new ProfileService(db, items, settings, cache, props);
-        service = new MemoryItemService(db, fixture.connectionFactory(), items, sources, graph, profiles);
+        service = new MemoryItemService(db, fixture.connectionFactory(), items, sources, graph, profiles, props);
     }
 
     MemoryItem save(MemoryScope scope, String content) {
@@ -155,8 +155,10 @@ class MemoryItemServiceTest {
         assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("喜欢中文")
                 .doesNotContain("喜欢绿茶");
         assertThat(profiles.rebuild(ALICE).block(WAIT).content()).doesNotContain("喜欢绿茶");
-        assertThat(fixture.jdbc().queryForObject("SELECT content FROM memory_items WHERE id = ?", String.class,
-                gone.id())).isEmpty();
+        // Soft delete: the row and its text stay in the database, invalid.
+        assertThat(fixture.jdbc().queryForMap("SELECT content, status, is_valid FROM memory_items WHERE id = ?",
+                gone.id())).containsEntry("CONTENT", "喜欢绿茶").containsEntry("STATUS", "DELETED")
+                .containsEntry("IS_VALID", 0);
         assertThat(keep.id()).isNotBlank();
 
         // With the switch off, a kept snapshot is still purged of the deleted content (no new aggregation).
@@ -182,19 +184,74 @@ class MemoryItemServiceTest {
 
         service.deleteProfile(ALICE).block(WAIT);
 
-        assertThat(fixture.jdbc().queryForObject(
-                "SELECT COUNT(*) FROM user_memory_profiles WHERE tenant_id = ? AND subject = ?", Long.class,
-                ALICE.tenantId(), ALICE.subject())).isZero();
-        assertThat(fixture.jdbc().queryForObject(
-                "SELECT COUNT(*) FROM memory_entities WHERE tenant_id = ? AND subject = ?", Long.class,
-                ALICE.tenantId(), ALICE.subject())).isZero();
-        assertThat(fixture.jdbc().queryForObject(
-                "SELECT COUNT(*) FROM memory_relations WHERE tenant_id = ? AND subject = ?", Long.class,
-                ALICE.tenantId(), ALICE.subject())).isZero();
+        // Soft delete: rows stay, invalid.
+        for (var table : java.util.List.of("user_memory_profiles", "memory_entities", "memory_relations")) {
+            assertThat(fixture.jdbc().queryForObject("SELECT COUNT(*) FROM " + table
+                    + " WHERE tenant_id = ? AND subject = ? AND is_valid = 1", Long.class, ALICE.tenantId(),
+                    ALICE.subject())).as(table).isZero();
+            assertThat(fixture.jdbc().queryForObject("SELECT COUNT(*) FROM " + table
+                    + " WHERE tenant_id = ? AND subject = ?", Long.class, ALICE.tenantId(), ALICE.subject()))
+                    .as(table).isPositive();
+        }
+        assertThat(graph.findById(ALICE, e1.id()).blockOptional()).isEmpty();
+        assertThat(graph.oneHop(ALICE, List.of("用户"), 10).collectList().block(WAIT)).isEmpty();
         assertThat(cache.get(ALICE, built.version()).block(WAIT)).isNull();
         assertThat(profiles.current(ALICE).block(WAIT)).isEmpty();
         // Items and other users' graphs stay.
         assertThat(service.detail(ALICE, item.id()).block(WAIT).item().status()).isEqualTo(ItemStatus.ACTIVE);
         assertThat(graph.findById(BOB, bobEntity.id()).block(WAIT)).isNotNull();
+
+        // A later rebuild and graph write bring back fresh, valid rows.
+        var rebuilt = profiles.rebuild(ALICE).block(WAIT);
+        assertThat(rebuilt.version()).isGreaterThan(built.version());
+        assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("喜欢中文");
+        var again = graph.upsertEntity(ALICE, "用户", "PERSON").block(WAIT);
+        assertThat(graph.findById(ALICE, again.id()).block(WAIT)).isNotNull();
+    }
+
+    void references(MemoryScope scope, String itemId, int n) {
+        for (int i = 0; i < n; i++) {
+            fixture.jdbc().update("INSERT INTO memory_recall_events (id, tenant_id, subject, conversation_id, turn_id,"
+                    + " kind, ref_id, reason, score, `rank`, source_types, created_at) VALUES (?, ?, ?, 'c', ?, 'ITEM',"
+                    + " ?, 'ITEM', 1, 1, '', CURRENT_TIMESTAMP(6))", NonBlockingIds.uuid(), scope.tenantId(),
+                    scope.subject(), NonBlockingIds.uuid(), itemId);
+        }
+    }
+
+    @Test
+    void decrementRecallCountFloorsAtZeroAndIsAudited() {
+        var item = save(ALICE, "喜欢绿茶");
+        references(ALICE, item.id(), 3);
+        assertThat(service.recallCount(ALICE, item.id()).block(WAIT).count()).isEqualTo(3);
+
+        var once = service.decrementRecallCount(ALICE, item.id(), 1, "alice").block(WAIT);
+        assertThat(once.count()).isEqualTo(2);
+        assertThat(once.retention()).isEqualTo(Duration.ofDays(7));
+        assertThat(once.purgeEligibleAt()).as("source not deleted: not purge-eligible").isNull();
+
+        var floored = service.decrementRecallCount(ALICE, item.id(), 10, "alice").block(WAIT);
+        assertThat(floored.count()).isZero();
+        assertThat(floored.retention()).isEqualTo(Duration.ofDays(1));
+        // New recalls count again from the floor.
+        references(ALICE, item.id(), 2);
+        assertThat(service.recallCount(ALICE, item.id()).block(WAIT).count()).isEqualTo(2);
+
+        var audit = fixture.jdbc().queryForList("SELECT actor, action, target_id, amount, count_before, count_after"
+                + " FROM memory_audit_log WHERE tenant_id = ? AND subject = ? ORDER BY created_at, id",
+                ALICE.tenantId(), ALICE.subject());
+        assertThat(audit).hasSize(2);
+        assertThat(audit.get(0)).containsEntry("ACTOR", "alice").containsEntry("ACTION", "RECALL_COUNT_DECREMENT")
+                .containsEntry("TARGET_ID", item.id());
+        assertThat(((Number) audit.get(0).get("COUNT_BEFORE")).longValue()).isEqualTo(3);
+        assertThat(((Number) audit.get(0).get("COUNT_AFTER")).longValue()).isEqualTo(2);
+        assertThat(((Number) audit.get(1).get("AMOUNT")).longValue()).isEqualTo(10);
+        assertThat(((Number) audit.get(1).get("COUNT_AFTER")).longValue()).isZero();
+
+        assertThatThrownBy(() -> service.decrementRecallCount(ALICE, item.id(), 0, "alice").block(WAIT))
+                .satisfies(e -> assertThat(code(e)).isEqualTo(ErrorCode.INVALID_ARGUMENT));
+        assertThatThrownBy(() -> service.decrementRecallCount(BOB, item.id(), 1, "bob").block(WAIT))
+                .satisfies(e -> assertThat(code(e)).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
+        assertThatThrownBy(() -> service.decrementRecallCount(ALICE, "missing", 1, "alice").block(WAIT))
+                .satisfies(e -> assertThat(code(e)).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
     }
 }

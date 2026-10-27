@@ -34,14 +34,24 @@ public class EntityGraphRepository {
         if (key.isBlank()) {
             return Mono.empty();
         }
-        return db.sql("SELECT id, tenant_id, subject, name, entity_type, normalized_key FROM memory_entities"
-                        + " WHERE tenant_id = :tenantId AND subject = :subject AND normalized_key = :key")
+        return db.sql("SELECT id, tenant_id, subject, name, entity_type, normalized_key, is_valid"
+                        + " FROM memory_entities WHERE tenant_id = :tenantId AND subject = :subject"
+                        + " AND normalized_key = :key")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("key", key)
-                .map((row, meta) -> new MemoryEntity(row.get("id", String.class),
+                .map((row, meta) -> new Object[] {new MemoryEntity(row.get("id", String.class),
                         new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
                         row.get("name", String.class), row.get("entity_type", String.class),
-                        row.get("normalized_key", String.class)))
+                        row.get("normalized_key", String.class)), ((Number) row.get("is_valid")).intValue()})
                 .one()
+                // A soft-deleted entity with the same key is made valid again (the key is unique per owner).
+                .flatMap(found -> {
+                    var entity = (MemoryEntity) found[0];
+                    if ((int) found[1] == 1) {
+                        return Mono.just(entity);
+                    }
+                    return db.sql("UPDATE memory_entities SET is_valid = 1 WHERE id = :id")
+                            .bind("id", entity.id()).fetch().rowsUpdated().thenReturn(entity);
+                })
                 .switchIfEmpty(Mono.defer(() -> {
                     var id = NonBlockingIds.uuid();
                     return db.sql("INSERT INTO memory_entities (id, tenant_id, subject, name, entity_type,"
@@ -97,7 +107,7 @@ public class EntityGraphRepository {
             return db.sql("SELECT id, tenant_id, subject, from_entity, relation, to_entity, item_id,"
                             + " valid_from, valid_until, status FROM memory_relations"
                             + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE'"
-                            + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                            + " AND is_valid = 1 AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
                             + " ORDER BY valid_from DESC")
                     .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                     .map((row, meta) -> new MemoryRelation(row.get("id", String.class),
@@ -115,7 +125,7 @@ public class EntityGraphRepository {
     private Mono<java.util.Set<String>> entityIdsForKeys(MemoryScope scope, java.util.List<String> keys) {
         return Flux.fromIterable(keys)
                 .concatMap(key -> db.sql("SELECT id FROM memory_entities WHERE tenant_id = :tenantId"
-                                + " AND subject = :subject AND normalized_key = :key")
+                                + " AND subject = :subject AND normalized_key = :key AND is_valid = 1")
                         .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("key", key)
                         .map((row, meta) -> row.get("id", String.class))
                         .one())
@@ -125,7 +135,7 @@ public class EntityGraphRepository {
 
     public Mono<MemoryEntity> findById(MemoryScope scope, String id) {
         return db.sql("SELECT id, tenant_id, subject, name, entity_type, normalized_key FROM memory_entities"
-                        + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject")
+                        + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject AND is_valid = 1")
                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map((row, meta) -> new MemoryEntity(row.get("id", String.class),
                         new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
@@ -134,11 +144,12 @@ public class EntityGraphRepository {
                 .one();
     }
 
-    public Mono<Void> deleteAllForScope(MemoryScope scope) {
-        return db.sql("DELETE FROM memory_relations WHERE tenant_id = :tenantId AND subject = :subject")
+    /** Soft-deletes ({@code is_valid = 0}) the owner's whole graph; rows stay, never read again. */
+    public Mono<Void> invalidateAllForScope(MemoryScope scope) {
+        return db.sql("UPDATE memory_relations SET is_valid = 0 WHERE tenant_id = :tenantId AND subject = :subject")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
-                .then(db.sql("DELETE FROM memory_entities WHERE tenant_id = :tenantId AND subject = :subject")
+                .then(db.sql("UPDATE memory_entities SET is_valid = 0 WHERE tenant_id = :tenantId AND subject = :subject")
                         .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                         .fetch().rowsUpdated())
                 .then();

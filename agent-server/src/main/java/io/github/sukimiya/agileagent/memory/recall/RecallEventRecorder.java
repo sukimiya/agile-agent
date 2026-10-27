@@ -104,7 +104,7 @@ public class RecallEventRecorder implements AutoCloseable {
     public Flux<StoredEvent> forTurn(MemoryScope scope, String conversationId, String turnId) {
         return db.sql("SELECT kind, ref_id, reason, score, `rank`, source_types FROM memory_recall_events"
                         + " WHERE tenant_id = :tenantId AND subject = :subject AND conversation_id = :c"
-                        + " AND turn_id = :turnId ORDER BY `rank`")
+                        + " AND turn_id = :turnId AND is_valid = 1 ORDER BY `rank`")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("c", conversationId)
                 .bind("turnId", turnId)
                 .map((row, meta) -> {
@@ -115,14 +115,6 @@ public class RecallEventRecorder implements AutoCloseable {
                             rank == null ? 0 : ((Number) rank).intValue(), row.get("source_types", String.class));
                 })
                 .all();
-    }
-
-    /** Removes ITEM events referencing a deleted item (M2b Task 5 deletion cleanup). */
-    public Mono<Long> deleteForItem(MemoryScope scope, String itemId) {
-        return db.sql("DELETE FROM memory_recall_events WHERE tenant_id = :tenantId AND subject = :subject"
-                        + " AND kind = 'ITEM' AND ref_id = :ref")
-                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("ref", itemId)
-                .fetch().rowsUpdated();
     }
 
     /** Completes when every queued batch has been written (or failed), or after {@code timeout}. Tests/shutdown. */
@@ -139,8 +131,8 @@ public class RecallEventRecorder implements AutoCloseable {
     }
 
     private Mono<Void> write(Batch batch) {
-        var delete = db.sql("DELETE FROM memory_recall_events WHERE tenant_id = :tenantId AND subject = :subject"
-                        + " AND turn_id = :turnId")
+        var delete = db.sql("UPDATE memory_recall_events SET is_valid = 0 WHERE tenant_id = :tenantId"
+                        + " AND subject = :subject AND turn_id = :turnId AND is_valid = 1")
                 .bind("tenantId", batch.scope().tenantId()).bind("subject", batch.scope().subject())
                 .bind("turnId", batch.turnId())
                 .fetch().rowsUpdated();

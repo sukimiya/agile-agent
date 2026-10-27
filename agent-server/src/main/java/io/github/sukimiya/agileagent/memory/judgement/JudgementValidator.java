@@ -207,13 +207,15 @@ public class JudgementValidator {
                     long idx = tuple.getT1();
                     String id = tuple.getT2();
                     String wantExcerpt = idx < excerpts.size() ? excerpts.get((int) idx) : null;
-                    return db.sql("SELECT m.id, m.conversation_id, m.source_type, m.payload, se.deleted_at"
+                    return db.sql("SELECT m.id, m.conversation_id, m.source_type, m.payload, se.is_valid AS session_valid,"
+                                    + " m.is_valid AS message_valid"
                                     + " FROM chat_messages m JOIN sessions se ON se.id = m.conversation_id"
                                     + " AND se.tenant_id = m.tenant_id AND se.user_id = m.subject"
                                     + " WHERE m.id = :id AND m.tenant_id = :tenantId AND m.subject = :subject")
                             .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                             .map((row, meta) -> {
-                                if (row.get("deleted_at") != null) {
+                                if (((Number) row.get("session_valid")).intValue() != 1
+                                        || ((Number) row.get("message_valid")).intValue() != 1) {
                                     throw new RejectedException("DELETED_SOURCE");
                                 }
                                 SourceType type = SourceType.valueOf(row.get("source_type", String.class));

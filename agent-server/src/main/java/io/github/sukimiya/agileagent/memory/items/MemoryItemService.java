@@ -1,5 +1,7 @@
 package io.github.sukimiya.agileagent.memory.items;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.r2dbc.connection.R2dbcTransactionManager;
@@ -9,9 +11,13 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 
 import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.judgement.ValidatedAction.SourceRef;
 import io.github.sukimiya.agileagent.memory.judgement.WriteGovernance;
+import io.github.sukimiya.agileagent.memory.retention.MemoryAudit;
+import io.github.sukimiya.agileagent.memory.retention.RecallReferences;
+import io.github.sukimiya.agileagent.memory.retention.RetentionTiers;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Mono;
 
@@ -34,6 +40,12 @@ public class MemoryItemService {
 
     public record ItemDetail(MemoryItem item, List<SourceRef> sources) {}
 
+    /**
+     * An item's effective recall reference count, the retention its tier gives, and when it becomes purgeable
+     * (null unless its source was deleted and it is no longer ACTIVE).
+     */
+    public record RecallCount(String itemId, long count, Duration retention, LocalDateTime purgeEligibleAt) {}
+
     private static final String COLUMNS = "id, tenant_id, subject, conversation_id, item_type, content, status,"
             + " assertion, importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
             + " judge_model, reason, revision, created_at, updated_at";
@@ -44,9 +56,16 @@ public class MemoryItemService {
     private final MemoryItemSourceRepository sources;
     private final EntityGraphRepository graph;
     private final ProfileService profiles;
+    private final RetentionTiers tiers;
+    private final RecallReferences references;
+    private final MemoryAudit audit;
 
     public MemoryItemService(DatabaseClient db, ConnectionFactory connectionFactory, MemoryItemRepository items,
-            MemoryItemSourceRepository sources, EntityGraphRepository graph, ProfileService profiles) {
+            MemoryItemSourceRepository sources, EntityGraphRepository graph, ProfileService profiles,
+            MemoryProperties props) {
+        this.tiers = RetentionTiers.of(props.getPurge().getTiers());
+        this.references = new RecallReferences(db);
+        this.audit = new MemoryAudit(db);
         this.db = db;
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.items = items;
@@ -132,23 +151,24 @@ public class MemoryItemService {
     }
 
     /**
-     * Deletes an item: status DELETED and content erased, provenance removed, relations derived from it
-     * deactivated, its recall explanations removed, and a kept profile snapshot re-rendered without it.
+     * Deletes an item (soft): status DELETED and {@code is_valid = 0} with its text kept in the database, its
+     * provenance and derived relations invalidated, its recall explanations hidden (they still count as
+     * references), and a kept profile snapshot re-rendered without it.
      */
     public Mono<Void> delete(MemoryScope scope, String id) {
         return visibleOrNotFound(scope, id).flatMap(item -> db.sql("UPDATE memory_items SET status = 'DELETED',"
-                                + " content = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
+                                + " is_valid = 0, revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
                                 + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject")
                         .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                         .fetch().rowsUpdated()
-                        .then(db.sql("DELETE FROM memory_item_sources WHERE item_id = :id").bind("id", id)
+                        .then(db.sql("UPDATE memory_item_sources SET is_valid = 0 WHERE item_id = :id").bind("id", id)
                                 .fetch().rowsUpdated())
-                        .then(db.sql("UPDATE memory_relations SET status = 'INACTIVE' WHERE item_id = :id"
-                                        + " AND tenant_id = :tenantId AND subject = :subject")
+                        .then(db.sql("UPDATE memory_relations SET status = 'INACTIVE', is_valid = 0"
+                                        + " WHERE item_id = :id AND tenant_id = :tenantId AND subject = :subject")
                                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                                 .fetch().rowsUpdated())
-                        .then(db.sql("DELETE FROM memory_recall_events WHERE kind = 'ITEM' AND ref_id = :id"
-                                        + " AND tenant_id = :tenantId AND subject = :subject")
+                        .then(db.sql("UPDATE memory_recall_events SET is_valid = 0 WHERE kind = 'ITEM'"
+                                        + " AND ref_id = :id AND tenant_id = :tenantId AND subject = :subject")
                                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                                 .fetch().rowsUpdated())
                         .as(transactions::transactional)
@@ -156,17 +176,79 @@ public class MemoryItemService {
     }
 
     /**
-     * Deletes the profile snapshot and the whole entity graph of the caller (and their PROFILE / RELATION recall
-     * explanations). Items stay; a later rebuild (switch on) derives a new snapshot from them.
+     * Deletes the profile snapshot and the whole entity graph of the caller (soft: rows kept with
+     * {@code is_valid = 0}; their PROFILE / RELATION recall explanations hidden). Items stay; a later rebuild
+     * (switch on) derives a new snapshot from them.
      */
     public Mono<Void> deleteProfile(MemoryScope scope) {
-        return graph.deleteAllForScope(scope)
-                .then(db.sql("DELETE FROM memory_recall_events WHERE kind IN ('PROFILE', 'RELATION')"
+        return graph.invalidateAllForScope(scope)
+                .then(db.sql("UPDATE memory_recall_events SET is_valid = 0 WHERE kind IN ('PROFILE', 'RELATION')"
                                 + " AND tenant_id = :tenantId AND subject = :subject")
                         .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                         .fetch().rowsUpdated())
                 .as(transactions::transactional)
-                .then(profiles.purge(scope));
+                .then(profiles.softDelete(scope));
+    }
+
+    /** The item's effective recall reference count and what it means for retention. */
+    public Mono<RecallCount> recallCount(MemoryScope scope, String id) {
+        return visibleOrNotFound(scope, id).flatMap(item -> state(scope, item.id()));
+    }
+
+    /**
+     * Manually lowers an item's recall reference count by {@code amount} (at least 1), floored at 0: the
+     * effective count is {@code max(0, references - recall_ref_offset)} and the offset grows by what was
+     * actually removed, so later recalls count again from the floor. Audited in {@code memory_audit_log}
+     * ({@code actor}, before/after, database time). The retention tier and purge eligibility follow at once.
+     */
+    public Mono<RecallCount> decrementRecallCount(MemoryScope scope, String id, long amount, String actor) {
+        if (amount < 1) {
+            return Mono.error(new MemoryException(ErrorCode.INVALID_ARGUMENT));
+        }
+        return visibleOrNotFound(scope, id).flatMap(item -> Mono.defer(() -> loadOffset(scope, item.id())
+                        .zipWith(references.itemReferences(scope, item.id()))
+                        .flatMap(t -> {
+                            long offset = t.getT1();
+                            long before = Math.max(0, t.getT2() - offset);
+                            long applied = Math.min(amount, before);
+                            return db.sql("UPDATE memory_items SET recall_ref_offset = :next,"
+                                            + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id"
+                                            + " AND tenant_id = :tenantId AND subject = :subject"
+                                            + " AND recall_ref_offset = :offset")
+                                    .bind("next", offset + applied).bind("id", item.id())
+                                    .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                                    .bind("offset", offset)
+                                    .fetch().rowsUpdated()
+                                    .flatMap(n -> n == 1
+                                            ? audit.record(scope, actor, "RECALL_COUNT_DECREMENT", "ITEM", item.id(),
+                                                    amount, before, before - applied)
+                                            : Mono.error(new MemoryException(ErrorCode.MEMORY_ITEM_CONFLICT)));
+                        })
+                        .as(transactions::transactional))
+                .then(state(scope, item.id())));
+    }
+
+    private Mono<Long> loadOffset(MemoryScope scope, String id) {
+        return db.sql("SELECT recall_ref_offset FROM memory_items WHERE id = :id AND tenant_id = :tenantId"
+                        + " AND subject = :subject")
+                .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .map((row, meta) -> ((Number) row.get("recall_ref_offset")).longValue())
+                .one();
+    }
+
+    private Mono<RecallCount> state(MemoryScope scope, String id) {
+        return references.itemCount(scope, id).flatMap(count -> {
+            var retention = tiers.retentionFor(count);
+            return db.sql("SELECT status, source_deleted_at FROM memory_items WHERE id = :id"
+                            + " AND tenant_id = :tenantId AND subject = :subject")
+                    .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                    .map((row, meta) -> {
+                        var deletedAt = row.get("source_deleted_at", LocalDateTime.class);
+                        boolean candidate = deletedAt != null && !"ACTIVE".equals(row.get("status", String.class));
+                        return new RecallCount(id, count, retention, candidate ? deletedAt.plus(retention) : null);
+                    })
+                    .one();
+        });
     }
 
     private Mono<MemoryItem> visible(MemoryScope scope, String id) {

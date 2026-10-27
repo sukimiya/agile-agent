@@ -51,6 +51,20 @@ oauth2:
     tenant-admin: ${OAUTH2_TENANT_ADMIN_ROLE:tenant_admin}
 
 app:
+  memory:
+    # Purge of derived memory index rows (items, chunks, turn records) whose source was soft-deleted (M2b).
+    # Retention depends on the recall reference count: each tier is "from this count on, keep this long";
+    # ascending, first tier from 0, any number of tiers.
+    purge:
+      enabled: true
+      interval: 1h
+      tiers:
+        - from-count: 0
+          keep: 1d
+        - from-count: 2
+          keep: 7d
+        - from-count: 5
+          keep: 30d
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
   upload:
     dir: ${app.data-dir}/uploads

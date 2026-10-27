@@ -58,6 +58,62 @@ public class MemoryProperties {
 
     public Judgement getJudgement() { return judgement; }
 
+    private final Purge purge = new Purge();
+
+    public Purge getPurge() { return purge; }
+
+    /**
+     * Periodic purge of derived index rows of deleted sources (M2b Q4 redesign, {@code app.memory.purge.*}).
+     * {@code tiers}: "from this recall reference count on, keep for this long", ascending, first from 0; the
+     * number of tiers is free. Validated by {@code RetentionTiers.of}.
+     */
+    public static class Purge {
+
+        private boolean enabled = true;
+        private Duration interval = Duration.ofHours(1);
+        private int batch = 200;
+        private java.util.List<Tier> tiers = new java.util.ArrayList<>(java.util.List.of(
+                Tier.of(0, Duration.ofDays(1)), Tier.of(2, Duration.ofDays(7)), Tier.of(5, Duration.ofDays(30))));
+
+        public boolean isEnabled() { return enabled; }
+
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public Duration getInterval() { return interval; }
+
+        public void setInterval(Duration interval) { this.interval = interval; }
+
+        public int getBatch() { return batch; }
+
+        public void setBatch(int batch) { this.batch = batch; }
+
+        public java.util.List<Tier> getTiers() { return tiers; }
+
+        public void setTiers(java.util.List<Tier> tiers) { this.tiers = tiers; }
+
+        /** One retention tier: reference count from {@code fromCount} (inclusive) on, keep for {@code keep}. */
+        public static class Tier {
+
+            private long fromCount;
+            private Duration keep;
+
+            public static Tier of(long fromCount, Duration keep) {
+                var tier = new Tier();
+                tier.setFromCount(fromCount);
+                tier.setKeep(keep);
+                return tier;
+            }
+
+            public long getFromCount() { return fromCount; }
+
+            public void setFromCount(long fromCount) { this.fromCount = fromCount; }
+
+            public Duration getKeep() { return keep; }
+
+            public void setKeep(Duration keep) { this.keep = keep; }
+        }
+    }
+
     private final Profile profile = new Profile();
 
     public Profile getProfile() { return profile; }

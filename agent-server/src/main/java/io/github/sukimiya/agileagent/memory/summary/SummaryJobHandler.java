@@ -170,7 +170,7 @@ public class SummaryJobHandler {
         return db.sql("SELECT m.id, m.sequence, m.turn_id, m.payload,"
                         + " TIMESTAMPDIFF(MICROSECOND, t.finished_at, CURRENT_TIMESTAMP(6)) AS age_us FROM chat_messages m"
                         + " JOIN chat_turns t ON t.id = m.turn_id WHERE m.conversation_id = :c"
-                        + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED'"
+                        + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED' AND m.is_valid = 1"
                         + " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .bind("after", after).bind("through", through)

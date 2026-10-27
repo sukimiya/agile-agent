@@ -127,6 +127,7 @@ class MemoryControllerTest {
                         .bodyValue("{\"content\":\"x\"}"),
                 client.delete().uri("/api/memory/items/i-1"),
                 client.delete().uri("/api/memory/profile"),
+                client.post().uri("/api/memory/items/i-1/recall-count/decrement"),
                 client.get().uri("/api/conversations/" + CONV + "/turns/t-1/memory"))) {
             auth(spec).exchange().expectStatus().isForbidden().expectBody().jsonPath("$.code")
                     .isEqualTo("TENANT_REQUIRED");
@@ -188,6 +189,26 @@ class MemoryControllerTest {
         auth(client.post().uri("/api/memory/items/i-1/corrections").contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"content\":\"又改\"}")).exchange().expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.code").isEqualTo("MEMORY_ITEM_CONFLICT");
+
+        when(items.decrementRecallCount(SCOPE, "i-1", 1, "user-1")).thenReturn(Mono.just(
+                new MemoryItemService.RecallCount("i-1", 4, java.time.Duration.ofDays(7), null)));
+        auth(client.post().uri("/api/memory/items/i-1/recall-count/decrement")).exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.itemId").isEqualTo("i-1").jsonPath("$.count").isEqualTo(4)
+                .jsonPath("$.retention").isEqualTo("PT168H").jsonPath("$.purgeEligibleAt").doesNotExist();
+        when(items.decrementRecallCount(SCOPE, "i-1", 3, "user-1")).thenReturn(Mono.just(
+                new MemoryItemService.RecallCount("i-1", 1, java.time.Duration.ofDays(1), null)));
+        auth(client.post().uri("/api/memory/items/i-1/recall-count/decrement").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"amount\":3}")).exchange().expectStatus().isOk().expectBody()
+                .jsonPath("$.count").isEqualTo(1);
+        for (var bad : java.util.List.of("{\"amount\":0}", "{\"amount\":-1}", "{\"amount\":\"x\"}",
+                "{\"amount\":1.5}")) {
+            auth(client.post().uri("/api/memory/items/i-1/recall-count/decrement")
+                    .contentType(MediaType.APPLICATION_JSON).bodyValue(bad)).exchange().expectStatus().isBadRequest();
+        }
+        when(items.decrementRecallCount(SCOPE, "bob-item", 1, "user-1"))
+                .thenReturn(Mono.error(new MemoryException(ErrorCode.MEMORY_ITEM_NOT_FOUND)));
+        auth(client.post().uri("/api/memory/items/bob-item/recall-count/decrement")).exchange()
+                .expectStatus().isNotFound();
 
         when(items.delete(SCOPE, "i-1")).thenReturn(Mono.empty());
         auth(client.delete().uri("/api/memory/items/i-1")).exchange().expectStatus().isNoContent();

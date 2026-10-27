@@ -253,7 +253,7 @@ class JudgementJobHandlerTest {
             assertThat(fixture.jdbc().queryForObject("SELECT status FROM memory_items WHERE id = ?", String.class,
                     item.id())).isEqualTo("ACTIVE");
             assertThat(fixture.jdbc().queryForObject(
-                    "SELECT COUNT(*) FROM memory_item_sources WHERE item_id = ?", Long.class, item.id()))
+                    "SELECT COUNT(*) FROM memory_item_sources WHERE item_id = ? AND is_valid = 1", Long.class, item.id()))
                     .isEqualTo(1L);
         }
     }
@@ -275,7 +275,7 @@ class JudgementJobHandlerTest {
             assertThat(fixture.jdbc().queryForObject("SELECT status FROM memory_items WHERE id = ?", String.class,
                     item.id())).isEqualTo("INACTIVE");
             assertThat(fixture.jdbc().queryForObject(
-                    "SELECT COUNT(*) FROM memory_item_sources WHERE item_id = ?", Long.class, item.id()))
+                    "SELECT COUNT(*) FROM memory_item_sources WHERE item_id = ? AND is_valid = 1", Long.class, item.id()))
                     .isZero();
         }
     }

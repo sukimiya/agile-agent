@@ -150,7 +150,7 @@ public class JudgementJobHandler {
 
     private Mono<Boolean> isLive(MemoryScope scope, String conversationId) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :c AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NULL")
+                        + " AND user_id = :subject AND is_valid = 1")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map((row, meta) -> ((Number) row.get("n")).longValue() == 1)
                 .one()
@@ -169,7 +169,7 @@ public class JudgementJobHandler {
     private Mono<List<List<TurnMsg>>> sourceTurns(MemoryScope scope, String conversationId, long after, long through) {
         return db.sql("SELECT m.id, m.sequence, m.turn_id, m.role, m.payload FROM chat_messages m"
                         + " JOIN chat_turns t ON t.id = m.turn_id WHERE m.conversation_id = :c"
-                        + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED'"
+                        + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED' AND m.is_valid = 1"
                         + " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .bind("after", after).bind("through", through)

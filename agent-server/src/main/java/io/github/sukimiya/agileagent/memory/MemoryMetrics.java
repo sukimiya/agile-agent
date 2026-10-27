@@ -168,6 +168,14 @@ public class MemoryMetrics {
                 .description("Per-turn recall explanation writes").register(meters).increment();
     }
 
+    /** Derived index rows physically purged after their retention ({@code kind}: ITEM, CHUNK or SUMMARY). */
+    public void purged(String kind, long count) {
+        if (count > 0) {
+            Counter.builder("memory.purge.purged").tag("kind", kind)
+                    .description("Derived memory index rows purged after retention").register(meters).increment(count);
+        }
+    }
+
     /** A long-term memory item was written by judgement (M2b Task 3). */
     public void judgementWritten() {
         Counter.builder("memory.judgement.written").description("Long-term memory items written by judgement")

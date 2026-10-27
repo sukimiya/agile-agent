@@ -93,9 +93,13 @@ public class ProfileService {
         });
     }
 
-    /** Removes the snapshot row and its cache entry (user "delete my profile"). */
-    public Mono<Void> purge(MemoryScope scope) {
-        return db.sql("DELETE FROM user_memory_profiles WHERE tenant_id = :tenantId AND subject = :subject")
+    /**
+     * Soft-deletes the snapshot ({@code is_valid = 0}, row and text kept, never read) and drops its cache entry
+     * (user "delete my profile"). A later rebuild reuses the row with a higher version.
+     */
+    public Mono<Void> softDelete(MemoryScope scope) {
+        return db.sql("UPDATE user_memory_profiles SET is_valid = 0, updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE tenant_id = :tenantId AND subject = :subject")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
                 .then(cache.invalidate(scope));
@@ -106,8 +110,14 @@ public class ProfileService {
     }
 
     private Mono<Optional<Profile>> loadRow(MemoryScope scope) {
+        return loadRow(scope, true);
+    }
+
+    /** {@code validOnly} false also returns a soft-deleted snapshot (its row and version are reused on rebuild). */
+    private Mono<Optional<Profile>> loadRow(MemoryScope scope, boolean validOnly) {
         return db.sql("SELECT content, version, built_through FROM user_memory_profiles"
-                        + " WHERE tenant_id = :tenantId AND subject = :subject")
+                        + " WHERE tenant_id = :tenantId AND subject = :subject"
+                        + (validOnly ? " AND is_valid = 1" : ""))
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map((row, meta) -> new Profile(scope, row.get("content", String.class),
                         ((Number) row.get("version")).longValue(),
@@ -118,7 +128,7 @@ public class ProfileService {
     }
 
     private Mono<Profile> upsert(MemoryScope scope, String content, long builtThrough) {
-        return loadRow(scope).flatMap(opt -> {
+        return loadRow(scope, false).flatMap(opt -> {
             if (opt.isEmpty()) {
                 return db.sql("INSERT INTO user_memory_profiles (tenant_id, subject, content, version, built_through,"
                                 + " updated_at) VALUES (:tenantId, :subject, :content, 1, :built, CURRENT_TIMESTAMP(6))")
@@ -129,7 +139,7 @@ public class ProfileService {
             }
             long next = opt.get().version() + 1;
             return db.sql("UPDATE user_memory_profiles SET content = :content, version = :version,"
-                            + " built_through = :built, updated_at = CURRENT_TIMESTAMP(6)"
+                            + " built_through = :built, is_valid = 1, updated_at = CURRENT_TIMESTAMP(6)"
                             + " WHERE tenant_id = :tenantId AND subject = :subject")
                     .bind("content", content).bind("version", next).bind("built", builtThrough)
                     .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())

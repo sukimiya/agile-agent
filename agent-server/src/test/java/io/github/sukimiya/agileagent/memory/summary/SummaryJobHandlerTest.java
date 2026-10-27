@@ -451,11 +451,11 @@ class SummaryJobHandlerTest {
         // A late job for the deleted conversation does nothing and calls no model.
         summarize(through + 10);
         assertThat(calls).hasSize(1);
-        // The cleanup job removes the derived rows.
+        // The cleanup job invalidates the derived rows (soft delete); the purge job removes them later.
         maintenance.runPending(10).block(WAIT);
-        assertThat(recordRows()).isZero();
-        assertThat(stack.rows("SELECT COUNT(*) AS n FROM memory_index_progress WHERE conversation_id = ?",
+        assertThat(stack.rows("SELECT COUNT(*) AS n FROM memory_summaries WHERE conversation_id = ? AND is_valid = 1",
                 conversation).getFirst().get("N")).isEqualTo(0L);
+        assertThat(recordRows()).isPositive();
     }
 
     @Test

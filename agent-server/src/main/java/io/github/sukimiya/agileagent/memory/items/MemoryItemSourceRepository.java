@@ -35,7 +35,7 @@ public class MemoryItemSourceRepository {
 
     public Flux<SourceRef> findByItem(String itemId) {
         return db.sql("SELECT message_id, conversation_id, source_type, evidence_excerpt FROM memory_item_sources"
-                        + " WHERE item_id = :itemId")
+                        + " WHERE item_id = :itemId AND is_valid = 1")
                 .bind("itemId", itemId)
                 .map((row, meta) -> new SourceRef(row.get("message_id", String.class),
                         row.get("conversation_id", String.class),
@@ -44,25 +44,30 @@ public class MemoryItemSourceRepository {
                 .all();
     }
 
-    /** Removes sources whose messages belong to {@code conversationId}; returns affected item ids. */
-    public Flux<String> deleteByConversation(MemoryScope scope, String conversationId) {
+    /**
+     * Soft-deletes ({@code is_valid = 0}) the sources whose messages belong to {@code conversationId}; returns
+     * the affected item ids.
+     */
+    public Flux<String> invalidateByConversation(MemoryScope scope, String conversationId) {
         return db.sql("SELECT DISTINCT s.item_id FROM memory_item_sources s"
                         + " JOIN memory_items i ON i.id = s.item_id"
-                        + " WHERE s.conversation_id = :c AND i.tenant_id = :tenantId AND i.subject = :subject")
+                        + " WHERE s.conversation_id = :c AND i.tenant_id = :tenantId AND i.subject = :subject"
+                        + " AND s.is_valid = 1")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map((row, meta) -> row.get("item_id", String.class))
                 .all()
                 .collectList()
                 .flatMapMany(ids -> Flux.fromIterable(ids)
-                        .concatMap(itemId -> db.sql("DELETE FROM memory_item_sources WHERE conversation_id = :c"
-                                        + " AND item_id = :itemId")
+                        .concatMap(itemId -> db.sql("UPDATE memory_item_sources SET is_valid = 0"
+                                        + " WHERE conversation_id = :c AND item_id = :itemId")
                                 .bind("c", conversationId).bind("itemId", itemId)
                                 .fetch().rowsUpdated()
                                 .thenReturn(itemId)));
     }
 
     public Mono<Long> countForItem(String itemId) {
-        return db.sql("SELECT COUNT(*) AS n FROM memory_item_sources WHERE item_id = :itemId")
+        return db.sql("SELECT COUNT(*) AS n FROM memory_item_sources WHERE item_id = :itemId"
+                        + " AND is_valid = 1")
                 .bind("itemId", itemId)
                 .map((row, meta) -> ((Number) row.get("n")).longValue())
                 .one()

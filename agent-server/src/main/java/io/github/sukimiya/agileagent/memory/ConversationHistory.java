@@ -33,7 +33,8 @@ public class ConversationHistory {
 
     private static final String SELECT = "SELECT m.id, m.sequence, m.payload, m.source_type, m.created_at, t.status"
             + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
-            + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject";
+            + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
+            + " AND m.is_valid = 1 AND t.is_valid = 1";
 
     private final DatabaseClient db;
     private final SessionRepository sessions;
@@ -91,7 +92,8 @@ public class ConversationHistory {
                 .flatMap(session -> db.sql("SELECT m.id, m.turn_id, m.payload FROM chat_messages m"
                                 + " JOIN chat_turns t ON t.id = m.turn_id"
                                 + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
-                                + " AND t.status = 'COMPLETED' AND m.turn_id <> :turnId ORDER BY m.sequence")
+                                + " AND t.status = 'COMPLETED' AND m.is_valid = 1 AND t.is_valid = 1"
+                                + " AND m.turn_id <> :turnId ORDER BY m.sequence")
                         .bind("c", ticket.conversationId())
                         .bind("tenantId", ticket.scope().tenantId())
                         .bind("subject", ticket.scope().subject())
@@ -125,7 +127,7 @@ public class ConversationHistory {
 
     /** The turn's own user message text (the current question), read from durable storage. */
     public Mono<String> userInput(TurnTicket ticket) {
-        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'user'"
+        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'user' AND is_valid = 1"
                         + " AND tenant_id = :tenantId AND subject = :subject")
                 .bind("turnId", ticket.turnId())
                 .bind("tenantId", ticket.scope().tenantId())

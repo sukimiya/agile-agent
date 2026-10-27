@@ -6,6 +6,7 @@ import static io.github.sukimiya.agileagent.memory.TurnTestSupport.newConversati
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
@@ -77,7 +78,7 @@ class MemoryDeletionTest {
         redisFactory = new LettuceConnectionFactory(LocalRedisTestServer.configuration(MemoryTestStack.REDIS_DB));
         redisFactory.afterPropertiesSet();
         redis = new ReactiveStringRedisTemplate(redisFactory);
-        cache = new HotMemoryCache(redis, support.mapper, support.props);
+        cache = spy(new HotMemoryCache(redis, support.mapper, support.props));
         var uploads = new UploadProperties();
         uploads.setDir(uploadDir.toString());
         files = spy(new FileStorageService(uploads));
@@ -121,12 +122,18 @@ class MemoryDeletionTest {
         return fixture.jdbc().queryForObject(sql, Integer.class, args);
     }
 
+    /** Valid (visible) messages; soft-deleted rows stay in the table with {@code is_valid = 0}. */
     private int messages(String conversationId) {
+        return count("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ? AND is_valid = 1", conversationId);
+    }
+
+    private int storedMessages(String conversationId) {
         return count("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ?", conversationId);
     }
 
     private int toolEvents(String conversationId) {
-        return count("SELECT COUNT(*) FROM chat_tool_events WHERE conversation_id = ?", conversationId);
+        return count("SELECT COUNT(*) FROM chat_tool_events WHERE conversation_id = ? AND is_valid = 1",
+                conversationId);
     }
 
     private int jobs(String conversationId, String status) {
@@ -164,13 +171,14 @@ class MemoryDeletionTest {
                 .doesNotContain(conversation);
         assertNotFound(sessions.verifyAccess(conversation, ALICE));
         assertNotFound(support.lifecycle.accept(new TurnCommand(ALICE, conversation, "k-new", "还在吗")));
-        assertThat(fixture.jdbc().queryForObject("SELECT title FROM sessions WHERE id = ?", String.class, conversation))
-                .as("the tombstone keeps no content").doesNotContain("蓝鲸");
+        assertThat(count("SELECT COUNT(*) FROM sessions WHERE id = ? AND is_valid = 0", conversation))
+                .as("soft delete: the session row stays, invalid").isEqualTo(1);
         assertThat(jobs(conversation, "PENDING")).isEqualTo(1);
 
         assertThat(runPending()).isEqualTo(1);
 
         assertThat(messages(conversation)).isZero();
+        assertThat(storedMessages(conversation)).as("messages stay queryable, invalid").isEqualTo(2);
         assertThat(jobs(conversation, "DONE")).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM sessions WHERE id = ? AND deleted_at IS NOT NULL", conversation))
                 .as("the deletion marker is kept permanently").isEqualTo(1);
@@ -284,9 +292,11 @@ class MemoryDeletionTest {
         var conversation = newConversationId();
         completedTurn(ALICE, conversation, "q", "a");
         attachment(conversation, "a.md");
-        doReturn(Mono.error(new java.io.IOException("disk /secret/path busy")))
+        // The best-effort tombstone at delete time and the first cleanup attempt fail; the retry succeeds.
+        doReturn(Mono.error(new java.io.IOException("redis /secret/path busy")))
+                .doReturn(Mono.error(new java.io.IOException("redis /secret/path busy")))
                 .doCallRealMethod()
-                .when(files).deleteConversationFiles(anyString());
+                .when(cache).tombstone(any(), anyString());
 
         delete(ALICE, conversation);
 
@@ -301,7 +311,7 @@ class MemoryDeletionTest {
         fixture.jdbc().update("UPDATE memory_jobs SET available_at = CURRENT_TIMESTAMP(6) WHERE conversation_id = ?"
                 + CLEANUP_ONLY, conversation);
         assertThat(runPending()).isEqualTo(1);
-        assertThat(uploadDir.resolve(conversation)).doesNotExist();
+        assertThat(uploadDir.resolve(conversation)).as("attachments are kept (soft delete)").exists();
         assertThat(messages(conversation)).isZero();
     }
 
@@ -367,7 +377,8 @@ class MemoryDeletionTest {
         // Download is gated on findOwned, which no longer sees the conversation.
         assertThat(sessions.findOwned(conversation, ALICE).blockOptional()).isEmpty();
         runPending();
-        assertThat(uploadDir.resolve(conversation)).doesNotExist();
+        assertThat(uploadDir.resolve(conversation).resolve("plan.md")).as("kept on disk, never served").exists();
+        assertThat(sessions.findOwned(conversation, ALICE).blockOptional()).isEmpty();
     }
 
     @Test
@@ -385,13 +396,14 @@ class MemoryDeletionTest {
         delete(ALICE, mine);
         runPending();
 
-        assertThat(uploadDir.resolve(mine)).doesNotExist();
+        assertThat(uploadDir.resolve(mine)).as("soft delete keeps the files").exists();
         assertThat(keptMine).exists();
         assertThat(keptBobs).exists();
         assertThat(messages(myOther)).isEqualTo(2);
         assertThat(messages(bobs)).isEqualTo(2);
         try (var dirs = Files.list(uploadDir)) {
-            assertThat(dirs.map(p -> p.getFileName().toString()).toList()).containsExactlyInAnyOrder(myOther, bobs);
+            assertThat(dirs.map(p -> p.getFileName().toString()).toList())
+                    .containsExactlyInAnyOrder(mine, myOther, bobs);
         }
     }
 

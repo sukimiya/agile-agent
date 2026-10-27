@@ -97,7 +97,7 @@ public class MemoryItemRepository {
                         + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
                         + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
                         + " WHERE tenant_id = :tenantId AND subject = :subject AND conversation_id IS NULL"
-                        + " AND status = 'ACTIVE'"
+                        + " AND status = 'ACTIVE' AND is_valid = 1"
                         + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
                         + " ORDER BY COALESCE(importance, 0) DESC, updated_at DESC")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
@@ -121,7 +121,7 @@ public class MemoryItemRepository {
         var sql = "SELECT id, tenant_id, subject, conversation_id, item_type, content, status, assertion,"
                 + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
                 + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
-                + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE'"
+                + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE' AND is_valid = 1"
                 + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
                 + (conversationId == null ? " AND conversation_id IS NULL" : " AND conversation_id = :conversationId")
                 + " ORDER BY COALESCE(importance, 0) DESC, updated_at DESC";

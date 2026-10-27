@@ -74,7 +74,7 @@ class ConsolidationQuotaTest {
         assertThat(worker.runPending(10).block(WAIT)).isZero();
 
         var row = fixture.jdbc().queryForMap(
-                "SELECT status, attempts, available_at > TIMESTAMPADD(HOUR, 12, CURRENT_TIMESTAMP(6)) AS postponed"
+                "SELECT status, attempts, CAST(available_at AS DATE) > CURRENT_DATE AS postponed"
                         + " FROM memory_jobs WHERE dedupe_key = 'sum-1'");
         assertThat(row.get("status")).isEqualTo("PENDING");
         assertThat(((Number) row.get("attempts")).intValue()).isZero();

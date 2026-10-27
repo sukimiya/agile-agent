@@ -72,6 +72,15 @@ public class MemoryController {
 
     public record TurnMemoryView(String conversationId, String turnId, List<EventView> events) {}
 
+    /** {@code retention} as ISO-8601 (e.g. {@code PT168H}); {@code purgeEligibleAt} null when not a candidate. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    public record RecallCountView(String itemId, long count, String retention, LocalDateTime purgeEligibleAt) {
+
+        static RecallCountView of(MemoryItemService.RecallCount c) {
+            return new RecallCountView(c.itemId(), c.count(), c.retention().toString(), c.purgeEligibleAt());
+        }
+    }
+
     private final MemorySettingsService settings;
     private final MemoryItemService items;
     private final RecallEventRecorder recallEvents;
@@ -135,6 +144,27 @@ public class MemoryController {
             }
             Long expected = revision == null || revision.isNull() ? null : revision.longValue();
             return items.correct(scope, id, content.asText(), expected).map(ItemView::of);
+        }).onErrorMap(MemoryController::storage);
+    }
+
+    /**
+     * Manually lowers the item's recall reference count (body optional: {@code {"amount": n}}, n ≥ 1, default 1);
+     * floored at 0, audited with the caller as actor.
+     */
+    @PostMapping("/api/memory/items/{id}/recall-count/decrement")
+    Mono<RecallCountView> decrementRecallCount(@CurrentUser AuthSessionStore.AuthUser user, @PathVariable String id,
+            @RequestBody(required = false) JsonNode body) {
+        return Mono.defer(() -> {
+            var scope = MemoryScope.of(user.identity());
+            var amount = body == null ? null : body.get("amount");
+            long n = 1;
+            if (amount != null && !amount.isNull()) {
+                if (!amount.isIntegralNumber() || !amount.canConvertToLong() || amount.longValue() < 1) {
+                    return Mono.error(new MemoryException(ErrorCode.INVALID_ARGUMENT));
+                }
+                n = amount.longValue();
+            }
+            return items.decrementRecallCount(scope, id, n, scope.subject()).map(RecallCountView::of);
         }).onErrorMap(MemoryController::storage);
     }
 

@@ -9,15 +9,42 @@
 - 清理任务只处理名称符合会话 ID 规则的目录。其他目录（例如 M1 之前按 sanitize 规则创建的 `conv-1`、`a_b` 等）不会被自动删除，需要运维确认后手动清理。M1 之前的这类旧目录也无法再通过下载接口访问。
 - 附件不在 M1 的数据库备份与恢复范围内（RPO/RTO 只覆盖会话、消息与执行记录）。归档与 MinIO 存储见 spec 14.1。
 
-## 会话删除清理
+## 会话删除清理（M2b 起全部为软删除）
 
-- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`；V10 之前叫 `DELETE_CONVERSATION`，升级时未完成的任务由迁移改名后继续执行）。物理清理由 `MemoryMaintenance` 注册给 `MemoryJobWorker` 的处理器执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
-- 删除事务内同时删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务；正在执行的切块任务会发现会话已删除，不写入任何片段。
-- 清理内容：`chat_messages`、`chat_tool_events`、M2a 的 `memory_chunks`、`memory_summaries` 与 `memory_index_progress`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
+- **软删除原则（2026-10-27 用户确定）：** 会话、执行、消息等数据删除后仍保留在数据库中、可以查询；删除只把 `is_valid` 置 0（V13 迁移为相关表增加该列），所有正常读取、Recall、提示词和用户 API 都排除 `is_valid = 0` 的数据，所以已删除的内容不会再到达模型或用户接口。
+- `DELETE /api/conversations/{id}` 在一个事务内：`sessions.is_valid = 0` 并写 `deleted_at`（标题保留）、使执行权失效、删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务（任务记录不是会话数据）、把来自该会话的条目来源置为无效、把失去全部有效来源的条目和该会话的会话级条目置为 INACTIVE 并写 `source_deleted_at`（不再被召回，成为清除候选），并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`）。后台处理器由 `MemoryMaintenance` 注册给 `MemoryJobWorker`，在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
+- 清理任务内容（全部是 `UPDATE ... SET is_valid = 0`，不删除行）：`chat_messages`、`chat_tool_events`、`chat_turns`、`memory_chunks`、`memory_summaries`、`memory_recall_events`；Redis 中该会话的缓存条目替换为删除标记；已有的用户概要快照按剩余条目重写。`memory_index_progress` 保持不变；附件目录 `${app.upload.dir}/{conversationId}/` **不再删除**（下载按会话归属判定，已删除会话一律 404；附件仍受 `app.upload.ttl-hours` 的临时清理约束）。清理前会再次确认该会话已标记删除。
 - 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
-- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是数据库或 Redis 不可用。
 - 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
-- 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+- 删除标记（`sessions.is_valid = 0` 与 `deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+
+### 派生索引清除（M2b 起，`app.memory.purge.*`）
+
+- `MemoryIndexPurger` 每 `app.memory.purge.interval`（默认 1 小时）扫描一次（`app.memory.purge.enabled` 与 `app.memory.recovery-enabled` 同时开启时）。候选：① 不再 ACTIVE 且有 `source_deleted_at` 的记忆条目；② 已删除会话中 `is_valid = 0` 的原文片段（`memory_chunks`）与轮次记录（`memory_summaries`）。
+- **“清除”的含义：** 物理删除上述**派生索引行**（条目连同其来源与关系、片段、轮次记录）。原始会话数据（会话、执行、消息、工具记录）和召回记录（`memory_recall_events`）从不物理删除，只保持 `is_valid = 0`。这样数据库与 MySQL ngram 全文索引里不会长期残留已删除会话的副本，原始数据仍可按软删除原则查询。
+- 保留期按**召回引用数**分档，从来源被删除的时间算起（条目用 `source_deleted_at`，片段与轮次记录用会话的 `deleted_at`，数据库时间）。引用数 = 召回记录中指向该对象的不同轮次数（条目 `kind=ITEM`，片段 `CHUNK`，轮次记录 `SUMMARY` 按轮次 id），含已软删除的召回记录；条目再减去手动减少的数量（`recall_ref_offset`），最低为 0。
+- 分档在 `application.yml` 中配置，档数只靠配置即可改变（例如 5 档或 9 档），由 `RetentionTiers.retentionFor(count)` 统一解析：
+
+  ```yaml
+  app:
+    memory:
+      purge:
+        enabled: true
+        interval: 1h
+        batch: 200          # 每页候选数（键集分页，一次扫描处理全部候选）
+        tiers:              # 从 from-count 起（含）保留 keep；升序、首档从 0 开始、不重叠
+          - from-count: 0
+            keep: 1d
+          - from-count: 2
+            keep: 7d
+          - from-count: 5
+            keep: 30d
+  ```
+
+  配置不合法（为空、首档不从 0 开始、`from-count` 不严格递增、`keep` 不为正）时服务启动失败并给出具体档位。
+- 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`；有清除时写一行 `memory.purge items=… chunks=… summaries=…` INFO 日志（不含内容）。
+- 恢复后的行为：从备份恢复出的已清除行仍是无效或 INACTIVE 状态，下一次扫描会按同样规则再次清除，不需要单独的清除清单。
 
 ### 后台任务（M2a 起）
 
@@ -38,6 +65,8 @@
 - 字段只有：`event`、`tenantId`、`subject`、`conversationId`、`deletedAt`、`revision`。`deletedAt` 和 `revision` 是同一事务写入 `sessions` 的值；`deletedAt` 是数据库时间，与 `sessions.deleted_at` 同一时区，不带时区偏移。日志中不包含消息内容、标题、附件路径或密钥。值经过 JSON 转义，所以每次删除只占一行。
 - `tenantId` 与 `subject` 记录原始 ID，与 `sessions.tenant_id`/`user_id` 一致，恢复时可以直接按行核对归属。代价是日志存储中包含用户标识，需要按个人数据控制访问权限和保留期限。
 - 只有第一次实际删除会写日志；对已删除会话的重复删除、他人或不存在的会话（404）以及回滚的事务都不会写。
+- **软删除后是否仍需要（2026-10-27 评估）：** 仍需要，格式不变。软删除让删除标记留在数据库里，但从删除之前的备份恢复时，该会话会回到 `is_valid = 1`；只有独立于数据库故障域的这条日志能把恢复点之后的删除复放回去。复放步骤改为置 `is_valid = 0`（见恢复手册第 4 步），不再清空标题，也不删除任何内容。
+- 手动调整记忆（例如减少召回引用数）写入数据库表 `memory_audit_log`（操作者、动作、目标、数量、前后值、数据库时间，不含内容），同时在 logger `memory.audit` 写一行 JSON。
 - **运维要求：** 将这一行投递到与数据库**不同故障域**的日志存储，投递延迟和 binlog 一样要为 15 分钟 RPO 留出余量。保留期不短于“最早可恢复的全量备份”到现在的时间跨度（本地 `logs/` 只保留 7 天，不能替代日志存储）。另外需要能够查到每个实例最后一条日志的接收时间，用来判断日志覆盖到哪个时间点。
 
 ## 单实例保护
@@ -166,7 +195,7 @@
 - 全量备份与连续 binlog 归档（`binlog_format=ROW`，建议开启 GTID）存放在**与数据库不同的故障域**（不同主机、可用区或账号）。只放在数据库同一台机器或同一磁盘上的备份不算数。
 - 日志交付延迟必须给 15 分钟 RPO 留出余量：binlog 至少每 5 分钟轮转或流式上传一次，并对“最新已归档 binlog 的时间距现在超过 10 分钟”告警。全量备份周期由 RTO 决定：全量恢复加 binlog 回放的实测时间必须远小于 4 小时。
 - `LLM_CONFIG_SECRET` 保存在密钥管理系统中，与数据库备份分属不同故障域，并保留历史版本；记录每个版本的生效时间段，以便确定恢复点对应哪个版本。
-- 删除清单：删除标记（`sessions.deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
+- 删除清单：删除标记（`sessions.is_valid = 0` 与 `deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
 
 ### 2. 准备隔离环境
 
@@ -183,26 +212,26 @@
 
 ### 4. 核对删除记录（开放访问前）
 
-- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
+- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行软删除清理。核对：`SELECT COUNT(*) FROM sessions WHERE is_valid = 0` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
 - 如果 binlog 一直回放到故障时刻（Tlast 等于故障时间），就没有遗漏的删除。
 - 如果 Tlast 早于故障时间，(Tlast, 故障时间] 之间的删除不在数据库中，需要在**服务启动前**（服务停止、隔离环境、不开放访问）按删除审计日志人工复放：
   1. **确认日志覆盖范围。** 在日志存储中确认这个部署所有实例的日志都已经接收到故障时间。删除并不频繁，没有删除日志不能证明期间没有删除，所以只能以日志管道的接收时间为准。如果覆盖范围早于故障时间，那么从覆盖终点到故障时间这段无法核实，按第 4 条处理。
   2. **导出删除行。** 导出 `"event":"CONVERSATION_DELETED"` 且 `deletedAt` 不早于所用全量备份开始时间的全部行。复放是幂等的，范围取宽一些比只取 Tlast 之后更安全，可以避免日志时间与 binlog 时间之间的误差。
   3. **逐行核对并复放。** 对每一行按 `conversationId` 查询 `SELECT tenant_id, user_id, deleted_at FROM sessions WHERE id = ?`：
      - 没有这一行：会话创建于恢复点之后，已不存在，记录下来即可。
-     - `deleted_at` 已经有值：已包含在恢复的数据中，跳过。
+     - `is_valid` 已经是 0：已包含在恢复的数据中，跳过。
      - `tenant_id`、`user_id` 与日志不一致：停止复放并调查，不开放访问。
-     - `deleted_at` 为空：在一个事务中执行：
+     - `is_valid` 为 1：在一个事务中执行：
 
        ```sql
-       UPDATE sessions SET deleted_at = '<deletedAt>', title = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
-        WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND deleted_at IS NULL;
+       UPDATE sessions SET deleted_at = '<deletedAt>', is_valid = 0, revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND is_valid = 1;
        INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, dedupe_key, available_at, created_at, updated_at)
        VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'CONVERSATION_CLEANUP', 'PENDING', 0,
                CONCAT('cleanup:', '<conversationId>'), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
        ```
 
-       服务启动后，清理任务会删除消息、工具记录、缓存和附件目录。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。
+       服务启动后，清理任务会把消息、工具记录、执行、片段、轮次记录和召回记录置为无效并写缓存删除标记（不删除行或附件）。复放不会使派生条目失效；如需一致，另行执行 `UPDATE memory_item_sources SET is_valid = 0 WHERE conversation_id = '<conversationId>'`，并把只剩无效来源或属于该会话的条目置为 INACTIVE、写 `source_deleted_at`。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。
   4. **无法核实的时间段。** 如果日志覆盖不到故障时间，或者有行无法核对，这些数据保持不可访问（spec 第 12 节）：不启动服务，或者不开放访问，由负责人决定后续处理。
   5. **记录结果。** 记录复放行数、各类结果的数量，以及日志覆盖终点。
 - 以上 SQL 只在隔离环境中人工执行；仓库不提供修改生产数据的脚本。

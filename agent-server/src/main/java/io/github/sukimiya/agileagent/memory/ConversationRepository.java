@@ -51,7 +51,7 @@ public class ConversationRepository {
 
     public Mono<Void> bumpRevision(String conversationId) {
         return db.sql("UPDATE sessions SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
-                        + " WHERE id = :id AND deleted_at IS NULL")
+                        + " WHERE id = :id AND is_valid = 1")
                 .bind("id", conversationId).fetch().rowsUpdated().then();
     }
 
@@ -90,7 +90,8 @@ public class ConversationRepository {
 
     /** Stored assistant text of a turn, or empty when none was saved. */
     public Mono<String> assistantText(String turnId) {
-        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'assistant'")
+        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'assistant'"
+                        + " AND is_valid = 1")
                 .bind("turnId", turnId)
                 .map(row -> row.get("payload", String.class))
                 .one()

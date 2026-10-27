@@ -406,7 +406,7 @@ class TurnStreamingIntegrationTest {
     void retryForADeletedConversationIsNotFoundNotReplayed() {
         stream(legacy(null, "k-deleted", "一"));
         var conversation = keyedTurns("k-deleted").getFirst().get("CONVERSATION_ID").toString();
-        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), title = '' WHERE id = ?", conversation);
+        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0 WHERE id = ?", conversation);
 
         expectError(legacy(null, "k-deleted", "一"), 404, "CONVERSATION_NOT_FOUND");
         assertThat(answerCalls).hasValue(1);

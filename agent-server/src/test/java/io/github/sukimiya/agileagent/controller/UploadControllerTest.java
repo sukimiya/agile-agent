@@ -233,7 +233,7 @@ class UploadControllerTest {
     @Test
     void uploadToDeletedSessionReturns404() {
         var conversation = ownedConversation(ALICE);
-        DB.jdbc().update("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6) WHERE id = ?", conversation);
+        DB.jdbc().update("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0 WHERE id = ?", conversation);
 
         upload(login(ALICE), conversation, "a.png").expectStatus().isNotFound();
         assertThat(sessionDir(conversation)).doesNotExist();
@@ -413,8 +413,11 @@ class UploadControllerTest {
         download(alice, conversation, "a.png").expectStatus().isNotFound();
         upload(alice, conversation, "b.png").expectStatus().isNotFound();
 
+        // Soft delete: the cleanup job keeps the file on disk (it stays subject to the upload TTL) and the
+        // attachment stays unreachable.
         maintenance.runPending(10).block();
-        assertThat(sessionDir(conversation)).doesNotExist();
+        assertThat(sessionDir(conversation).resolve("a.png")).exists();
+        download(alice, conversation, "a.png").expectStatus().isNotFound();
     }
 
     @Test
@@ -430,7 +433,7 @@ class UploadControllerTest {
         deleteConversation(alice, aliceConversation).expectStatus().isNoContent();
         maintenance.runPending(10).block();
 
-        assertThat(sessionDir(aliceConversation)).doesNotExist();
+        download(alice, aliceConversation, "a.png").expectStatus().isNotFound();
         assertThat(sessionDir(bobConversation).resolve("a.png")).exists();
         download(bob, bobConversation, "a.png").expectStatus().isOk();
     }

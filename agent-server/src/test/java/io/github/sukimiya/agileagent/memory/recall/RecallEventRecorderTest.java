@@ -182,7 +182,7 @@ class RecallEventRecorderTest {
     }
 
     @Test
-    void deletingConversationRemovesRecallEvents() throws Exception {
+    void deletingConversationInvalidatesRecallEvents() throws Exception {
         var ticket = ask("项目甲");
         var item = new RecallCandidate("item-1", null, "", 0, 0, List.of(SourceType.USER_INPUT), "ITEM", 50, true,
                 null, "用户负责项目甲", null);
@@ -198,6 +198,10 @@ class RecallEventRecorderTest {
                 stack.cache(), new FileStorageService(uploads), stack.props(), stack.metrics());
         maintenance.deleteConversation(ALICE, conversation).block(WAIT);
         maintenance.runPending(10).block(WAIT);
-        assertThat(events(ticket.turnId())).isEmpty();
+        // Soft delete: the rows stay (they still count as references) but are invalid and never explained.
+        assertThat(events(ticket.turnId())).hasSize(1);
+        assertThat(stack.rows("SELECT COUNT(*) AS n FROM memory_recall_events WHERE turn_id = ? AND is_valid = 1",
+                ticket.turnId()).getFirst().get("N")).isEqualTo(0L);
+        assertThat(recorder.forTurn(ALICE, conversation, ticket.turnId()).collectList().block(WAIT)).isEmpty();
     }
 }

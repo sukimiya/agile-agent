@@ -138,7 +138,7 @@ class IdleConversationScannerTest {
         var deleted = MemoryTestStack.newConversationId();
         completedTurn(deleted, "问题一");
         age(deleted, 60);
-        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6) WHERE id = ?", deleted);
+        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0 WHERE id = ?", deleted);
         assertThat(scan()).isZero();
         assertThat(jobs()).isEmpty();
     }

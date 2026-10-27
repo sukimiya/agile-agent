@@ -127,7 +127,7 @@ class JudgementValidatorTest {
 
     @Test
     void deletedSourceRejected() {
-        fixture.jdbc().update("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6) WHERE id = ?", conversation);
+        fixture.jdbc().update("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0 WHERE id = ?", conversation);
         assertRejected(() -> validator.validate(ALICE,
                 remember("USER_STATED", List.of(userMsgId), List.of("A7-3921"), "x"), rules).block(WAIT));
     }

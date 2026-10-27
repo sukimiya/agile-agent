@@ -85,7 +85,7 @@ public class ChunkIndexer {
 
     private Mono<Boolean> lockLiveSession(MemoryScope scope, String conversationId) {
         return db.sql("SELECT id FROM sessions WHERE id = :c AND tenant_id = :tenantId AND user_id = :subject"
-                        + " AND deleted_at IS NULL FOR UPDATE")
+                        + " AND is_valid = 1 FOR UPDATE")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> row.get("id", String.class))
                 .all().hasElements();

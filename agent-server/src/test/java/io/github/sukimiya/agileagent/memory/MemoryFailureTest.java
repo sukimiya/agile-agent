@@ -236,32 +236,36 @@ class MemoryFailureTest {
         stack.history().page(MemoryTestStack.ALICE, conversation, null, 10).block(WAIT); // fills the cache
         var properties = new UploadProperties();
         properties.setDir(uploads.toString());
-        var files = spy(new FileStorageService(properties));
-        doReturn(Mono.error(new java.io.UncheckedIOException(new java.io.IOException("disk unavailable"))))
-                .doCallRealMethod().when(files).deleteConversationFiles(conversation);
-        var first = maintenance(stack, files);
+        var files = new FileStorageService(properties);
+        // The best-effort tombstone at delete time and the first cleanup attempt fail; the retry succeeds.
+        var cache = spy(stack.cache());
+        doReturn(Mono.error(new java.io.IOException("redis unavailable")))
+                .doReturn(Mono.error(new java.io.IOException("redis unavailable")))
+                .doCallRealMethod().when(cache).tombstone(any(), org.mockito.ArgumentMatchers.anyString());
+        var first = maintenance(stack, files, cache);
 
         first.deleteConversation(MemoryTestStack.ALICE, conversation).block(WAIT);
         assertThat(first.runPending(10).block(WAIT)).isZero(); // cleanup fails, job goes back to PENDING
         assertThat(job(stack, conversation)).containsEntry("STATUS", "PENDING");
 
         assertGone(stack, conversation);
-        // Messages go first; the file step failed, so the job records one attempt and only the error type.
+        // Messages are invalidated first; the cache step failed, so the job records one attempt and only the error type.
         assertThat(stack.rows("SELECT attempts, last_error FROM memory_jobs WHERE conversation_id = ?"
                 + " AND job_type = 'CONVERSATION_CLEANUP'", conversation))
                 .singleElement().satisfies(row -> {
                     assertThat(((Number) row.get("ATTEMPTS")).intValue()).isEqualTo(1);
-                    assertThat(String.valueOf(row.get("LAST_ERROR"))).doesNotContain("disk unavailable");
+                    assertThat(String.valueOf(row.get("LAST_ERROR"))).doesNotContain("redis unavailable");
                 });
 
         // A restarted process retries once the backoff has passed.
         stack.sql("UPDATE memory_jobs SET available_at = TIMESTAMPADD(SECOND, -1, CURRENT_TIMESTAMP(6))"
                 + " WHERE conversation_id = ? AND job_type = 'CONVERSATION_CLEANUP'", conversation);
-        var restarted = maintenance(stack, files);
+        var restarted = maintenance(stack, files, cache);
         assertThat(restarted.runPending(10).block(WAIT)).isEqualTo(1);
 
         assertThat(job(stack, conversation)).containsEntry("STATUS", "DONE");
-        assertThat(stack.rows("SELECT id FROM chat_messages WHERE conversation_id = ?", conversation)).isEmpty();
+        assertThat(stack.rows("SELECT id FROM chat_messages WHERE conversation_id = ? AND is_valid = 1",
+                conversation)).isEmpty();
         assertGone(stack, conversation);
         assertThat(stack.rows("SELECT deleted_at FROM sessions WHERE id = ?", conversation)).singleElement()
                 .satisfies(row -> assertThat(row.get("DELETED_AT")).isNotNull());
@@ -300,8 +304,13 @@ class MemoryFailureTest {
     }
 
     private static MemoryMaintenance maintenance(MemoryTestStack stack, FileStorageService files) {
+        return maintenance(stack, files, stack.cache());
+    }
+
+    private static MemoryMaintenance maintenance(MemoryTestStack stack, FileStorageService files,
+            HotMemoryCache cache) {
         var fixture = stack.fixture();
-        return new MemoryMaintenance(fixture.connectionFactory(), fixture.databaseClient(), stack.cache(), files,
+        return new MemoryMaintenance(fixture.connectionFactory(), fixture.databaseClient(), cache, files,
                 stack.props(), stack.metrics());
     }
 
@@ -317,6 +326,6 @@ class MemoryFailureTest {
                         e -> assertThat(e.code()).isEqualTo(ErrorCode.CONVERSATION_NOT_FOUND));
         assertThatThrownBy(() -> stack.accept(conversation, "复活？")).isInstanceOfSatisfying(MemoryException.class,
                 e -> assertThat(e.code()).isEqualTo(ErrorCode.CONVERSATION_NOT_FOUND));
-        assertThat(stack.rows("SELECT id FROM sessions WHERE id = ? AND deleted_at IS NULL", conversation)).isEmpty();
+        assertThat(stack.rows("SELECT id FROM sessions WHERE id = ? AND is_valid = 1", conversation)).isEmpty();
     }
 }
