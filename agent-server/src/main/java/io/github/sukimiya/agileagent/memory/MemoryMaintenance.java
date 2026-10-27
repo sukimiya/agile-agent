@@ -273,6 +273,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .then(scopedDelete("chat_tool_events", scope, c))
                 .then(scopedDelete("memory_chunks", scope, c))
                 .then(scopedDelete("memory_summaries", scope, c))
+                .then(scopedDelete("memory_recall_events", scope, c))
                 .then(deleteSessionScopedItems(scope, c))
                 .then(scopedDelete("memory_index_progress", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))

@@ -44,6 +44,8 @@ public class MemoryExceptionHandler {
             case INVALID_IDEMPOTENCY_KEY -> "Idempotency-Key is invalid";
             case TENANT_REQUIRED -> "Tenant is required";
             case CONVERSATION_NOT_FOUND -> "Conversation not found";
+            case MEMORY_ITEM_NOT_FOUND -> "Memory item not found";
+            case MEMORY_ITEM_CONFLICT -> "Memory item was changed or superseded; reload it and retry";
             case IDEMPOTENCY_CONFLICT -> "Idempotency-Key was used for a different request";
             case TURN_IN_PROGRESS -> "A reply is already being generated for this conversation";
             case TURN_TERMINATED -> "This request already ended; retry with a new Idempotency-Key";

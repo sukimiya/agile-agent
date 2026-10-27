@@ -137,7 +137,7 @@ public class MemoryItemRepository {
                 .take(limit);
     }
 
-    private static MemoryItem mapRow(io.r2dbc.spi.Readable row) {
+    static MemoryItem mapRow(io.r2dbc.spi.Readable row) {
         return new MemoryItem(row.get("id", String.class),
                 new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
                 row.get("conversation_id", String.class), row.get("item_type", String.class),

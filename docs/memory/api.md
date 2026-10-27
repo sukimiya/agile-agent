@@ -13,6 +13,8 @@
 | `INVALID_IDEMPOTENCY_KEY` | 400 | `Idempotency-Key` 不符合格式：长度 1–128，仅允许 ASCII 字母数字和 `._:-` |
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
+| `MEMORY_ITEM_NOT_FOUND` | 404 | （M2b 起）记忆条目不存在、属于他人或已被用户删除；不区分具体原因 |
+| `MEMORY_ITEM_CONFLICT` | 409 | （M2b 起）更正的条目已被替代，或请求中的 `expectedRevision` 与当前版本不符；重新读取后再试 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 同一用户的同一 `Idempotency-Key`（保留期内）对应不同请求：入口、`conversationId`、消息内容或附件 ID 不同 |
 | `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId` 及其 `conversationId`，前端显示“正在生成” |
 | `TURN_TERMINATED` | 409 | 同一 key 的执行已失败/取消/中断；新执行需使用新 key |
@@ -122,6 +124,42 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 `crossConversationEnabled`：是否允许基础 Recall 检索自己的其他会话（D1=A，默认关闭）。关闭后下一个问题起不再检索其他会话。
 
+## 用户记忆（`/api/memory/items`、`/api/memory/profile`，M2b 起，D15=A）
+
+只操作当前用户（租户 + subject）自己的长期记忆条目；范围始终取自服务端身份。所有接口：未登录 401，缺租户 403 `TENANT_REQUIRED`，数据库不可用 503 `STORAGE_UNAVAILABLE`。条目响应不含租户与 subject，字段：`id`、`conversationId`（null 表示用户级）、`itemType`、`content`、`status`、`assertion`（`USER_CONFIRMED` / `USER_STATED` / `INFERRED`）、`importance`、`confidence`、`validUntil`、`supersededBy`、`revision`、`createdAt`、`updatedAt`。
+
+| 接口 | 说明 | 成功 |
+| --- | --- | --- |
+| `GET /api/memory/items?status=&limit=&before=` | 按创建时间从新到旧；`status` 为 `ItemStatus` 之一（省略时返回除 DELETED 外全部），`limit` 1–100（默认 20），`before` 取上一页的 `nextBefore` | 200 `{"items": [...], "nextBefore": "…" 或 null}` |
+| `GET /api/memory/items/{id}` | 条目及来源：`sources[]` 含 `messageId`、`conversationId`、`sourceType`、`evidenceExcerpt` | 200 `{"item": {...}, "sources": [...]}` |
+| `POST /api/memory/items/{id}/corrections` | 请求体 `{"content": "…", "expectedRevision": 3}`（`expectedRevision` 可省略）。按 D16 新建一条 ACTIVE、`USER_CONFIRMED` 的条目（类型与所属会话同旧条目），旧条目变为 SUPERSEDED 并指向新条目，二者在同一事务内生效；旧条目正文保留以便查看历史 | 201 新条目 |
+| `DELETE /api/memory/items/{id}` | 条目标记 DELETED 并清空正文，删除来源，由它派生的关系失效，删除引用它的每轮解释记录；已有概要快照立即按剩余条目重写（即使跨会话开关已关闭，只删内容、不做新的汇总）。之后不会再被召回或用于重建 | 204 |
+| `DELETE /api/memory/profile` | 删除概要快照、全部实体与关系（以及引用它们的每轮解释记录）和缓存；条目保留，跨会话开关打开时之后的重建会从条目重新生成概要 | 204 |
+| `GET/PUT /api/memory/settings` | 见“记忆设置” | 200 |
+
+| 错误 | 响应 |
+| --- | --- |
+| `status` 不是合法状态、`limit` 不在 1–100、`before` 不是自己可见的条目 | 400 `INVALID_ARGUMENT` |
+| 更正内容缺失或为空、`expectedRevision` 不是整数、内容含被拒绝的个人敏感信息（F3：手机号、身份证号、银行卡号、密钥等） | 400 `INVALID_ARGUMENT` |
+| 条目不存在、属于他人或已删除（含重复删除） | 404 `MEMORY_ITEM_NOT_FOUND` |
+| 更正已被替代的条目，或 `expectedRevision` 不符 | 409 `MEMORY_ITEM_CONFLICT` |
+
+## 每轮记忆解释（`GET /api/conversations/{id}/turns/{turnId}/memory`，M2b 起）
+
+返回这一轮回答所用提示词中**实际放进去**的记忆，按提示词中的顺序：
+
+```json
+{"conversationId": "…", "turnId": "…", "events": [
+  {"kind": "PROFILE", "refId": "7", "reason": "PROFILE", "score": null, "rank": 1, "sourceTypes": []},
+  {"kind": "ITEM", "refId": "<item id>", "reason": "ITEM", "score": 50.8, "rank": 2, "sourceTypes": ["USER_INPUT"]}
+]}
+```
+
+- `kind`：`PROFILE`（`refId` 为概要版本）、`RELATION`（关系 id，`reason` 为 `ONE_HOP`）、`ITEM`（记忆条目 id）、`CHUNK`（原文片段 id）、`SUMMARY`（没有对应片段的整轮命中，例如经轮次记录或 `RECENT_GAP` 命中，`refId` 为轮次 id）。`reason` 为召回原因（见“基础 Recall”），`score` 为排序分数，`rank` 从 1 开始。只记录 id 与依据，不记录正文。
+- 只记录直接回答或汇总调用实际注入的内容：被检索到但因预算放不下、或已在近期历史窗口内的候选不出现；路由与能力调用不记录。没有注入任何记忆的轮次返回空 `events`。
+- 解释在回答之外异步写入（受管的有界队列）：写入失败或队列满只计入 `memory.recall.explain{outcome=failed|dropped}`，从不影响回答，此时该轮的 `events` 可能为空。
+- 会话 ID 不合法 400 `INVALID_CONVERSATION_ID`；会话不存在、属于他人或已删除 404 `CONVERSATION_NOT_FOUND`；`turnId` 为空或超过 64 字符 400 `INVALID_ARGUMENT`；缺租户 403。删除会话时该会话的解释记录随物理清理一并删除。
+
 ## 工具调用记录（`chat_tool_events`）
 
 不新增 HTTP 接口，也不改变 `tool_call` 事件格式（其参数摘要现在先经脱敏）。每次能力工具调用都按执行（turn）记录：能力、工具名、call id、脱敏后的参数、脱敏后的结果或错误类型、来源类型（`TOOL_RESULT`）以及开始、更新、结束时间。
@@ -177,4 +215,4 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - 该会话尚未执行的切块任务（`INDEX_CHUNKS`）被删除；会话的原文片段与轮次记录立即不能再被检索到。
 - 登记一个持久清理任务。
 
-物理清理在后台进行，失败会重试：删除消息、工具调用记录和该会话的本地附件目录，并把缓存条目替换为不含内容的删除标记，之后的缓存回填一律被拒绝。附件目录名就是会话 ID，所以不会删到其他会话或其他用户的文件。删除标记（会话 ID、归属、删除时间，不含正文）永久保留，同一 ID 不能再被聊天或上传重新创建，任何后台任务或缓存重建都不会使已删除内容复活。执行记录 `chat_turns` 只含状态、用量与请求 ID，不含正文，作为删除标记的一部分保留。
+物理清理在后台进行，失败会重试：删除消息、工具调用记录、该会话的每轮记忆解释记录和该会话的本地附件目录，并把缓存条目替换为不含内容的删除标记，之后的缓存回填一律被拒绝。附件目录名就是会话 ID，所以不会删到其他会话或其他用户的文件。删除标记（会话 ID、归属、删除时间，不含正文）永久保留，同一 ID 不能再被聊天或上传重新创建，任何后台任务或缓存重建都不会使已删除内容复活。执行记录 `chat_turns` 只含状态、用量与请求 ID，不含正文，作为删除标记的一部分保留。

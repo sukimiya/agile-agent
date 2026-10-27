@@ -263,17 +263,20 @@ public class MemoryRetriever {
     }
 
     private Mono<RecallResult> enrich(MemoryScope scope, String current, String query, RecallResult base) {
-        Mono<String> profileMono = profiles == null ? Mono.just("")
-                : profiles.current(scope).map(opt -> opt.map(p -> p.content() == null ? "" : p.content()).orElse(""));
-        Mono<List<String>> relMono = relationLines(scope, query);
+        Mono<java.util.Optional<io.github.sukimiya.agileagent.memory.items.Profile>> profileMono = profiles == null
+                ? Mono.just(java.util.Optional.empty())
+                : profiles.current(scope);
+        Mono<List<RecallResult.RelationHit>> relMono = relationLines(scope, query);
         Mono<List<RecallCandidate>> itemMono = itemCandidates(scope, current, query);
-        return Mono.zip(profileMono.defaultIfEmpty(""), relMono.defaultIfEmpty(List.of()),
+        return Mono.zip(profileMono.defaultIfEmpty(java.util.Optional.empty()), relMono.defaultIfEmpty(List.of()),
                         itemMono.defaultIfEmpty(List.of()))
                 .map(t -> {
                     var merged = new ArrayList<>(base.items());
                     merged.addAll(t.getT3());
-                    String profile = t.getT1().isBlank() ? null : t.getT1();
-                    return new RecallResult(merged, base.coverageLimited(), base.latency(), profile, t.getT2());
+                    var profile = t.getT1().filter(p -> p.content() != null && !p.content().isBlank());
+                    return new RecallResult(merged, base.coverageLimited(), base.latency(),
+                            profile.map(p -> p.content()).orElse(null), profile.map(p -> p.version()).orElse(null),
+                            t.getT2());
                 });
     }
 
@@ -296,7 +299,7 @@ public class MemoryRetriever {
                 item.conversationId() == null, null, item.content(), null);
     }
 
-    private Mono<List<String>> relationLines(MemoryScope scope, String query) {
+    private Mono<List<RecallResult.RelationHit>> relationLines(MemoryScope scope, String query) {
         if (entities == null) {
             return Mono.just(List.of());
         }
@@ -328,11 +331,12 @@ public class MemoryRetriever {
                 .collectList();
     }
 
-    private Mono<String> formatRelation(MemoryScope scope,
+    private Mono<RecallResult.RelationHit> formatRelation(MemoryScope scope,
             io.github.sukimiya.agileagent.memory.items.MemoryRelation rel) {
         return entities.findById(scope, rel.fromEntityId())
                 .zipWith(entities.findById(scope, rel.toEntityId()))
-                .map(t -> t.getT1().name() + " —" + rel.relation() + "→ " + t.getT2().name());
+                .map(t -> new RecallResult.RelationHit(rel.id(),
+                        t.getT1().name() + " —" + rel.relation() + "→ " + t.getT2().name()));
     }
 
 }

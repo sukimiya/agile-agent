@@ -75,6 +75,32 @@ public class ProfileService {
         });
     }
 
+    /**
+     * After a user deleted an item: when a snapshot exists it is re-rendered from the remaining ACTIVE user-level
+     * items even if cross-conversation recall is now off, so deleted content never survives in a kept snapshot
+     * (this only removes content; no new aggregation happens while the switch is off — the snapshot is not read
+     * then). Without a snapshot only the cache is invalidated.
+     */
+    public Mono<Void> refreshSnapshot(MemoryScope scope) {
+        return loadRow(scope).flatMap(opt -> {
+            if (opt.isEmpty()) {
+                return cache.invalidate(scope);
+            }
+            return items.findActiveUserLevel(scope).collectList()
+                    .flatMap(list -> upsert(scope, render(list, props.getProfile().getMaxTokens()),
+                            list.stream().mapToLong(MemoryItem::revision).sum()))
+                    .flatMap(profile -> cache.invalidate(scope).then(cache.put(profile)));
+        });
+    }
+
+    /** Removes the snapshot row and its cache entry (user "delete my profile"). */
+    public Mono<Void> purge(MemoryScope scope) {
+        return db.sql("DELETE FROM user_memory_profiles WHERE tenant_id = :tenantId AND subject = :subject")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated()
+                .then(cache.invalidate(scope));
+    }
+
     public Mono<Void> invalidateCache(MemoryScope scope) {
         return cache.invalidate(scope);
     }

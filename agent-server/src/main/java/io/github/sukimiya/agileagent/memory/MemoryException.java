@@ -12,6 +12,8 @@ public class MemoryException extends RuntimeException {
         INVALID_IDEMPOTENCY_KEY(400),
         TENANT_REQUIRED(403),
         CONVERSATION_NOT_FOUND(404),
+        MEMORY_ITEM_NOT_FOUND(404),
+        MEMORY_ITEM_CONFLICT(409),
         IDEMPOTENCY_CONFLICT(409),
         TURN_IN_PROGRESS(409),
         TURN_TERMINATED(409),

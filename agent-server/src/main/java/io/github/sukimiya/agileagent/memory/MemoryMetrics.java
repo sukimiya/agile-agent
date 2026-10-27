@@ -159,6 +159,15 @@ public class MemoryMetrics {
     }
 
 
+    /**
+     * Per-turn recall explanation writes ({@code memory.recall.explain}, {@code outcome}: {@code written},
+     * {@code failed} or {@code dropped} when the bounded queue is full). Never fails the turn.
+     */
+    public void recallExplain(String outcome) {
+        Counter.builder("memory.recall.explain").tag("outcome", outcome)
+                .description("Per-turn recall explanation writes").register(meters).increment();
+    }
+
     /** A long-term memory item was written by judgement (M2b Task 3). */
     public void judgementWritten() {
         Counter.builder("memory.judgement.written").description("Long-term memory items written by judgement")
