@@ -1,0 +1,426 @@
+package io.github.sukimiya.agileagent.memory.command;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.nio.file.Files;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import io.github.sukimiya.agileagent.agent.DomainAgent;
+import io.github.sukimiya.agileagent.agent.InProcessTaskDispatcher;
+import io.github.sukimiya.agileagent.agent.Orchestrator;
+import io.github.sukimiya.agileagent.capability.CapabilityRegistry;
+import io.github.sukimiya.agileagent.config.UploadProperties;
+import io.github.sukimiya.agileagent.memory.MemoryException;
+import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
+import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
+import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.MemoryTestFixture;
+import io.github.sukimiya.agileagent.memory.MemoryTestStack;
+import io.github.sukimiya.agileagent.memory.SourceType;
+import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
+import io.github.sukimiya.agileagent.memory.context.ContextBudget;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
+import io.github.sukimiya.agileagent.memory.items.ItemStatus;
+import io.github.sukimiya.agileagent.memory.items.MemoryItem;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemService;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemSourceRepository;
+import io.github.sukimiya.agileagent.memory.items.ProfileCache;
+import io.github.sukimiya.agileagent.memory.items.ProfileService;
+import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
+import io.github.sukimiya.agileagent.memory.judgement.ValidatedAction.SourceRef;
+import io.github.sukimiya.agileagent.memory.recall.ChunkIndexer;
+import io.github.sukimiya.agileagent.memory.recall.ChunkRepository;
+import io.github.sukimiya.agileagent.memory.recall.FullTextSearch;
+import io.github.sukimiya.agileagent.memory.recall.MemoryRetriever;
+import io.github.sukimiya.agileagent.memory.recall.MemorySettingsService;
+import io.github.sukimiya.agileagent.memory.retention.MemoryIndexPurger;
+import io.github.sukimiya.agileagent.memory.summary.SummaryRepository;
+import io.github.sukimiya.agileagent.service.FileStorageService;
+import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
+import io.github.sukimiya.agileagent.spi.capability.ToolDefinition;
+import io.github.sukimiya.agileagent.util.NonBlockingIds;
+import reactor.core.publisher.Flux;
+
+/**
+ * In-chat forget / restore (M2b T5 follow-up, user decision 2026-10-27): only the user's own current input
+ * triggers it; matching follows the recall scope; one match is forgotten at once, several are listed for a
+ * pick by number or "全部" (short-lived, any other reply cancels), none changes nothing. FORGOTTEN items stay
+ * listed, leave recall and the profile, are never purged, and are audited; restore brings them back.
+ * H2 here; {@link MemoryForgetMySqlIntegrationTest} on MySQL.
+ */
+class MemoryForgetTest {
+
+    static final Duration WAIT = Duration.ofSeconds(15);
+    static final MemoryScope ALICE = MemoryTestStack.ALICE;
+    static final MemoryScope BOB = new MemoryScope(ALICE.tenantId(), "bob");
+    static final String CLINIC = "用户下周三要去口腔医院复诊";
+
+    MemoryTestStack stack;
+    MemoryItemRepository items;
+    MemoryItemSourceRepository sources;
+    EntityGraphRepository graph;
+    MemoryItemService itemService;
+    ProfileService profiles;
+    MemorySettingsService settings;
+    MemoryCommandService commands;
+    MemoryRetriever retriever;
+    MemoryMaintenance maintenance;
+    MemoryIndexPurger purger;
+    Orchestrator orchestrator;
+    String conversation;
+    final List<List<LlmClient.Message>> modelCalls = new CopyOnWriteArrayList<>();
+    final LlmClient llm = new LlmClient() {
+        @Override
+        public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools) {
+            return chatStream(messages, tools, new CallOptions(null));
+        }
+
+        @Override
+        public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools, CallOptions options) {
+            return Flux.defer(() -> {
+                modelCalls.add(List.copyOf(messages));
+                if (messages.getFirst().content().contains("路由模块")) {
+                    return Flux.just(new LlmEvent.Completed("[]"));
+                }
+                return Flux.just(new LlmEvent.ContentDelta("模型回答"), new LlmEvent.Completed("模型回答"));
+            });
+        }
+    };
+
+    protected MemoryTestFixture newFixture() {
+        return MemoryTestFixture.h2();
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        stack = MemoryTestStack.of(newFixture());
+        conversation = MemoryTestStack.newConversationId();
+        var db = stack.fixture().databaseClient();
+        var worker = new MemoryJobWorker(db, () -> false);
+        var chunks = new ChunkRepository(db, stack.conversations());
+        new ChunkIndexer(db, stack.fixture().connectionFactory(), chunks, worker, stack.props());
+        items = new MemoryItemRepository(db);
+        sources = new MemoryItemSourceRepository(db);
+        graph = new EntityGraphRepository(db);
+        var cache = new ProfileCache(null, stack.props());
+        settings = new MemorySettingsService(db, cache);
+        profiles = new ProfileService(db, items, settings, cache, stack.props());
+        itemService = new MemoryItemService(db, stack.fixture().connectionFactory(), items, sources, graph, profiles,
+                stack.props());
+        retriever = new MemoryRetriever(db, stack.props(), settings, chunks, new SummaryRepository(db,
+                stack.conversations()), FullTextSearch.forDatabase(db), stack.metrics(), items, graph, profiles);
+        commands = new MemoryCommandService(db, itemService, settings, stack.props());
+        var budget = new ContextBudget(stack.props());
+        var registry = new CapabilityRegistry(List.of());
+        orchestrator = new Orchestrator(new InProcessTaskDispatcher(new DomainAgent(registry, stack.toolRecorder(),
+                budget)), registry, stack.lifecycle(), stack.history(),
+                new ContextAssembler(stack.history(), budget, stack.metrics(), retriever), commands);
+        var uploads = new UploadProperties();
+        uploads.setDir(Files.createTempDirectory("forget").toString());
+        maintenance = new MemoryMaintenance(stack.fixture().connectionFactory(), db, stack.cache(),
+                new FileStorageService(uploads), stack.props(), stack.metrics());
+        purger = new MemoryIndexPurger(db, stack.props(), stack.metrics());
+    }
+
+    @AfterEach
+    void tearDown() {
+        stack.close();
+    }
+
+    // --- helpers -------------------------------------------------------------------------------------------
+
+    MemoryItem item(String conversationId, String content) {
+        var item = MemoryItem.newItem(ALICE, conversationId, "FACT", content, ItemStatus.ACTIVE,
+                MemoryItem.Assertion.USER_STATED, 0.5, 0.9, 1, "m", "r");
+        items.save(item).block(WAIT);
+        sources.saveAll(item.id(), List.of(new SourceRef(NonBlockingIds.uuid(),
+                conversationId == null ? conversation : conversationId, SourceType.USER_INPUT, content))).block(WAIT);
+        return item;
+    }
+
+    /** One chat turn through the orchestrator; returns the stored final answer. */
+    String say(String text) {
+        var accepted = stack.accept(ALICE, conversation, NonBlockingIds.uuid(), text);
+        orchestrator.chat(accepted, "tok", null, new ResolvedModel(llm, 32_768, 4_096)).collectList().block(WAIT);
+        assertThat(stack.status(accepted.ticket().turnId())).isEqualTo("COMPLETED");
+        lastTurn = accepted.ticket().turnId();
+        return stack.assistantText(lastTurn);
+    }
+
+    String lastTurn;
+
+    String status(MemoryItem item) {
+        return (String) stack.rows("SELECT status FROM memory_items WHERE id = ?", item.id()).getFirst().get("STATUS");
+    }
+
+    long count(String sql, Object... args) {
+        return ((Number) stack.rows(sql, args).getFirst().values().iterator().next()).longValue();
+    }
+
+    List<String> audit(String action) {
+        return stack.rows("SELECT target_id FROM memory_audit_log WHERE action = ? ORDER BY created_at, target_id",
+                action).stream().map(r -> (String) r.get("TARGET_ID")).toList();
+    }
+
+    // --- forget --------------------------------------------------------------------------------------------
+
+    @Test
+    void singleMatchIsForgottenAtOnceWithoutConfirmationOrModelCall() {
+        var clinic = item(conversation, CLINIC);
+        var other = item(conversation, "用户下周三要开会");
+
+        var reply = say("忘记我下周三去口腔医院复诊");
+
+        assertThat(reply).contains("已忘记").contains(CLINIC);
+        assertThat(modelCalls).as("a handled command calls no model").isEmpty();
+        assertThat(status(clinic)).isEqualTo("FORGOTTEN");
+        assertThat(status(other)).isEqualTo("ACTIVE");
+        assertThat(audit("FORGET_IN_CHAT")).containsExactly(clinic.id());
+        assertThat(stack.rows("SELECT actor FROM memory_audit_log WHERE action = 'FORGET_IN_CHAT'").getFirst())
+                .containsEntry("ACTOR", ALICE.subject());
+        assertThat(count("SELECT COUNT(*) FROM chat_turns WHERE id = ? AND memory_command = 'FORGET'", lastTurn))
+                .as("the command turn is marked so judgement skips it").isEqualTo(1);
+        // Still listed (not a delete), excluded from item recall.
+        assertThat(itemService.list(ALICE, null, 20, null).block(WAIT).items()).extracting(MemoryItem::id)
+                .contains(clinic.id());
+        assertThat(itemService.list(ALICE, ItemStatus.FORGOTTEN, 20, null).block(WAIT).items())
+                .extracting(MemoryItem::id).containsExactly(clinic.id());
+        assertThat(items.searchActive(ALICE, conversation, List.of("口腔"), 10).collectList().block(WAIT)).isEmpty();
+    }
+
+    @Test
+    void severalMatchesAreListedThenPickedByNumber() {
+        var first = item(conversation, CLINIC);
+        var second = item(conversation, "用户每周三去口腔医院复诊牙套");
+
+        var list = say("忘记我下周三去口腔医院复诊");
+        assertThat(list).contains("1.").contains("2.").contains("全部").contains(CLINIC)
+                .contains("用户每周三去口腔医院复诊牙套");
+        assertThat(status(first)).isEqualTo("ACTIVE");
+        assertThat(status(second)).isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM memory_command_pending WHERE conversation_id = ?", conversation))
+                .isEqualTo(1);
+
+        var order = stack.rows("SELECT candidate_ids FROM memory_command_pending").getFirst().get("CANDIDATE_IDS")
+                .toString();
+        var pickedFirst = order.indexOf(first.id()) < order.indexOf(second.id()) ? second : first;
+        var reply = say("2");
+
+        assertThat(reply).contains("已忘记").contains(pickedFirst.content());
+        assertThat(status(pickedFirst)).isEqualTo("FORGOTTEN");
+        assertThat(status(pickedFirst == first ? second : first)).isEqualTo("ACTIVE");
+        assertThat(modelCalls).isEmpty();
+        assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).as("pick consumes the token").isZero();
+    }
+
+    @Test
+    void allPicksEveryListedCandidate() {
+        var first = item(conversation, CLINIC);
+        var second = item(conversation, "用户每周三去口腔医院复诊牙套");
+        say("忘记我下周三去口腔医院复诊");
+
+        say("全部");
+
+        assertThat(status(first)).isEqualTo("FORGOTTEN");
+        assertThat(status(second)).isEqualTo("FORGOTTEN");
+        assertThat(audit("FORGET_IN_CHAT")).containsExactlyInAnyOrder(first.id(), second.id());
+    }
+
+    @Test
+    void atMostFiveCandidatesAreListed() {
+        for (int i = 0; i < 7; i++) {
+            item(conversation, "用户下周三去口腔医院复诊第" + i + "次");
+        }
+        var list = say("忘记我下周三去口腔医院复诊");
+        assertThat(list).contains("5.").doesNotContain("6.");
+    }
+
+    @Test
+    void unrelatedReplyCancelsThePickAndIsAnsweredNormally() {
+        var first = item(conversation, CLINIC);
+        var second = item(conversation, "用户每周三去口腔医院复诊牙套");
+        say("忘记我下周三去口腔医院复诊");
+
+        var reply = say("今天天气怎么样");
+
+        assertThat(reply).isEqualTo("模型回答");
+        assertThat(modelCalls).isNotEmpty();
+        assertThat(status(first)).isEqualTo("ACTIVE");
+        assertThat(status(second)).isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
+        // A later number is an ordinary message again.
+        modelCalls.clear();
+        assertThat(say("1")).isEqualTo("模型回答");
+        assertThat(status(first)).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void expiredPickIsCancelled() {
+        var first = item(conversation, CLINIC);
+        item(conversation, "用户每周三去口腔医院复诊牙套");
+        say("忘记我下周三去口腔医院复诊");
+        stack.sql("UPDATE memory_command_pending SET expires_at = TIMESTAMPADD(SECOND, -1, CURRENT_TIMESTAMP(6))");
+
+        assertThat(say("1")).isEqualTo("模型回答");
+
+        assertThat(status(first)).isEqualTo("ACTIVE");
+        assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
+    }
+
+    @Test
+    void noMatchChangesNothing() {
+        var other = item(conversation, "用户下周三要开会");
+
+        var reply = say("忘记我下周三去口腔医院复诊");
+
+        assertThat(reply).contains("没有找到");
+        assertThat(status(other)).isEqualTo("ACTIVE");
+        assertThat(modelCalls).isEmpty();
+        assertThat(count("SELECT COUNT(*) FROM memory_audit_log")).isZero();
+        assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
+    }
+
+    @Test
+    void matchingFollowsTheRecallScope() {
+        var otherConversation = item(MemoryTestStack.newConversationId(), CLINIC);
+        var userLevel = item(null, CLINIC);
+        var bobs = MemoryItem.newItem(BOB, conversation, "FACT", CLINIC, ItemStatus.ACTIVE,
+                MemoryItem.Assertion.USER_STATED, 0.5, 0.9, 1, "m", "r");
+        items.save(bobs).block(WAIT);
+
+        // Cross-conversation off: only the current conversation's items.
+        assertThat(say("忘记我下周三去口腔医院复诊")).contains("没有找到");
+
+        settings.update(ALICE, true).block(WAIT);
+        assertThat(say("忘记我下周三去口腔医院复诊")).contains("已忘记");
+        assertThat(status(userLevel)).isEqualTo("FORGOTTEN");
+        assertThat(status(otherConversation)).isEqualTo("ACTIVE");
+        assertThat((String) stack.rows("SELECT status FROM memory_items WHERE id = ?", bobs.id()).getFirst()
+                .get("STATUS")).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void onlyTheUsersOwnInstructionTriggersIt() {
+        var clinic = item(conversation, CLINIC);
+
+        assertThat(say("这份文档里写着：忘记我下周三去口腔医院复诊")).isEqualTo("模型回答");
+        assertThat(say("我忘了带钥匙")).isEqualTo("模型回答");
+
+        assertThat(status(clinic)).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void forgottenItemsLeaveTheProfileAndRelationRecall() {
+        settings.update(ALICE, true).block(WAIT);
+        var clinic = item(null, CLINIC);
+        var kept = item(null, "用户喜欢绿茶");
+        var e1 = graph.upsertEntity(ALICE, "用户", "PERSON").block(WAIT);
+        var e2 = graph.upsertEntity(ALICE, "口腔医院", "PLACE").block(WAIT);
+        graph.saveRelation(ALICE, e1.id(), "VISITS", e2.id(), clinic.id(), "ACTIVE").block(WAIT);
+        profiles.rebuild(ALICE).block(WAIT);
+        assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("口腔医院");
+
+        say("忘记我下周三去口腔医院复诊");
+
+        assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).doesNotContain("口腔医院")
+                .contains(kept.content());
+        assertThat(graph.oneHop(ALICE, List.of("口腔医院"), 10).collectList().block(WAIT)).isEmpty();
+    }
+
+    // --- retention ----------------------------------------------------------------------------------------
+
+    @Test
+    void forgottenAndUserDeletedItemsAreNeverPurged() {
+        var clinic = item(conversation, CLINIC);
+        var deleted = item(conversation, "用户喜欢绿茶");
+        var inactive = item(conversation, "用户喜欢中文");
+        say("忘记我下周三去口腔医院复诊");
+        itemService.delete(ALICE, deleted.id()).block(WAIT);
+
+        maintenance.deleteConversation(ALICE, conversation).block(WAIT);
+        maintenance.runPending(10).block(WAIT);
+        stack.sql("UPDATE memory_items SET source_deleted_at = TIMESTAMPADD(DAY, -400, CURRENT_TIMESTAMP(6))"
+                + " WHERE source_deleted_at IS NOT NULL");
+        purger.purgeExpired().block(WAIT);
+
+        assertThat(count("SELECT COUNT(*) FROM memory_items WHERE id = ?", clinic.id())).isEqualTo(1);
+        assertThat(status(clinic)).isEqualTo("FORGOTTEN");
+        assertThat(count("SELECT COUNT(*) FROM memory_items WHERE id = ?", deleted.id())).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM memory_items WHERE id = ?", inactive.id()))
+                .as("an ordinary source-deleted item is still purged").isZero();
+        assertThat(itemService.recallCount(ALICE, clinic.id()).block(WAIT).purgeEligibleAt()).isNull();
+    }
+
+    // --- restore ------------------------------------------------------------------------------------------
+
+    @Test
+    void restoreApiBringsAForgottenItemBack() {
+        var clinic = item(conversation, CLINIC);
+        say("忘记我下周三去口腔医院复诊");
+
+        var restored = itemService.restore(ALICE, clinic.id(), ALICE.subject()).block(WAIT);
+
+        assertThat(restored.status()).isEqualTo(ItemStatus.ACTIVE);
+        assertThat(status(clinic)).isEqualTo("ACTIVE");
+        assertThat(audit("RESTORE")).containsExactly(clinic.id());
+        assertThat(items.searchActive(ALICE, conversation, List.of("口腔"), 10).collectList().block(WAIT))
+                .extracting(MemoryItem::id).containsExactly(clinic.id());
+        assertThatThrownBy(() -> itemService.restore(ALICE, clinic.id(), ALICE.subject()).block(WAIT))
+                .isInstanceOfSatisfying(MemoryException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.MEMORY_ITEM_CONFLICT));
+        assertThatThrownBy(() -> itemService.restore(BOB, clinic.id(), BOB.subject()).block(WAIT))
+                .isInstanceOfSatisfying(MemoryException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
+        assertThatThrownBy(() -> itemService.restore(ALICE, "missing", ALICE.subject()).block(WAIT))
+                .isInstanceOfSatisfying(MemoryException.class,
+                        e -> assertThat(e.code()).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
+    }
+
+    @Test
+    void restoringAnItemWhoseSourceWasDeletedLeavesItInactive() {
+        var clinic = item(conversation, CLINIC);
+        say("忘记我下周三去口腔医院复诊");
+        stack.sql("UPDATE memory_items SET source_deleted_at = CURRENT_TIMESTAMP(6) WHERE id = ?", clinic.id());
+
+        assertThat(itemService.restore(ALICE, clinic.id(), ALICE.subject()).block(WAIT).status())
+                .isEqualTo(ItemStatus.INACTIVE);
+    }
+
+    @Test
+    void inChatRestoreMatchesOnlyForgottenItems() {
+        var clinic = item(conversation, CLINIC);
+        var active = item(conversation, "用户每周三去口腔医院复诊牙套");
+        stack.sql("UPDATE memory_items SET status = 'FORGOTTEN' WHERE id = ?", clinic.id());
+
+        var reply = say("记起来我下周三去口腔医院复诊");
+
+        assertThat(reply).contains("已记起").contains(CLINIC).doesNotContain(active.content());
+        assertThat(status(clinic)).isEqualTo("ACTIVE");
+        assertThat(audit("RESTORE_IN_CHAT")).containsExactly(clinic.id());
+        assertThat(count("SELECT COUNT(*) FROM chat_turns WHERE id = ? AND memory_command = 'RESTORE'", lastTurn))
+                .isEqualTo(1);
+        assertThat(say("记起来我下周三去口腔医院复诊")).as("nothing forgotten any more").contains("没有找到");
+    }
+
+    @Test
+    void inChatRestoreWithSeveralMatchesAsksForAPick() {
+        var first = item(conversation, CLINIC);
+        var second = item(conversation, "用户每周三去口腔医院复诊牙套");
+        stack.sql("UPDATE memory_items SET status = 'FORGOTTEN'");
+
+        assertThat(say("记起来我下周三去口腔医院复诊")).contains("1.").contains("2.");
+        say("全部");
+
+        assertThat(status(first)).isEqualTo("ACTIVE");
+        assertThat(status(second)).isEqualTo("ACTIVE");
+    }
+}

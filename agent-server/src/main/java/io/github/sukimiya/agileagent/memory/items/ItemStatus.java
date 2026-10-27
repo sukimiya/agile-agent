@@ -7,5 +7,7 @@ public enum ItemStatus {
     CONFLICT,
     SUPERSEDED,
     INACTIVE,
-    DELETED
+    DELETED,
+    /** Forgotten in chat or restorable by the user: listed, never recalled, never in the profile, never purged. */
+    FORGOTTEN
 }

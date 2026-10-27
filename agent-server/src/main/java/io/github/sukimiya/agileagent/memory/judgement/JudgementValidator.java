@@ -181,6 +181,10 @@ public class JudgementValidator {
                     if (opt.isEmpty()) {
                         return Mono.error(new RejectedException("TARGET_NOT_FOUND"));
                     }
+                    if (opt.get().status() == ItemStatus.FORGOTTEN || opt.get().status() == ItemStatus.DELETED) {
+                        // The user forgot or deleted it; only the user brings it back.
+                        return Mono.error(new RejectedException("TARGET_NOT_AVAILABLE"));
+                    }
                     if (action.expectedRevision() != null
                             && opt.get().revision() != action.expectedRevision()) {
                         return Mono.error(new RejectedException("STALE_REVISION"));

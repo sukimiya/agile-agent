@@ -21,7 +21,7 @@
 
 ### 派生索引清除（M2b 起，`app.memory.purge.*`）
 
-- `MemoryIndexPurger` 每 `app.memory.purge.interval`（默认 1 小时）扫描一次（`app.memory.purge.enabled` 与 `app.memory.recovery-enabled` 同时开启时）。候选：① 不再 ACTIVE 且有 `source_deleted_at` 的记忆条目；② 已删除会话中 `is_valid = 0` 的原文片段（`memory_chunks`）与轮次记录（`memory_summaries`）。
+- `MemoryIndexPurger` 每 `app.memory.purge.interval`（默认 1 小时）扫描一次（`app.memory.purge.enabled` 与 `app.memory.recovery-enabled` 同时开启时）。候选：① 有 `source_deleted_at` 且状态不是 ACTIVE、DELETED（用户删除）或 FORGOTTEN（用户遗忘）的记忆条目——用户删除和遗忘的条目永久保留；② 已删除会话中 `is_valid = 0` 的原文片段（`memory_chunks`）与轮次记录（`memory_summaries`）。
 - **“清除”的含义：** 物理删除上述**派生索引行**（条目连同其来源与关系、片段、轮次记录）。原始会话数据（会话、执行、消息、工具记录）和召回记录（`memory_recall_events`）从不物理删除，只保持 `is_valid = 0`。这样数据库与 MySQL ngram 全文索引里不会长期残留已删除会话的副本，原始数据仍可按软删除原则查询。
 - 保留期按**召回引用数**分档，从来源被删除的时间算起（条目用 `source_deleted_at`，片段与轮次记录用会话的 `deleted_at`，数据库时间）。引用数 = 召回记录中指向该对象的不同轮次数（条目 `kind=ITEM`，片段 `CHUNK`，轮次记录 `SUMMARY` 按轮次 id），含已软删除的召回记录；条目再减去手动减少的数量（`recall_ref_offset`），最低为 0。
 - 分档在 `application.yml` 中配置，档数只靠配置即可改变（例如 5 档或 9 档），由 `RetentionTiers.retentionFor(count)` 统一解析：
@@ -45,6 +45,24 @@
   配置不合法（为空、首档不从 0 开始、`from-count` 不严格递增、`keep` 不为正）时服务启动失败并给出具体档位。
 - 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`；有清除时写一行 `memory.purge items=… chunks=… summaries=…` INFO 日志（不含内容）。
 - 恢复后的行为：从备份恢复出的已清除行仍是无效或 INACTIVE 状态，下一次扫描会按同样规则再次清除，不需要单独的清除清单。
+
+## 对话中遗忘与恢复（M2b，`app.memory.forget.*`）
+
+- 用户本人当前输入是“忘记…/把…忘掉”（恢复：“记起来…/把…记起来”）时，在路由前由确定性规则识别并直接回答，不调用模型；规则与边界见 `docs/memory/api.md`。
+- 配置：
+
+  ```yaml
+  app:
+    memory:
+      forget:
+        pending-ttl: 5m       # 多条匹配时编号选择的有效期（数据库时间）
+        max-candidates: 5     # 最多列出的候选数
+        min-score: 0.5        # 条目至少包含话题切分词的比例
+        scan-limit: 500       # 每次扫描该范围内最近更新的条目数
+  ```
+
+- 数据：遗忘只把条目状态改为 `FORGOTTEN`（版本号加 1，不置无效、不删除），写 `memory_audit_log`（`FORGET_IN_CHAT` / `RESTORE_IN_CHAT` / `RESTORE`，不含正文）和 `memory.audit` 日志；待选编号存于 `memory_command_pending`（每会话一条，下一轮即消费，过期行在该会话下一轮时删除）；被识别为指令的轮次在 `chat_turns.memory_command` 标记，记忆判断跳过这些轮次。
+- 日志：`memory.command kind=FORGET|RESTORE candidates=n`（不含话题和正文）。
 
 ### 后台任务（M2a 起）
 

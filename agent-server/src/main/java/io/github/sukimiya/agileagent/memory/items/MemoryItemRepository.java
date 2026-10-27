@@ -137,6 +137,28 @@ public class MemoryItemRepository {
                 .take(limit);
     }
 
+    /**
+     * Valid items in {@code status} for an in-chat forget / restore, newest first, at most {@code limit}: the same
+     * scope as item recall (user-level rows when {@code conversationId} is null, otherwise that conversation's
+     * session rows). ACTIVE rows also honour {@code valid_until}, like recall.
+     */
+    public Flux<MemoryItem> findForCommand(MemoryScope scope, String conversationId, ItemStatus status, int limit) {
+        var sql = "SELECT id, tenant_id, subject, conversation_id, item_type, content, status, assertion,"
+                + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
+                + " judge_model, reason, revision, created_at, updated_at FROM memory_items"
+                + " WHERE tenant_id = :tenantId AND subject = :subject AND status = :status AND is_valid = 1"
+                + (status == ItemStatus.ACTIVE ? " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                        : "")
+                + (conversationId == null ? " AND conversation_id IS NULL" : " AND conversation_id = :conversationId")
+                + " ORDER BY updated_at DESC, id DESC LIMIT " + Math.max(1, limit);
+        var spec = db.sql(sql).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .bind("status", status.name());
+        if (conversationId != null) {
+            spec = spec.bind("conversationId", conversationId);
+        }
+        return spec.map((row, meta) -> mapRow(row)).all();
+    }
+
     static MemoryItem mapRow(io.r2dbc.spi.Readable row) {
         return new MemoryItem(row.get("id", String.class),
                 new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class)),
@@ -155,7 +177,7 @@ public class MemoryItemRepository {
         return db.sql("UPDATE memory_items SET status = 'INACTIVE', revision = revision + 1,"
                         + " updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject"
-                        + " AND status NOT IN ('DELETED', 'SUPERSEDED')")
+                        + " AND status NOT IN ('DELETED', 'SUPERSEDED', 'FORGOTTEN')")
                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated().map(n -> n == 1);
     }

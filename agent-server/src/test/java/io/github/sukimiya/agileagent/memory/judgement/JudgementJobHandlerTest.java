@@ -279,4 +279,24 @@ class JudgementJobHandlerTest {
                     .isZero();
         }
     }
+
+    @Test
+    void memoryCommandTurnsAreNotJudged() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var original = answer;
+        answer = messages -> {
+            calls.incrementAndGet();
+            return original.apply(messages);
+        };
+        llmOutputs.add(actionJson("REMEMBER", "USER_STATED", "用户工号是 A7-3921"));
+        fixture.jdbc().update("UPDATE chat_turns SET memory_command = 'FORGET' WHERE id = 'turn-j'");
+        queue.enqueue(ALICE, conversation, JobType.JUDGE_MEMORY,
+                JudgementJobHandler.dedupeKey(conversation, 1), JudgementJobHandler.payload(1)).block(WAIT);
+
+        assertThat(worker.runPending(5).block(WAIT)).isEqualTo(1);
+
+        assertThat(calls).hasValue(0);
+        assertThat(fixture.jdbc().queryForObject("SELECT COUNT(*) FROM memory_items", Long.class)).isZero();
+        assertThat(progress.judgedThrough(ALICE, conversation).block(WAIT)).isEqualTo(1L);
+    }
 }

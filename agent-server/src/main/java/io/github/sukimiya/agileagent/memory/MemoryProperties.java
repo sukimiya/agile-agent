@@ -62,6 +62,32 @@ public class MemoryProperties {
 
     public Purge getPurge() { return purge; }
 
+    private final Forget forget = new Forget();
+
+    public Forget getForget() { return forget; }
+
+    /**
+     * In-chat forget / restore ("忘记…" / "记起来…", {@code app.memory.forget.*}): how long a numbered pick stays
+     * open, how many candidates are listed at most, the minimum share of the topic's terms an item must contain,
+     * and how many recent items of the scope are scanned.
+     */
+    public static class Forget {
+
+        private Duration pendingTtl = Duration.ofMinutes(5);
+        private int maxCandidates = 5;
+        private double minScore = 0.5;
+        private int scanLimit = 500;
+
+        public Duration getPendingTtl() { return pendingTtl; }
+        public void setPendingTtl(Duration pendingTtl) { this.pendingTtl = pendingTtl; }
+        public int getMaxCandidates() { return maxCandidates; }
+        public void setMaxCandidates(int maxCandidates) { this.maxCandidates = maxCandidates; }
+        public double getMinScore() { return minScore; }
+        public void setMinScore(double minScore) { this.minScore = minScore; }
+        public int getScanLimit() { return scanLimit; }
+        public void setScanLimit(int scanLimit) { this.scanLimit = scanLimit; }
+    }
+
     /**
      * Periodic purge of derived index rows of deleted sources (M2b Q4 redesign, {@code app.memory.purge.*}).
      * {@code tiers}: "from this recall reference count on, keep for this long", ascending, first from 0; the

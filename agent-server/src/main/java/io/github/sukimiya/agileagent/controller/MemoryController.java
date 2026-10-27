@@ -168,6 +168,18 @@ public class MemoryController {
         }).onErrorMap(MemoryController::storage);
     }
 
+    /**
+     * Undoes a forget: FORGOTTEN becomes ACTIVE again (INACTIVE when its source conversation was deleted), audited
+     * with the caller as actor. 404 for a missing or other owner's item, 409 when it is not FORGOTTEN.
+     */
+    @PostMapping("/api/memory/items/{id}/restore")
+    Mono<ItemView> restore(@CurrentUser AuthSessionStore.AuthUser user, @PathVariable String id) {
+        return Mono.defer(() -> {
+            var scope = MemoryScope.of(user.identity());
+            return items.restore(scope, id, scope.subject()).map(ItemView::of);
+        }).onErrorMap(MemoryController::storage);
+    }
+
     @DeleteMapping("/api/memory/items/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     Mono<Void> delete(@CurrentUser AuthSessionStore.AuthUser user, @PathVariable String id) {

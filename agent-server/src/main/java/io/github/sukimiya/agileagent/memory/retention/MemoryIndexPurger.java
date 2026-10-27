@@ -80,11 +80,14 @@ public class MemoryIndexPurger implements SmartLifecycle {
         return c.ageMicros() >= tiers.retentionFor(c.references()).toNanos() / 1_000;
     }
 
+    /** Never purged: live items, and items the user deleted or forgot (kept permanently). */
+    static final String KEPT = "('ACTIVE', 'DELETED', 'FORGOTTEN')";
+
     private Mono<Integer> purgeItems() {
         String select = "SELECT i.id, i.source_deleted_at AS t, i.recall_ref_offset AS o, "
                 + RecallReferences.countSql("ITEM", "i", "id") + " AS n,"
                 + " TIMESTAMPDIFF(MICROSECOND, i.source_deleted_at, CURRENT_TIMESTAMP(6)) AS age_us"
-                + " FROM memory_items i WHERE i.source_deleted_at IS NOT NULL AND i.status <> 'ACTIVE'"
+                + " FROM memory_items i WHERE i.source_deleted_at IS NOT NULL AND i.status NOT IN " + KEPT
                 + " AND i.source_deleted_at <= TIMESTAMPADD(MICROSECOND, -:minAge, CURRENT_TIMESTAMP(6))";
         return pages(select, "i.source_deleted_at", "i.id", true)
                 .filter(this::due)
@@ -93,7 +96,7 @@ public class MemoryIndexPurger implements SmartLifecycle {
                         .then(db.sql("DELETE FROM memory_item_sources WHERE item_id = :id").bind("id", c.id())
                                 .fetch().rowsUpdated())
                         .then(db.sql("DELETE FROM memory_items WHERE id = :id AND source_deleted_at IS NOT NULL"
-                                        + " AND status <> 'ACTIVE'")
+                                        + " AND status NOT IN " + KEPT)
                                 .bind("id", c.id()).fetch().rowsUpdated()))
                 .reduce(0, (sum, n) -> sum + n.intValue());
     }

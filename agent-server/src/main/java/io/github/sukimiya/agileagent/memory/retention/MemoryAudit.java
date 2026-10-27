@@ -27,13 +27,23 @@ public final class MemoryAudit {
 
     public Mono<Void> record(MemoryScope scope, String actor, String action, String targetKind, String targetId,
             long amount, long before, long after) {
-        return db.sql("INSERT INTO memory_audit_log (id, tenant_id, subject, actor, action, target_kind, target_id,"
+        return write(scope, actor, action, targetKind, targetId, amount, before, after);
+    }
+
+    /** A change without amounts (for example a status change such as forget / restore). */
+    public Mono<Void> record(MemoryScope scope, String actor, String action, String targetKind, String targetId) {
+        return write(scope, actor, action, targetKind, targetId, null, null, null);
+    }
+
+    private Mono<Void> write(MemoryScope scope, String actor, String action, String targetKind, String targetId,
+            Long amount, Long before, Long after) {
+        return nullable(nullable(nullable(db.sql("INSERT INTO memory_audit_log (id, tenant_id, subject, actor, action, target_kind, target_id,"
                         + " amount, count_before, count_after, created_at) VALUES (:id, :tenantId, :subject, :actor,"
                         + " :action, :kind, :target, :amount, :before, :after, CURRENT_TIMESTAMP(6))")
                 .bind("id", NonBlockingIds.uuid()).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .bind("actor", actor == null ? scope.subject() : actor).bind("action", action)
-                .bind("kind", targetKind).bind("target", targetId).bind("amount", amount)
-                .bind("before", before).bind("after", after)
+                .bind("kind", targetKind).bind("target", targetId), "amount", amount), "before", before),
+                "after", after)
                 .fetch().rowsUpdated()
                 .doOnSuccess(n -> {
                     var line = new java.util.LinkedHashMap<String, Object>();
@@ -53,5 +63,10 @@ public final class MemoryAudit {
                     }
                 })
                 .then();
+    }
+
+    private static DatabaseClient.GenericExecuteSpec nullable(DatabaseClient.GenericExecuteSpec spec, String name,
+            Long value) {
+        return value == null ? spec.bindNull(name, Long.class) : spec.bind(name, value);
     }
 }

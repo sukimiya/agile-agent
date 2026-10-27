@@ -228,6 +228,61 @@ public class MemoryItemService {
                 .then(state(scope, item.id())));
     }
 
+    /** Statuses never purged: live, user-deleted and forgotten items. */
+    private static final java.util.Set<String> KEPT = java.util.Set.of("ACTIVE", "DELETED", "FORGOTTEN");
+
+    /**
+     * Forgets the given items (in-chat forget): each still ACTIVE and valid item becomes FORGOTTEN (not a delete:
+     * it stays listed and restorable, leaves recall and the profile and is never purged), audited as
+     * {@code action} by {@code actor}. Items that changed meanwhile are skipped. Returns the forgotten items, in
+     * the given order; a kept profile snapshot is re-rendered without them.
+     */
+    public Mono<List<MemoryItem>> forget(MemoryScope scope, List<String> ids, String actor, String action) {
+        return transition(scope, ids, actor, action, "'FORGOTTEN'", "ACTIVE");
+    }
+
+    /**
+     * Restores forgotten items (in chat or {@link #restore}): FORGOTTEN becomes ACTIVE again, or INACTIVE when
+     * its source conversation was deleted meanwhile (then the usual purge tiers apply). Audited like
+     * {@link #forget}.
+     */
+    public Mono<List<MemoryItem>> restoreAll(MemoryScope scope, List<String> ids, String actor, String action) {
+        return transition(scope, ids, actor, action,
+                "CASE WHEN source_deleted_at IS NULL THEN 'ACTIVE' ELSE 'INACTIVE' END", "FORGOTTEN");
+    }
+
+    /**
+     * {@code POST /api/memory/items/{id}/restore}: a missing, deleted or other owner's item is
+     * {@code MEMORY_ITEM_NOT_FOUND}; an item that is not FORGOTTEN is {@code MEMORY_ITEM_CONFLICT}.
+     */
+    public Mono<MemoryItem> restore(MemoryScope scope, String id, String actor) {
+        return visibleOrNotFound(scope, id).flatMap(item -> item.status() != ItemStatus.FORGOTTEN
+                ? Mono.<MemoryItem>error(new MemoryException(ErrorCode.MEMORY_ITEM_CONFLICT))
+                : restoreAll(scope, List.of(item.id()), actor, "RESTORE").flatMap(list -> list.isEmpty()
+                        ? Mono.<MemoryItem>error(new MemoryException(ErrorCode.MEMORY_ITEM_CONFLICT))
+                        : Mono.just(list.getFirst())));
+    }
+
+    private Mono<List<MemoryItem>> transition(MemoryScope scope, List<String> ids, String actor, String action,
+            String newStatus, String fromStatus) {
+        return reactor.core.publisher.Flux.fromIterable(ids)
+                .concatMap(id -> db.sql("UPDATE memory_items SET status = " + newStatus + ","
+                                + " revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
+                                + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject"
+                                + " AND status = :from AND is_valid = 1")
+                        .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                        .bind("from", fromStatus)
+                        .fetch().rowsUpdated()
+                        .flatMap(n -> n == 1
+                                ? audit.record(scope, actor, action, "ITEM", id)
+                                        .then(items.findById(scope, id)).flatMap(Mono::justOrEmpty)
+                                : Mono.<MemoryItem>empty()))
+                .collectList()
+                .as(transactions::transactional)
+                .flatMap(changed -> changed.isEmpty() ? Mono.just(changed)
+                        : profiles.refreshSnapshot(scope).thenReturn(changed));
+    }
+
     private Mono<Long> loadOffset(MemoryScope scope, String id) {
         return db.sql("SELECT recall_ref_offset FROM memory_items WHERE id = :id AND tenant_id = :tenantId"
                         + " AND subject = :subject")
@@ -244,7 +299,8 @@ public class MemoryItemService {
                     .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                     .map((row, meta) -> {
                         var deletedAt = row.get("source_deleted_at", LocalDateTime.class);
-                        boolean candidate = deletedAt != null && !"ACTIVE".equals(row.get("status", String.class));
+                        boolean candidate = deletedAt != null
+                                && !KEPT.contains(row.get("status", String.class));
                         return new RecallCount(id, count, retention, candidate ? deletedAt.plus(retention) : null);
                     })
                     .one();

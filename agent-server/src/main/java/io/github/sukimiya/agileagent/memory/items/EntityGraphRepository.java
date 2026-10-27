@@ -108,6 +108,8 @@ public class EntityGraphRepository {
                             + " valid_from, valid_until, status FROM memory_relations"
                             + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE'"
                             + " AND is_valid = 1 AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                            + " AND NOT EXISTS (SELECT 1 FROM memory_items fi WHERE fi.id = memory_relations.item_id"
+                            + " AND fi.status = 'FORGOTTEN')"
                             + " ORDER BY valid_from DESC")
                     .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                     .map((row, meta) -> new MemoryRelation(row.get("id", String.class),

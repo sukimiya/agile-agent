@@ -219,4 +219,16 @@ class JudgementValidatorTest {
                 new JudgementAction("UPDATE", "FACT", "new", "USER_STATED", List.of(userMsgId),
                         List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), 99L), rules).block(WAIT));
     }
+
+    @Test
+    void forgottenOrDeletedTargetsCannotBeChangedByJudgement() {
+        for (var status : List.of(ItemStatus.FORGOTTEN, ItemStatus.DELETED)) {
+            var item = MemoryItem.newItem(ALICE, conversation, "FACT", "old", status,
+                    MemoryItem.Assertion.USER_STATED, 0.5, 0.9, 1, "m", "r");
+            items.save(item).block(WAIT);
+            assertRejected(() -> validator.validate(ALICE,
+                    new JudgementAction("UPDATE", "FACT", "new", "USER_STATED", List.of(userMsgId),
+                            List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), item.revision()), rules).block(WAIT));
+        }
+    }
 }

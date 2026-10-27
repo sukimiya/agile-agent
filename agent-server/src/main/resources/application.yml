@@ -65,6 +65,10 @@ app:
           keep: 7d
         - from-count: 5
           keep: 30d
+    # In-chat forget / restore ("忘记…" / "记起来…"): several matches are listed for a pick that stays open this long.
+    forget:
+      pending-ttl: 5m
+      max-candidates: 5
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
   upload:
     dir: ${app.data-dir}/uploads

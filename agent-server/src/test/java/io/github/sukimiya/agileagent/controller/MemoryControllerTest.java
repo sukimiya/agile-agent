@@ -128,6 +128,7 @@ class MemoryControllerTest {
                 client.delete().uri("/api/memory/items/i-1"),
                 client.delete().uri("/api/memory/profile"),
                 client.post().uri("/api/memory/items/i-1/recall-count/decrement"),
+                client.post().uri("/api/memory/items/i-1/restore"),
                 client.get().uri("/api/conversations/" + CONV + "/turns/t-1/memory"))) {
             auth(spec).exchange().expectStatus().isForbidden().expectBody().jsonPath("$.code")
                     .isEqualTo("TENANT_REQUIRED");
@@ -209,6 +210,17 @@ class MemoryControllerTest {
                 .thenReturn(Mono.error(new MemoryException(ErrorCode.MEMORY_ITEM_NOT_FOUND)));
         auth(client.post().uri("/api/memory/items/bob-item/recall-count/decrement")).exchange()
                 .expectStatus().isNotFound();
+
+        when(items.restore(SCOPE, "i-1", "user-1")).thenReturn(Mono.just(item("i-1", ItemStatus.ACTIVE)));
+        auth(client.post().uri("/api/memory/items/i-1/restore")).exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.id").isEqualTo("i-1").jsonPath("$.status").isEqualTo("ACTIVE");
+        when(items.restore(SCOPE, "i-2", "user-1"))
+                .thenReturn(Mono.error(new MemoryException(ErrorCode.MEMORY_ITEM_CONFLICT)));
+        auth(client.post().uri("/api/memory/items/i-2/restore")).exchange().expectStatus().isEqualTo(409)
+                .expectBody().jsonPath("$.code").isEqualTo("MEMORY_ITEM_CONFLICT");
+        when(items.restore(SCOPE, "bob-item", "user-1"))
+                .thenReturn(Mono.error(new MemoryException(ErrorCode.MEMORY_ITEM_NOT_FOUND)));
+        auth(client.post().uri("/api/memory/items/bob-item/restore")).exchange().expectStatus().isNotFound();
 
         when(items.delete(SCOPE, "i-1")).thenReturn(Mono.empty());
         auth(client.delete().uri("/api/memory/items/i-1")).exchange().expectStatus().isNoContent();

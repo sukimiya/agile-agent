@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,6 +24,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.memory.TurnRecorder;
+import io.github.sukimiya.agileagent.memory.command.MemoryCommandService;
 import io.github.sukimiya.agileagent.memory.context.AssembledContext;
 import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
 import io.github.sukimiya.agileagent.memory.context.ContextBudget;
@@ -91,6 +93,7 @@ public class Orchestrator {
     private final ConversationHistory history;
     private final ContextAssembler assembler;
     private final ContextBudget budget;
+    private final MemoryCommandService commands;
 
     /** Without a context budget: every call gets the full history (M1 behaviour). */
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
@@ -98,9 +101,20 @@ public class Orchestrator {
         this(dispatcher, capabilities, lifecycle, history, ContextAssembler.unbudgeted(history));
     }
 
-    @Autowired
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
                         ConversationHistory history, ContextAssembler assembler) {
+        this(dispatcher, capabilities, lifecycle, history, assembler, null);
+    }
+
+    /**
+     * With in-chat memory commands ("忘记…" / "记起来…", M2b T5 follow-up): the user's input is offered to
+     * {@code commands} first; a handled command is answered with its fixed text and no model call.
+     */
+    @Autowired
+    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
+                        ConversationHistory history, ContextAssembler assembler,
+                        @Nullable MemoryCommandService commands) {
+        this.commands = commands;
         this.dispatcher = dispatcher;
         this.capabilities = capabilities;
         this.lifecycle = lifecycle;
@@ -171,15 +185,20 @@ public class Orchestrator {
         var usage = new UsageAccumulator();
         var finalText = new AtomicReference<String>();
         Flux<String> body = history.userInput(ticket)
-                .flatMapMany(userMessage -> {
-                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
+                .flatMapMany(userMessage -> memoryCommand(ticket, userMessage).flatMapMany(command -> {
                     var answer = new FinalAnswer(recorder, finalText);
+                    if (command.isPresent()) {
+                        var text = command.get();
+                        return streamFinalAnswer(answer, Flux.just(new LlmClient.LlmEvent.ContentDelta(text),
+                                new LlmClient.LlmEvent.Completed(text)));
+                    }
+                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
                     return route(call, userMessage)
                             .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
                                     ? answerDirectly(call, answer, userMessage)
                                     : answerViaCapabilities(call, answer, userMessage, capabilityCodes,
                                             accessToken, identity));
-                });
+                }));
         return Flux.concat(
                 body.timeout(TOTAL_BUDGET),
                 // Stage the final text with every usage observed so far, including usage after Completed.
@@ -188,6 +207,11 @@ public class Orchestrator {
                 Flux.defer(() -> usage.observed()
                         ? Flux.just(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()))
                         : Flux.empty()));
+    }
+
+    /** The fixed answer of an in-chat memory command, or empty to answer normally (no commands: always empty). */
+    private Mono<java.util.Optional<String>> memoryCommand(TurnTicket ticket, String userMessage) {
+        return commands == null ? Mono.just(java.util.Optional.empty()) : commands.handle(ticket, userMessage);
     }
 
     private Flux<String> replay(AcceptedTurn accepted) {
