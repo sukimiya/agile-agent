@@ -13,7 +13,7 @@
 
 - **软删除原则（2026-10-27 用户确定）：** 会话、执行、消息等数据删除后仍保留在数据库中、可以查询；删除只把 `is_valid` 置 0（V13 迁移为相关表增加该列），所有正常读取、Recall、提示词和用户 API 都排除 `is_valid = 0` 的数据，所以已删除的内容不会再到达模型或用户接口。
 - `DELETE /api/conversations/{id}` 在一个事务内：`sessions.is_valid = 0` 并写 `deleted_at`（标题保留）、使执行权失效、删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务（任务记录不是会话数据）、把来自该会话的条目来源置为无效、把失去全部有效来源的条目和该会话的会话级条目置为 INACTIVE 并写 `source_deleted_at`（不再被召回，成为清除候选），并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`）。后台处理器由 `MemoryMaintenance` 注册给 `MemoryJobWorker`，在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
-- 清理任务内容（全部是 `UPDATE ... SET is_valid = 0`，不删除行）：`chat_messages`、`chat_tool_events`、`chat_turns`、`memory_chunks`、`memory_summaries`、`memory_recall_events`；Redis 中该会话的缓存条目替换为删除标记；已有的用户概要快照按剩余条目重写。`memory_index_progress` 保持不变；附件目录 `${app.upload.dir}/{conversationId}/` **不再删除**（下载按会话归属判定，已删除会话一律 404；附件仍受 `app.upload.ttl-hours` 的临时清理约束）。清理前会再次确认该会话已标记删除。
+- 清理任务内容（全部是 `UPDATE ... SET is_valid = 0`，不删除行）：`chat_messages`、`chat_tool_events`、`chat_turns`、`memory_chunks`、`memory_summaries`、`memory_recall_events`；Redis 中该会话的缓存条目替换为删除标记；已有的用户概要快照按剩余条目重写。`memory_index_progress` 保持不变；附件目录 `${app.upload.dir}/{conversationId}/` **不随会话删除而删除**（用户 2026-10-27 确认保持该行为；下载按会话归属判定，已删除会话一律 404；附件仍受 `app.upload.ttl-hours` 的临时清理约束）。清理前会再次确认该会话已标记删除。
 - 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
 - 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是数据库或 Redis 不可用。
 - 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
@@ -33,6 +33,7 @@
         enabled: true
         interval: 1h
         batch: 200          # 每页候选数（键集分页，一次扫描处理全部候选）
+        recall-record-ttl: 30d   # 召回记录过期时间（只标记、不删除；过期后不再计入引用数）
         tiers:              # 从 from-count 起（含）保留 keep；升序、首档从 0 开始、不重叠
           - from-count: 0
             keep: 1d
@@ -43,7 +44,8 @@
   ```
 
   配置不合法（为空、首档不从 0 开始、`from-count` 不严格递增、`keep` 不为正）时服务启动失败并给出具体档位。
-- 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`；有清除时写一行 `memory.purge items=… chunks=… summaries=…` INFO 日志（不含内容）。
+- **召回记录过期**（用户 2026-10-27 决定）：同一周期任务每次先把创建时间早于 `app.memory.purge.recall-record-ttl`（默认 `30d`）的召回记录标记为过期（写 `memory_recall_events.expired_at`，**从不删除**）。过期记录不再计入引用数，因此保留档位会随时间下降；同时把条目的手动减少量（`recall_ref_offset`）截到剩余有效引用数，之后的新召回从 0 起重新计数。每轮记忆解释接口仍返回过期记录（它们只是不再计数）。
+- 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`、`memory.recall.records.expired`；有清除或过期时写一行 `memory.purge items=… chunks=… summaries=… expiredRecallRecords=…` INFO 日志（不含内容）。
 - 恢复后的行为：从备份恢复出的已清除行仍是无效或 INACTIVE 状态，下一次扫描会按同样规则再次清除，不需要单独的清除清单。
 
 ## 对话中遗忘与恢复（M2b，`app.memory.forget.*`）

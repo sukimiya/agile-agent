@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnStatus;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
@@ -371,5 +372,71 @@ class SoftDeleteRetentionTest {
         assertThat(after.purgeEligibleAt()).isNotNull();
         assertThat(purger.purgeExpired().block(WAIT).items()).isOne();
         assertThat(exists(popular.id())).isFalse();
+    }
+
+    // --- recall record expiry ------------------------------------------------------------------------------
+
+    void referencesDaysAgo(String refId, long days) {
+        stack.sql("UPDATE memory_recall_events SET created_at = TIMESTAMPADD(DAY, -" + days + ", CURRENT_TIMESTAMP(6))"
+                + " WHERE ref_id = ?", refId);
+    }
+
+    @Test
+    void expiredRecallRecordsStopCountingSoTiersFall() {
+        completedTurn(conversation, "q", "a");
+        var stale = item(conversation, "六次旧引用", conversation);
+        var fresh = item(conversation, "六次新引用", conversation);
+        references("ITEM", stale.id(), 6, other);
+        references("ITEM", fresh.id(), 6, other);
+        referencesDaysAgo(stale.id(), 31);
+        referencesDaysAgo(fresh.id(), 29);
+        deleteConversation();
+        itemsDeletedHoursAgo(24 * 3);
+        assertThat(itemService.recallCount(ALICE, stale.id()).block(WAIT).count()).isEqualTo(6);
+
+        var result = purger.purgeExpired().block(WAIT);
+
+        assertThat(result.expiredRecallRecords()).isEqualTo(6);
+        assertThat(count("SELECT COUNT(*) FROM memory_recall_events WHERE ref_id = ?", stale.id()))
+                .as("expired, never deleted").isEqualTo(6);
+        assertThat(count("SELECT COUNT(*) FROM memory_recall_events WHERE ref_id = ? AND expired_at IS NOT NULL",
+                stale.id())).isEqualTo(6);
+        assertThat(count("SELECT COUNT(*) FROM memory_recall_events WHERE ref_id = ? AND expired_at IS NOT NULL",
+                fresh.id())).isZero();
+        assertThat(exists(stale.id())).as("0 live references -> 1 day tier, deleted 3 days ago").isFalse();
+        assertThat(exists(fresh.id())).as("still 6 live references -> 30 day tier").isTrue();
+        assertThat(purger.purgeExpired().block(WAIT).expiredRecallRecords()).as("idempotent").isZero();
+    }
+
+    @Test
+    void expiryCapsTheManualOffsetSoNewRecallsCountAgain() {
+        completedTurn(conversation, "q", "a");
+        var popular = item(conversation, "三次引用", conversation);
+        references("ITEM", popular.id(), 3, other);
+        itemService.decrementRecallCount(ALICE, popular.id(), 2, "alice").block(WAIT);
+        referencesDaysAgo(popular.id(), 40);
+
+        purger.purgeExpired().block(WAIT);
+
+        assertThat(itemService.recallCount(ALICE, popular.id()).block(WAIT).count()).isZero();
+        assertThat(count("SELECT recall_ref_offset FROM memory_items WHERE id = ?", popular.id())).isZero();
+        stack.sql("INSERT INTO memory_recall_events (id, tenant_id, subject, conversation_id, turn_id, kind, ref_id,"
+                + " reason, score, `rank`, source_types, created_at) VALUES (?, ?, ?, ?, 'turn-new', 'ITEM', ?, 'X', 1, 1,"
+                + " '', CURRENT_TIMESTAMP(6))", NonBlockingIds.uuid(), ALICE.tenantId(), ALICE.subject(), other,
+                popular.id());
+        assertThat(itemService.recallCount(ALICE, popular.id()).block(WAIT).count()).isOne();
+    }
+
+    @Test
+    void recallRecordTtlIsConfigurable() {
+        stack.props().getPurge().setRecallRecordTtl(Duration.ofDays(7));
+        var shortLived = new MemoryIndexPurger(stack.fixture().databaseClient(), stack.props(), stack.metrics());
+        completedTurn(conversation, "q", "a");
+        var popular = item(conversation, "引用", conversation);
+        references("ITEM", popular.id(), 2, other);
+        referencesDaysAgo(popular.id(), 8);
+
+        assertThat(shortLived.purgeExpired().block(WAIT).expiredRecallRecords()).isEqualTo(2);
+        assertThat(new MemoryProperties().getPurge().getRecallRecordTtl()).isEqualTo(Duration.ofDays(30));
     }
 }

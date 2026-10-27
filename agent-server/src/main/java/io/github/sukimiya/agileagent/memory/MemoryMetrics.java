@@ -169,6 +169,15 @@ public class MemoryMetrics {
     }
 
     /** Derived index rows physically purged after their retention ({@code kind}: ITEM, CHUNK or SUMMARY). */
+    /** Recall records marked expired by the periodic purge job (never deleted). */
+    public void recallRecordsExpired(long count) {
+        if (count > 0) {
+            Counter.builder("memory.recall.records.expired")
+                    .description("Recall records marked expired; they no longer count as references")
+                    .register(meters).increment(count);
+        }
+    }
+
     public void purged(String kind, long count) {
         if (count > 0) {
             Counter.builder("memory.purge.purged").tag("kind", kind)

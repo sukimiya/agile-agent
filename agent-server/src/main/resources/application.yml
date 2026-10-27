@@ -58,6 +58,8 @@ app:
     purge:
       enabled: true
       interval: 1h
+      # Recall records older than this are marked expired (never deleted) and stop counting as references.
+      recall-record-ttl: 30d
       tiers:
         - from-count: 0
           keep: 1d

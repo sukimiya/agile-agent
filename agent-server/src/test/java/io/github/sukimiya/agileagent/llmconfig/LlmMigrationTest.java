@@ -30,7 +30,7 @@ class LlmMigrationTest {
                 .isEqualTo("legacy doc");
         assertThat(jdbc.queryForList(
                 "SELECT \"version\" FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL' ORDER BY \"installed_rank\"",
-                String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10.1", "11", "12", "13", "14");
+                String.class)).containsExactly("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "10.1", "11", "12", "13", "14", "15");
         assertThat(jdbc.queryForObject("SELECT scope_type FROM knowledge_documents WHERE id = 'doc-v2'", String.class))
                 .isEqualTo("GLOBAL");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_documents WHERE id = 'doc-v2' AND tenant_id IS NULL AND org_id IS NULL", Integer.class))
@@ -49,7 +49,7 @@ class LlmMigrationTest {
 
         var jdbc = new JdbcTemplate(dataSource);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM \"" + historyTable() + "\" WHERE \"success\" = TRUE AND \"type\" = 'SQL'", Integer.class))
-                .isEqualTo(15);
+                .isEqualTo(16);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('CHAT_HINTS', 'LLM_PROVIDER_PRESET', 'TENANT_LLM_CONFIG')", Integer.class))
                 .isEqualTo(3);
     }

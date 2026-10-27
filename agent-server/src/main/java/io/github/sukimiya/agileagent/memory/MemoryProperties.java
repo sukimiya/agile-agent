@@ -98,6 +98,16 @@ public class MemoryProperties {
         private boolean enabled = true;
         private Duration interval = Duration.ofHours(1);
         private int batch = 200;
+        private Duration recallRecordTtl = Duration.ofDays(30);
+
+        /** Age after which a recall record is marked expired (never deleted) and stops counting as a reference. */
+        public Duration getRecallRecordTtl() { return recallRecordTtl; }
+        public void setRecallRecordTtl(Duration recallRecordTtl) {
+            if (recallRecordTtl == null || recallRecordTtl.isZero() || recallRecordTtl.isNegative()) {
+                throw new IllegalArgumentException("app.memory.purge.recall-record-ttl must be positive");
+            }
+            this.recallRecordTtl = recallRecordTtl;
+        }
         private java.util.List<Tier> tiers = new java.util.ArrayList<>(java.util.List.of(
                 Tier.of(0, Duration.ofDays(1)), Tier.of(2, Duration.ofDays(7)), Tier.of(5, Duration.ofDays(30))));
 

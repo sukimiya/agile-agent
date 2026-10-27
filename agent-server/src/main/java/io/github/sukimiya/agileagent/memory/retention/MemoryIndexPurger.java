@@ -35,7 +35,7 @@ public class MemoryIndexPurger implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryIndexPurger.class);
 
-    public record PurgeResult(int items, int chunks, int summaries) {}
+    public record PurgeResult(int items, int chunks, int summaries, int expiredRecallRecords) {}
 
     private record Candidate(String id, long references, long ageMicros, LocalDateTime cursorTime) {}
 
@@ -58,18 +58,37 @@ public class MemoryIndexPurger implements SmartLifecycle {
 
     /** One full pass over all candidates. */
     public Mono<PurgeResult> purgeExpired() {
-        return purgeItems().flatMap(items -> purgeChunks().flatMap(chunks -> purgeSummaries()
-                        .map(summaries -> new PurgeResult(items, chunks, summaries))))
+        return expireRecallRecords().flatMap(expired -> purgeItems().flatMap(items -> purgeChunks()
+                        .flatMap(chunks -> purgeSummaries()
+                                .map(summaries -> new PurgeResult(items, chunks, summaries, expired)))))
                 .doOnNext(r -> {
                     if (metrics != null) {
+                        metrics.recallRecordsExpired(r.expiredRecallRecords());
                         metrics.purged("ITEM", r.items());
                         metrics.purged("CHUNK", r.chunks());
                         metrics.purged("SUMMARY", r.summaries());
                     }
-                    if (r.items() + r.chunks() + r.summaries() > 0) {
-                        log.info("memory.purge items={} chunks={} summaries={}", r.items(), r.chunks(), r.summaries());
+                    if (r.items() + r.chunks() + r.summaries() + r.expiredRecallRecords() > 0) {
+                        log.info("memory.purge items={} chunks={} summaries={} expiredRecallRecords={}", r.items(),
+                                r.chunks(), r.summaries(), r.expiredRecallRecords());
                     }
                 });
+    }
+
+    /**
+     * Marks recall records older than {@code recall-record-ttl} expired (never deleted), then caps each item's
+     * manual offset at its remaining live references so later recalls count again from 0.
+     */
+    private Mono<Integer> expireRecallRecords() {
+        long ttlMicros = Math.max(1, props.getPurge().getRecallRecordTtl().toNanos() / 1_000);
+        return db.sql("UPDATE memory_recall_events SET expired_at = CURRENT_TIMESTAMP(6) WHERE expired_at IS NULL"
+                        + " AND created_at <= TIMESTAMPADD(MICROSECOND, -" + ttlMicros + ", CURRENT_TIMESTAMP(6))")
+                .fetch().rowsUpdated()
+                .flatMap(n -> n == 0 ? Mono.just(0) : db.sql("UPDATE memory_items SET recall_ref_offset = "
+                                + RecallReferences.countSql("ITEM", "memory_items", "id")
+                                + " WHERE recall_ref_offset > 0 AND recall_ref_offset > "
+                                + RecallReferences.countSql("ITEM", "memory_items", "id"))
+                        .fetch().rowsUpdated().thenReturn(n.intValue()));
     }
 
     private long minAgeMicros() {
