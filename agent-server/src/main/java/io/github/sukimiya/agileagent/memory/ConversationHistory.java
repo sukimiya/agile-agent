@@ -85,7 +85,9 @@ public class ConversationHistory {
 
     /**
      * The same history as {@link #contextBefore}, grouped by turn (oldest first), without recording metrics. The
-     * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND.
+     * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND. Turns
+     * excluded after an in-chat forget ({@code RecallExclusions#excludedTurn}: memory command turns, and turns
+     * holding a source message of a FORGOTTEN item) are left out; the history API ({@link #page}) still lists them.
      */
     public Mono<List<HistoryTurn>> completedTurnsBefore(TurnTicket ticket) {
         return ownedSession(ticket.scope(), ticket.conversationId())
@@ -93,7 +95,11 @@ public class ConversationHistory {
                                 + " JOIN chat_turns t ON t.id = m.turn_id"
                                 + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
                                 + " AND t.status = 'COMPLETED' AND m.is_valid = 1 AND t.is_valid = 1"
-                                + " AND m.turn_id <> :turnId ORDER BY m.sequence")
+                                + " AND m.turn_id <> :turnId"
+                                // Forgotten raw text leaves the context window too (user decision 2026-10-27).
+                                + " AND NOT " + io.github.sukimiya.agileagent.memory.recall.RecallExclusions
+                                        .excludedTurn("t")
+                                + " ORDER BY m.sequence")
                         .bind("c", ticket.conversationId())
                         .bind("tenantId", ticket.scope().tenantId())
                         .bind("subject", ticket.scope().subject())

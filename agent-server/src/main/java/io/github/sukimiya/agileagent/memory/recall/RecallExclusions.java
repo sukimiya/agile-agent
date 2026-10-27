@@ -18,6 +18,19 @@ import reactor.core.publisher.Mono;
  */
 public final class RecallExclusions {
 
+    /**
+     * SQL condition true when turn {@code t} (alias) is excluded: a memory command turn, or a turn holding a
+     * source message of a currently FORGOTTEN item of the same owner. Shared by recall and the recent context
+     * window ({@code ConversationHistory#completedTurnsBefore}).
+     */
+    public static String excludedTurn(String t) {
+        return "(" + t + ".memory_command IS NOT NULL OR EXISTS (SELECT 1"
+                + " FROM chat_messages fm JOIN memory_item_sources fs ON fs.message_id = fm.id"
+                + " JOIN memory_items fi ON fi.id = fs.item_id WHERE fm.turn_id = " + t + ".id"
+                + " AND fi.status = 'FORGOTTEN' AND fi.tenant_id = " + t + ".tenant_id AND fi.subject = "
+                + t + ".subject))";
+    }
+
     private final DatabaseClient db;
 
     public RecallExclusions(DatabaseClient db) {
@@ -30,10 +43,7 @@ public final class RecallExclusions {
             return Mono.just(Set.of());
         }
         return db.sql("SELECT t.id FROM chat_turns t WHERE t.id IN (:ids) AND t.tenant_id = :tenantId"
-                        + " AND t.subject = :subject AND (t.memory_command IS NOT NULL OR EXISTS (SELECT 1"
-                        + " FROM chat_messages fm JOIN memory_item_sources fs ON fs.message_id = fm.id"
-                        + " JOIN memory_items fi ON fi.id = fs.item_id WHERE fm.turn_id = t.id"
-                        + " AND fi.status = 'FORGOTTEN' AND fi.tenant_id = t.tenant_id AND fi.subject = t.subject))")
+                        + " AND t.subject = :subject AND " + excludedTurn("t"))
                 .bind("ids", List.copyOf(Set.copyOf(turnIds)))
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map((row, meta) -> row.get("id", String.class))

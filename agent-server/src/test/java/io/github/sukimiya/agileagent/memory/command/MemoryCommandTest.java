@@ -16,7 +16,8 @@ class MemoryCommandTest {
     @Test
     void prefilterLetsOnlyPossibleCommandsReachTheModel() {
         for (var text : List.of("忘记我下周三去口腔医院复诊", "那个复诊的事你就别记了", "记起来我下周三去口腔医院复诊",
-                "把它恢复吧", "please forget my plate number")) {
+                "把它恢复吧", "please forget my plate number", "把复诊那条删掉", "删除我的车牌记忆", "那条删了吧",
+                "把这个抹掉", "抹去刚才说的地址", "please delete that", "erase my plate number")) {
             assertThat(MemoryCommandClassifier.prefilter(text)).as(text).isTrue();
         }
         for (var text : List.of("今天天气怎么样", "帮我查一下 A7-3921 的违章", "", "   ")) {

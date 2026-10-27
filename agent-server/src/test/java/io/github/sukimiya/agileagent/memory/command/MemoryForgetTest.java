@@ -87,7 +87,8 @@ class MemoryForgetTest {
     final java.util.Map<String, String> classifications = new java.util.concurrent.ConcurrentHashMap<>(java.util.Map.of(
             "忘记我下周三去口腔医院复诊", "{\"command\":\"FORGET\",\"topic\":\"下周三去口腔医院复诊\"}",
             "记起来我下周三去口腔医院复诊", "{\"command\":\"RESTORE\",\"topic\":\"下周三去口腔医院复诊\"}",
-            "那个口腔医院复诊的事你就别记了", "{\"command\":\"FORGET\",\"topic\":\"口腔医院复诊\"}"));
+            "那个口腔医院复诊的事你就别记了", "{\"command\":\"FORGET\",\"topic\":\"口腔医院复诊\"}",
+            "把口腔医院复诊那条记忆删掉", "{\"command\":\"FORGET\",\"topic\":\"口腔医院复诊\"}"));
 
     /** Model calls other than the intent classification (routing and answering). */
     List<List<LlmClient.Message>> answerCalls() {
@@ -610,5 +611,55 @@ class MemoryForgetTest {
         var reply = say("那个口腔医院复诊的事你就别记了");
 
         assertThat(reply).startsWith(MemoryCommandService.CANCELLED).contains("找到 2 条");
+    }
+
+    // --- recent context window ------------------------------------------------------------------------------
+
+    /** Everything the last routing / answer model call was given, as one text. */
+    String lastAnswerPrompt() {
+        var calls = answerCalls();
+        return String.join("\n", calls.getLast().stream().map(m -> String.valueOf(m.content())).toList());
+    }
+
+    @Test
+    void forgetAlsoRemovesTheRawTextFromTheRecentContextWindow() {
+        var source = completedTurn("我下周三去口腔医院复诊，挂号单 K-7788", "好的，K-7788 记住了");
+        completedTurn("我的车牌是 A7-3921", "好的");
+        var clinic = itemFrom(source, CLINIC);
+
+        say("忘记我下周三去口腔医院复诊");
+        modelCalls.clear();
+        say("今天天气怎么样");
+
+        assertThat(lastAnswerPrompt()).as("the forgotten source turn and the command turn are not sent")
+                .doesNotContain("K-7788").doesNotContain("忘记我下周三").doesNotContain("已忘记")
+                .contains("A7-3921");
+
+        itemService.restore(ALICE, clinic.id(), ALICE.subject()).block(WAIT);
+        modelCalls.clear();
+        say("明天呢");
+
+        assertThat(lastAnswerPrompt()).as("restore brings the source turn back, not the command turn")
+                .contains("K-7788").doesNotContain("忘记我下周三").doesNotContain("已忘记");
+    }
+
+    @Test
+    void historyApiStillListsForgottenAndCommandTurns() {
+        var source = completedTurn("我下周三去口腔医院复诊，挂号单 K-7788", "好的");
+        itemFrom(source, CLINIC);
+        say("忘记我下周三去口腔医院复诊");
+
+        var page = stack.history().page(ALICE, conversation, null, 50).block(WAIT);
+        assertThat(page.toString()).contains("K-7788").contains("忘记我下周三");
+    }
+
+    @Test
+    void deleteWordsAlsoReachTheClassifier() {
+        var clinic = item(conversation, CLINIC);
+
+        assertThat(say("把口腔医院复诊那条记忆删掉")).contains("已忘记");
+
+        assertThat(status(clinic)).isEqualTo("FORGOTTEN");
+        assertThat(classifierInputs).containsExactly("把口腔医院复诊那条记忆删掉");
     }
 }
