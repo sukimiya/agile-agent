@@ -136,7 +136,16 @@ public class RecallEventRecorder implements AutoCloseable {
                 .bind("tenantId", batch.scope().tenantId()).bind("subject", batch.scope().subject())
                 .bind("turnId", batch.turnId())
                 .fetch().rowsUpdated();
-        return delete.thenMany(Flux.fromIterable(batch.events()).concatMap(e -> insert(batch, e))).then();
+        // Only individually injected items count as recalled (M2b Task 6): not the profile, relations or raw text.
+        var itemIds = batch.events().stream().filter(e -> "ITEM".equals(e.kind())).map(Event::refId).toList();
+        return delete.thenMany(Flux.fromIterable(batch.events()).concatMap(e -> insert(batch, e)))
+                .then(itemIds.isEmpty() ? Mono.<Long>empty()
+                        : db.sql("UPDATE memory_items SET last_recalled_at = CURRENT_TIMESTAMP(6) WHERE id IN (:ids)"
+                                        + " AND tenant_id = :tenantId AND subject = :subject")
+                                .bind("ids", List.copyOf(new java.util.LinkedHashSet<>(itemIds)))
+                                .bind("tenantId", batch.scope().tenantId()).bind("subject", batch.scope().subject())
+                                .fetch().rowsUpdated())
+                .then();
     }
 
     private Mono<Long> insert(Batch batch, Event e) {

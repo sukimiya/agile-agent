@@ -238,7 +238,16 @@ public class MemoryItemService {
      * the given order; a kept profile snapshot is re-rendered without them.
      */
     public Mono<List<MemoryItem>> forget(MemoryScope scope, List<String> ids, String actor, String action) {
-        return transition(scope, ids, actor, action, "'FORGOTTEN'", "ACTIVE");
+        return transition(scope, ids, actor, action, "'FORGOTTEN'", "ACTIVE", "", "");
+    }
+
+    /**
+     * Decay (M2b Task 6): each id still matching {@code condition} (built by {@code MemoryDecay}) becomes INACTIVE,
+     * audited like {@link #forget}; never deleted. Returns the changed items.
+     */
+    public Mono<List<MemoryItem>> inactivateDecayed(MemoryScope scope, List<String> ids, String actor, String action,
+            String condition) {
+        return transition(scope, ids, actor, action, "'INACTIVE'", "ACTIVE", "", " AND " + condition);
     }
 
     /**
@@ -248,7 +257,9 @@ public class MemoryItemService {
      */
     public Mono<List<MemoryItem>> restoreAll(MemoryScope scope, List<String> ids, String actor, String action) {
         return transition(scope, ids, actor, action,
-                "CASE WHEN source_deleted_at IS NULL THEN 'ACTIVE' ELSE 'INACTIVE' END", "FORGOTTEN");
+                "CASE WHEN source_deleted_at IS NULL THEN 'ACTIVE' ELSE 'INACTIVE' END", "FORGOTTEN",
+                // Restoring is a user re-confirmation: it refreshes the recall time (M2b Task 6).
+                ", last_recalled_at = CURRENT_TIMESTAMP(6)", "");
     }
 
     /**
@@ -264,12 +275,12 @@ public class MemoryItemService {
     }
 
     private Mono<List<MemoryItem>> transition(MemoryScope scope, List<String> ids, String actor, String action,
-            String newStatus, String fromStatus) {
+            String newStatus, String fromStatus, String extraSet, String extraWhere) {
         return reactor.core.publisher.Flux.fromIterable(ids)
                 .concatMap(id -> db.sql("UPDATE memory_items SET status = " + newStatus + ","
-                                + " revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
+                                + " revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)" + extraSet
                                 + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject"
-                                + " AND status = :from AND is_valid = 1")
+                                + " AND status = :from AND is_valid = 1" + extraWhere)
                         .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                         .bind("from", fromStatus)
                         .fetch().rowsUpdated()

@@ -55,6 +55,12 @@ app:
     # Purge of derived memory index rows (items, chunks, turn records) whose source was soft-deleted (M2b).
     # Retention depends on the recall reference count: each tier is "from this count on, keep this long";
     # ascending, first tier from 0, any number of tiers.
+    decay:
+      enabled: true
+      interval: 1h
+      half-life: 30d        # item recall score x 0.5^(days since last recall / half-life)
+      inactive-after: 180d  # INFERRED items unrecalled this long become INACTIVE (never deleted)
+      batch: 200
     purge:
       enabled: true
       interval: 1h

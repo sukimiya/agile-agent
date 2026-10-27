@@ -66,6 +66,44 @@ public class MemoryProperties {
 
     public Forget getForget() { return forget; }
 
+    private final Decay decay = new Decay();
+
+    public Decay getDecay() { return decay; }
+
+    /**
+     * Decay by last recall (M2b Task 6, D12 revised 2026-10-27, {@code app.memory.decay.*}): item recall scores
+     * halve every {@code half-life} since {@code COALESCE(last_recalled_at, created_at)}; non-user (INFERRED)
+     * items unrecalled for {@code inactive-after} become INACTIVE in a periodic pass every {@code interval}.
+     */
+    public static class Decay {
+
+        private boolean enabled = true;
+        private Duration interval = Duration.ofHours(1);
+        private Duration halfLife = Duration.ofDays(30);
+        private Duration inactiveAfter = Duration.ofDays(180);
+        private int batch = 200;
+
+        private static Duration positive(Duration value, String name) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.decay." + name + " must be positive");
+            }
+            return value;
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Duration getInterval() { return interval; }
+        public void setInterval(Duration interval) { this.interval = positive(interval, "interval"); }
+        public Duration getHalfLife() { return halfLife; }
+        public void setHalfLife(Duration halfLife) { this.halfLife = positive(halfLife, "half-life"); }
+        public Duration getInactiveAfter() { return inactiveAfter; }
+        public void setInactiveAfter(Duration inactiveAfter) {
+            this.inactiveAfter = positive(inactiveAfter, "inactive-after");
+        }
+        public int getBatch() { return batch; }
+        public void setBatch(int batch) { this.batch = batch; }
+    }
+
     /**
      * In-chat forget / restore ("忘记…" / "记起来…", {@code app.memory.forget.*}): how long a numbered pick stays
      * open, how many candidates are listed at most, the minimum share of the topic's terms an item must contain,

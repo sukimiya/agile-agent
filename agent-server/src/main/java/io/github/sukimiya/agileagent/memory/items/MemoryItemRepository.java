@@ -105,6 +105,68 @@ public class MemoryItemRepository {
                 .all();
     }
 
+    /** An item with its decayed recall score. */
+    public record ScoredItem(MemoryItem item, double score) {}
+
+    /**
+     * Like {@link #searchActive}, ranked by the decayed score ({@link DecayPolicy#score} over the age since
+     * {@code COALESCE(last_recalled_at, created_at)}, database time) before the {@code limit} is applied
+     * (M2b Task 6); ties keep the importance / newest order.
+     */
+    public Flux<ScoredItem> searchRecallable(MemoryScope scope, String conversationId,
+            java.util.Collection<String> needles, int limit, DecayPolicy policy) {
+        if (needles == null || needles.isEmpty() || limit <= 0) {
+            return Flux.empty();
+        }
+        var terms = needles.stream().filter(s -> s != null && !s.isBlank()).map(String::trim).distinct().toList();
+        if (terms.isEmpty()) {
+            return Flux.empty();
+        }
+        var sql = "SELECT id, tenant_id, subject, conversation_id, item_type, content, status, assertion,"
+                + " importance, confidence, valid_until, last_recalled_at, superseded_by, rules_version,"
+                + " judge_model, reason, revision, created_at, updated_at,"
+                + " TIMESTAMPDIFF(SECOND, COALESCE(last_recalled_at, created_at), CURRENT_TIMESTAMP(6)) AS age_s"
+                + " FROM memory_items"
+                + " WHERE tenant_id = :tenantId AND subject = :subject AND status = 'ACTIVE' AND is_valid = 1"
+                + " AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP(6))"
+                + (conversationId == null ? " AND conversation_id IS NULL" : " AND conversation_id = :conversationId")
+                + " ORDER BY COALESCE(importance, 0) DESC, updated_at DESC";
+        var spec = db.sql(sql).bind("tenantId", scope.tenantId()).bind("subject", scope.subject());
+        if (conversationId != null) {
+            spec = spec.bind("conversationId", conversationId);
+        }
+        return spec.map((row, meta) -> {
+                    var item = mapRow(row);
+                    var age = row.get("age_s");
+                    return new ScoredItem(item, policy.score(item.importance(),
+                            age == null ? 0 : ((Number) age).longValue()));
+                }).all()
+                .filter(s -> {
+                    var lower = s.item().content() == null ? ""
+                            : s.item().content().toLowerCase(java.util.Locale.ROOT);
+                    return terms.stream().anyMatch(t -> lower.contains(t.toLowerCase(java.util.Locale.ROOT)));
+                })
+                .collectList()
+                .flatMapIterable(list -> list.stream()
+                        .sorted(java.util.Comparator.comparingDouble(ScoredItem::score).reversed())
+                        .limit(limit).toList());
+    }
+
+    /**
+     * Marks the items recalled now ({@code last_recalled_at}); no revision or {@code updated_at} change, so it
+     * never makes a judgement's expected revision stale.
+     */
+    public Mono<Long> touchRecalled(MemoryScope scope, java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Mono.just(0L);
+        }
+        return db.sql("UPDATE memory_items SET last_recalled_at = CURRENT_TIMESTAMP(6) WHERE id IN (:ids)"
+                        + " AND tenant_id = :tenantId AND subject = :subject")
+                .bind("ids", java.util.List.copyOf(java.util.Set.copyOf(ids)))
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated();
+    }
+
     /**
      * ACTIVE items whose content contains any of {@code needles} (case-insensitive). When {@code conversationId}
      * is null, only user-level rows; otherwise session-scoped rows of that conversation.

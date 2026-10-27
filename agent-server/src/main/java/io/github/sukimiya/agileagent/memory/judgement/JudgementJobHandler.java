@@ -21,6 +21,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
+import io.github.sukimiya.agileagent.memory.items.DecayPolicy;
 import io.github.sukimiya.agileagent.memory.items.ItemStatus;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
@@ -272,6 +273,7 @@ public class JudgementJobHandler {
                             return Mono.empty();
                         }
                         return sources.saveAll(v.targetItemId(), v.sources())
+                                .then(reconfirmed(scope, v))
                                 .then(enqueueRebuild(scope, conversationId, cross));
                     });
         }
@@ -305,11 +307,23 @@ public class JudgementJobHandler {
         // REMEMBER
         var item = MemoryItem.newItem(scope, itemConversationId, v.itemType(), v.content(), v.status(),
                 v.assertion(), v.importance(), v.confidence(), rulesVersion, judgeModel, v.reason());
-        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources())))
+        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources()))
+                        .then(reconfirmed(scope, v)))
                 .doOnSuccess(x -> metrics.judgementWritten())
                 .then(enqueueRebuild(scope, conversationId, cross));
     }
 
+
+    /**
+     * A user re-confirmation of an existing item (UPDATE / MERGE / REMEMBER naming {@code targetItemId}, final
+     * assertion USER_STATED or USER_CONFIRMED) refreshes its recall time (M2b Task 6).
+     */
+    private Mono<Void> reconfirmed(MemoryScope scope, ValidatedAction v) {
+        if (v.targetItemId() == null || v.targetItemId().isBlank() || !DecayPolicy.exempt(v.assertion())) {
+            return Mono.empty();
+        }
+        return items.touchRecalled(scope, List.of(v.targetItemId())).then();
+    }
 
     private Mono<Void> enqueueRebuild(MemoryScope scope, String conversationId, boolean cross) {
         if (!cross) {

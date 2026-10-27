@@ -48,6 +48,25 @@
 - 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`、`memory.recall.records.expired`；有清除或过期时写一行 `memory.purge items=… chunks=… summaries=… expiredRecallRecords=…` INFO 日志（不含内容）。
 - 恢复后的行为：从备份恢复出的已清除行仍是无效或 INACTIVE 状态，下一次扫描会按同样规则再次清除，不需要单独的清除清单。
 
+## 按最近召回时间衰减（M2b Task 6，`app.memory.decay.*`）
+
+- 配置：
+
+  ```yaml
+  app:
+    memory:
+      decay:
+        enabled: true         # 周期性转为不激活（排序衰减始终生效）
+        interval: 1h
+        half-life: 30d        # 条目召回排序分 × 0.5^(距最近召回 / half-life)
+        inactive-after: 180d  # 非用户断言（INFERRED）条目超过该时长未被召回 → INACTIVE
+        batch: 200
+  ```
+
+- 年龄按数据库时间 `COALESCE(last_recalled_at, created_at)` 计算。`last_recalled_at` 在每轮记忆解释写入时为 `ITEM` 记录刷新（解释队列满被丢弃时不刷新），恢复和记忆判断的再次确认也刷新；概要注入不刷新。
+- 周期任务与清除任务一样只在 `app.memory.recovery-enabled` 为 true 的单实例上运行；只改状态为 `INACTIVE`（版本号加 1），不删除，写 `memory_audit_log`（`DECAY_INACTIVATE`，操作者 `system:decay`），并重写受影响用户已有的概要快照。`USER_STATED`/`USER_CONFIRMED` 条目永不因此转为不激活。
+- 指标：`memory.decay.inactivated`。
+
 ## 对话中遗忘与恢复（M2b，`app.memory.forget.*`）
 
 - 在路由前处理用户本人的当前输入：关键词预筛（≤ 500 字，含“忘/记起/想起/恢复/别记/不要记/不用记/别再记/不再记/删掉/删除/删了/删去/抹掉/抹去/抹除/forget/restore/delete/erase”）命中后，用当前轮的模型做一次 JSON 模式分类（最多 200 输出 Token，只发送这条输入）；识别为指令时直接回答，不再路由和调用回答模型。分类失败、超时或输出无法解析一律按普通消息处理。边界见 `docs/memory/api.md`。

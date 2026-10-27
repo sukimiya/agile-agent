@@ -299,4 +299,61 @@ class JudgementJobHandlerTest {
         assertThat(fixture.jdbc().queryForObject("SELECT COUNT(*) FROM memory_items", Long.class)).isZero();
         assertThat(progress.judgedThrough(ALICE, conversation).block(WAIT)).isEqualTo(1L);
     }
+
+    // --- M2b Task 6: re-confirmation refreshes the recall time ------------------------------------------------
+
+    private MemoryItem agedItem(String content, MemoryItem.Assertion assertion) {
+        var item = MemoryItem.newItem(ALICE, conversation, "FACT", content, ItemStatus.ACTIVE, assertion, 0.5, 0.9, 1,
+                "m", "old");
+        items.save(item).block(WAIT);
+        sources.saveAll(item.id(), List.of(new ValidatedAction.SourceRef(userMsgId, conversation,
+                SourceType.USER_INPUT, "A7-3921"))).block(WAIT);
+        fixture.jdbc().update("UPDATE memory_items SET last_recalled_at = TIMESTAMPADD(DAY, -100, CURRENT_TIMESTAMP(6)),"
+                + " created_at = TIMESTAMPADD(DAY, -200, CURRENT_TIMESTAMP(6)) WHERE id = ?", item.id());
+        return item;
+    }
+
+    private long recalledDaysAgo(MemoryItem item) {
+        return fixture.jdbc().queryForObject("SELECT TIMESTAMPDIFF(DAY, last_recalled_at, CURRENT_TIMESTAMP(6))"
+                + " FROM memory_items WHERE id = ?", Long.class, item.id());
+    }
+
+    private String targeted(String action, String assertion, String content, MemoryItem target) throws Exception {
+        ArrayNode arr = (ArrayNode) JSON.readTree(actionJson(action, assertion, content));
+        ((ObjectNode) arr.get(0)).put("targetItemId", target.id());
+        ((ObjectNode) arr.get(0)).put("expectedRevision", target.revision());
+        return JSON.writeValueAsString(arr);
+    }
+
+    @Test
+    void userReconfirmationRefreshesTheRecallTime() throws Exception {
+        var item = agedItem("用户工号是 A7-3921", MemoryItem.Assertion.USER_STATED);
+        llmOutputs.add(targeted("UPDATE", "USER_STATED", "用户工号是 A7-3921（再次确认）", item));
+
+        handler.judge(ALICE, conversation, 1).block(WAIT);
+
+        assertThat(recalledDaysAgo(item)).isZero();
+    }
+
+    @Test
+    void rememberOfAnExistingItemRefreshesItsRecallTime() throws Exception {
+        var item = agedItem("用户工号是 A7-3921", MemoryItem.Assertion.USER_STATED);
+        llmOutputs.add(targeted("REMEMBER", "USER_STATED", "用户工号是 A7-3921", item));
+
+        handler.judge(ALICE, conversation, 1).block(WAIT);
+
+        assertThat(recalledDaysAgo(item)).isZero();
+    }
+
+    @Test
+    void inferredUpdatesDoNotRefreshTheRecallTime() throws Exception {
+        var item = agedItem("用户可能在 A7-3921 部门", MemoryItem.Assertion.INFERRED);
+        llmOutputs.add(targeted("UPDATE", "INFERRED", "用户可能在 A7-3921 部门工作", item));
+
+        handler.judge(ALICE, conversation, 1).block(WAIT);
+
+        assertThat(fixture.jdbc().queryForObject("SELECT content FROM memory_items WHERE id = ?", String.class,
+                item.id())).contains("工作");
+        assertThat(recalledDaysAgo(item)).isEqualTo(100);
+    }
 }

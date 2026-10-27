@@ -178,6 +178,15 @@ public class MemoryMetrics {
                 .description("Forget / restore intent classification calls").register(meters).increment();
     }
 
+    /** Items made INACTIVE by the periodic decay pass ({@code memory.decay.inactivated}; never deleted). */
+    public void decayInactivated(long count) {
+        if (count > 0) {
+            Counter.builder("memory.decay.inactivated")
+                    .description("Non-user memory items made INACTIVE after long without recall")
+                    .register(meters).increment(count);
+        }
+    }
+
     /** Recall records marked expired by the periodic purge job (never deleted). */
     public void recallRecordsExpired(long count) {
         if (count > 0) {

@@ -295,13 +295,16 @@ public class MemoryRetriever {
         needles.addAll(EntityTerms.terms(query));
         return settings.crossConversationEnabled(scope).flatMapMany(cross -> {
             String conv = cross ? null : current;
-            return memoryItems.searchActive(scope, conv, needles, props.getRecall().getMaxItems());
+            return memoryItems.searchRecallable(scope, conv, needles, props.getRecall().getMaxItems(),
+                    new io.github.sukimiya.agileagent.memory.items.DecayPolicy(props.getDecay()));
         }).map(MemoryRetriever::toItemCandidate).collectList();
     }
 
-    private static RecallCandidate toItemCandidate(MemoryItem item) {
+    /** An item hit; its score is already decayed by the last recall (M2b Task 6). */
+    private static RecallCandidate toItemCandidate(MemoryItemRepository.ScoredItem scored) {
+        var item = scored.item();
         return new RecallCandidate(item.id(), null, item.conversationId() == null ? "" : item.conversationId(),
-                0, 0, TURN_SOURCES, "ITEM", 50 + (item.importance() == null ? 0 : item.importance()),
+                0, 0, TURN_SOURCES, "ITEM", scored.score(),
                 item.conversationId() == null, null, item.content(), null);
     }
 
