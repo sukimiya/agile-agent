@@ -76,6 +76,8 @@ class MemoryForgetTest {
     MemoryMaintenance maintenance;
     MemoryIndexPurger purger;
     Orchestrator orchestrator;
+    MemoryJobWorker worker;
+    SummaryRepository summaries;
     String conversation;
     final List<List<LlmClient.Message>> modelCalls = new CopyOnWriteArrayList<>();
     final LlmClient llm = new LlmClient() {
@@ -105,7 +107,7 @@ class MemoryForgetTest {
         stack = MemoryTestStack.of(newFixture());
         conversation = MemoryTestStack.newConversationId();
         var db = stack.fixture().databaseClient();
-        var worker = new MemoryJobWorker(db, () -> false);
+        worker = new MemoryJobWorker(db, () -> false);
         var chunks = new ChunkRepository(db, stack.conversations());
         new ChunkIndexer(db, stack.fixture().connectionFactory(), chunks, worker, stack.props());
         items = new MemoryItemRepository(db);
@@ -116,8 +118,8 @@ class MemoryForgetTest {
         profiles = new ProfileService(db, items, settings, cache, stack.props());
         itemService = new MemoryItemService(db, stack.fixture().connectionFactory(), items, sources, graph, profiles,
                 stack.props());
-        retriever = new MemoryRetriever(db, stack.props(), settings, chunks, new SummaryRepository(db,
-                stack.conversations()), FullTextSearch.forDatabase(db), stack.metrics(), items, graph, profiles);
+        summaries = new SummaryRepository(db, stack.conversations());
+        retriever = new MemoryRetriever(db, stack.props(), settings, chunks, summaries, FullTextSearch.forDatabase(db), stack.metrics(), items, graph, profiles);
         commands = new MemoryCommandService(db, itemService, settings, stack.props());
         var budget = new ContextBudget(stack.props());
         var registry = new CapabilityRegistry(List.of());
@@ -422,5 +424,91 @@ class MemoryForgetTest {
 
         assertThat(status(first)).isEqualTo("ACTIVE");
         assertThat(status(second)).isEqualTo("ACTIVE");
+    }
+
+    // --- raw text recall after forget -------------------------------------------------------------------------
+
+    String completedTurn(String question, String answer) {
+        var ticket = stack.accept(ALICE, conversation, NonBlockingIds.uuid(), question).ticket();
+        assertThat(stack.finalizer().finish(ticket, io.github.sukimiya.agileagent.memory.MemoryModel.TurnStatus.COMPLETED,
+                answer).block(WAIT)).isTrue();
+        return ticket.turnId();
+    }
+
+    /** An item whose provenance is the user message of {@code turnId}. */
+    MemoryItem itemFrom(String turnId, String content) {
+        var messageId = (String) stack.rows("SELECT id FROM chat_messages WHERE turn_id = ? AND role = 'user'", turnId)
+                .getFirst().get("ID");
+        var item = MemoryItem.newItem(ALICE, conversation, "FACT", content, ItemStatus.ACTIVE,
+                MemoryItem.Assertion.USER_STATED, 0.5, 0.9, 1, "m", "r");
+        items.save(item).block(WAIT);
+        sources.saveAll(item.id(), List.of(new SourceRef(messageId, conversation, SourceType.USER_INPUT, content)))
+                .block(WAIT);
+        return item;
+    }
+
+    void record(String turnId, String summary) {
+        var range = stack.rows("SELECT MIN(sequence) AS f, MAX(sequence) AS t, MIN(id) AS fid, MAX(id) AS tid"
+                + " FROM chat_messages WHERE turn_id = ?", turnId).getFirst();
+        long position = summaries.summarizedThrough(ALICE, conversation).block(WAIT);
+        var tx = org.springframework.transaction.reactive.TransactionalOperator.create(
+                new org.springframework.r2dbc.connection.R2dbcTransactionManager(stack.fixture().connectionFactory()));
+        assertThat(tx.transactional(summaries.save(ALICE, conversation,
+                new io.github.sukimiya.agileagent.memory.summary.MemoryRecord("r-" + turnId, turnId,
+                        ((Number) range.get("F")).longValue(), ((Number) range.get("T")).longValue(),
+                        (String) range.get("FID"), (String) range.get("TID"), summary, List.of(), List.of(), false,
+                        List.of(summary), io.github.sukimiya.agileagent.memory.summary.MemoryRecord.MemoryType.FACT,
+                        "m", "memory-record-v1", 1), position)).block(WAIT)).isTrue();
+    }
+
+    List<String> recalled(String query) {
+        var ticket = stack.accept(ALICE, conversation, NonBlockingIds.uuid(), query).ticket();
+        try {
+            return retriever.recall(ticket, query).block(WAIT).items().stream()
+                    .map(io.github.sukimiya.agileagent.memory.recall.RecallCandidate::turnId).toList();
+        } finally {
+            stack.finalizer().finish(ticket, io.github.sukimiya.agileagent.memory.MemoryModel.TurnStatus.FAILED, "")
+                    .block(WAIT);
+        }
+    }
+
+    @Test
+    void forgetExcludesTheCommandTurnsAndTheItemsSourceTurnsFromRecall() {
+        var source = completedTurn("我下周三去口腔医院复诊，挂号单 K-7788", "好的，记住了");
+        var unrelated = completedTurn("我的车牌是 A7-3921", "好的");
+        var clinic = itemFrom(source, CLINIC);
+        worker.runPending(100).block(WAIT);
+        record(source, "用户下周三去口腔医院复诊，挂号单 K-7788");
+        assertThat(recalled("K-7788 口腔医院复诊")).contains(source);
+
+        say("忘记我下周三去口腔医院复诊");
+        var command = lastTurn;
+        worker.runPending(100).block(WAIT); // the command turn is chunk-indexed like any other turn
+
+        for (var query : List.of("K-7788", "口腔医院复诊是哪天", "下周三去口腔医院复诊")) {
+            assertThat(recalled(query)).as(query).doesNotContain(source, command);
+        }
+        assertThat(recalled("A7-3921 违章")).as("other turns stay recallable").contains(unrelated);
+
+        itemService.restore(ALICE, clinic.id(), ALICE.subject()).block(WAIT);
+        assertThat(recalled("K-7788 口腔医院复诊")).as("restore brings the source turn back").contains(source)
+                .doesNotContain(command);
+    }
+
+    @Test
+    void pickAndRestoreCommandTurnsStayExcluded() {
+        item(conversation, CLINIC);
+        item(conversation, "用户每周三去口腔医院复诊牙套");
+        say("忘记我下周三去口腔医院复诊");
+        var listing = lastTurn;
+        say("全部");
+        var pick = lastTurn;
+        say("记起来我下周三去口腔医院复诊");
+        var restore = lastTurn;
+        say("全部");
+        var restorePick = lastTurn;
+        worker.runPending(100).block(WAIT);
+
+        assertThat(recalled("口腔医院复诊牙套")).doesNotContain(listing, pick, restore, restorePick);
     }
 }

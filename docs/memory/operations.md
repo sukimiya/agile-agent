@@ -64,6 +64,7 @@
   ```
 
 - 数据：遗忘只把条目状态改为 `FORGOTTEN`（版本号加 1，不置无效、不删除），写 `memory_audit_log`（`FORGET_IN_CHAT` / `RESTORE_IN_CHAT` / `RESTORE`，不含正文）和 `memory.audit` 日志；待选编号存于 `memory_command_pending`（每会话一条，下一轮即消费，过期行在该会话下一轮时删除）；被识别为指令的轮次在 `chat_turns.memory_command` 标记，记忆判断跳过这些轮次。
+- 原文召回排除：`RecallExclusions` 在每次 Recall 排序前排除 `memory_command` 非空的轮次（永久）和 FORGOTTEN 条目来源消息所在的轮次（动态，恢复后自动解除），不改动片段或轮次记录本身。
 - 日志：`memory.command kind=FORGET|RESTORE candidates=n`（不含话题和正文）。
 
 ### 后台任务（M2a 起）

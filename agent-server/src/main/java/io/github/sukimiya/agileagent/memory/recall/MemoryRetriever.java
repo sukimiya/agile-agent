@@ -49,6 +49,8 @@ import reactor.core.publisher.Mono;
 @Component
 public class MemoryRetriever {
 
+    private final RecallExclusions exclusions;
+
     static final String ENTITY_EXACT = "ENTITY_EXACT";
     static final String RECORD_FULLTEXT = "RECORD_FULLTEXT";
     static final String CHUNK_FULLTEXT = "CHUNK_FULLTEXT";
@@ -79,6 +81,7 @@ public class MemoryRetriever {
             ChunkRepository chunks, SummaryRepository summaries, FullTextSearch fullText, MemoryMetrics metrics,
             MemoryItemRepository memoryItems, EntityGraphRepository entities, ProfileService profiles) {
         this.db = db;
+        this.exclusions = new RecallExclusions(db);
         this.props = props;
         this.settings = settings;
         this.chunks = chunks;
@@ -169,6 +172,9 @@ public class MemoryRetriever {
             Flux<Scored> gap = chunks.turnTexts(scope, List.of(current), scanned)
                     .flatMap(turn -> gapHit(turn, codes, terms, min));
             return Flux.concat(exact, names, chunkText, recordText, gap).collectList()
+                    .flatMap(hits -> exclusions.excluded(scope, hits.stream().map(Scored::turnId).toList())
+                            .map(excluded -> excluded.isEmpty() ? hits
+                                    : hits.stream().filter(h -> !excluded.contains(h.turnId())).toList()))
                     .zipWith(chunks.anyUnindexed(scope, others))
                     .flatMap(t -> expand(scope, current, ids, merge(t.getT1(), limit))
                             .map(items -> new RecallResult(items, beyondBackfill || t.getT2(), Duration.ZERO)));
