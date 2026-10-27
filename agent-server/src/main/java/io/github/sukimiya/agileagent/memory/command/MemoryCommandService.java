@@ -5,12 +5,17 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 
+import io.github.sukimiya.agileagent.memory.MemoryMetrics;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
@@ -19,21 +24,29 @@ import io.github.sukimiya.agileagent.memory.items.ItemStatus;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemService;
+import io.github.sukimiya.agileagent.memory.jobs.ConsolidationQuota;
 import io.github.sukimiya.agileagent.memory.recall.MemorySettingsService;
+import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import reactor.core.publisher.Mono;
 
 /**
  * In-chat forget / restore (M2b T5 follow-up, user decision 2026-10-27), run by the orchestrator before routing.
  * <ul>
- * <li>Trigger: {@link MemoryCommand#parse} on the user's own current input only.</li>
+ * <li>Trigger: the user's own current input only. {@link MemoryCommandClassifier#prefilter} (keywords, length)
+ * first; only on a hit one JSON-mode classification call ({@link MemoryCommandClassifier#classify}, user decision
+ * 2026-10-27) with {@code app.memory.forget.classify-timeout}. Any failure is "not a command". Its tokens are added
+ * to the turn's usage and charged to the tenant's daily memory token budget ({@link ConsolidationQuota#settle});
+ * the budget never blocks the classification.</li>
  * <li>Candidates: valid items (ACTIVE to forget, FORGOTTEN to restore) in the same scope as item recall (user-level
  * items with cross-conversation recall on, otherwise the current conversation's), scored by
  * {@link MemoryCommand#score}; at least {@code app.memory.forget.min-score}, best first, at most
  * {@code max-candidates}.</li>
  * <li>One match is applied at once without confirmation; several are listed and kept as a pending pick (one per
  * conversation, {@code pending-ttl}); the next turn of the conversation consumes it: a number or "全部" applies the
- * pick, anything else (or a late reply) cancels it and is answered normally. No match changes nothing.</li>
+ * pick, anything else (or a late reply) cancels it: the reply starts with {@link #CANCELLED} (or
+ * {@link #CANCELLED_EXPIRED}) and then answers the message normally (or with the new command's reply). No match
+ * changes nothing.</li>
  * <li>A handled turn is answered without a model call and marked ({@code chat_turns.memory_command}) so memory
  * judgement skips it.</li>
  * </ul>
@@ -45,16 +58,24 @@ public class MemoryCommandService {
 
     static final String FORGET_ACTION = "FORGET_IN_CHAT";
     static final String RESTORE_ACTION = "RESTORE_IN_CHAT";
+    /** Prefixed to the reply of the message that cancelled an open pick. */
+    public static final String CANCELLED = "已取消上一次的记忆选择。\n\n";
+    /** Prefixed to the reply of a message that arrived after the open pick expired. */
+    public static final String CANCELLED_EXPIRED = "已取消上一次的记忆选择（已超时）。\n\n";
 
     private final DatabaseClient db;
     private final MemoryItemService itemService;
     private final MemoryItemRepository items;
     private final MemorySettingsService settings;
     private final MemoryProperties.Forget props;
+    private final MemoryMetrics metrics;
+    private final ConsolidationQuota quota;
 
     public MemoryCommandService(DatabaseClient db, MemoryItemService itemService, MemorySettingsService settings,
-            MemoryProperties props) {
+            MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
         this.db = db;
+        this.metrics = metrics;
+        this.quota = quota;
         this.itemService = itemService;
         this.items = new MemoryItemRepository(db);
         this.settings = settings;
@@ -63,20 +84,69 @@ public class MemoryCommandService {
 
     private record Pending(String token, Kind kind, List<String> ids, boolean live) {}
 
-    /** The fixed answer when {@code userInput} was a memory command (or a pick); empty to answer normally. */
-    public Mono<Optional<String>> handle(TurnTicket ticket, String userInput) {
+    /**
+     * What the turn does: {@code answer} non-null is the fixed reply (no routing or answer model call);
+     * otherwise answer normally, prefixed with {@code notice} (empty, or the cancelled-pick notice).
+     */
+    public record Outcome(String answer, String notice) {
+        public boolean handled() { return answer != null; }
+    }
+
+    /**
+     * Handles {@code userInput} (the user's own current input). {@code llm} is the turn's model, used only for the
+     * classification; its usage events go to {@code usage}.
+     */
+    public Mono<Outcome> handle(TurnTicket ticket, String userInput, LlmClient llm,
+            Consumer<LlmClient.LlmEvent> usage) {
         return takePending(ticket).flatMap(pending -> {
             if (pending.isPresent() && pending.get().live()) {
                 var picks = MemoryCommand.selection(userInput, pending.get().ids().size());
                 if (picks.isPresent()) {
                     var ids = picks.get().stream().map(n -> pending.get().ids().get(n - 1)).toList();
-                    return apply(ticket, pending.get().kind(), ids).map(Optional::of);
+                    return apply(ticket, pending.get().kind(), ids).map(text -> new Outcome(text, ""));
                 }
             }
-            return MemoryCommand.parse(userInput)
-                    .map(command -> command(ticket, command).map(Optional::of))
-                    .orElseGet(() -> Mono.just(Optional.empty()));
+            var notice = pending.isEmpty() ? "" : pending.get().live() ? CANCELLED : CANCELLED_EXPIRED;
+            if (llm == null || !MemoryCommandClassifier.prefilter(userInput)) {
+                return Mono.just(new Outcome(null, notice));
+            }
+            return classify(ticket, userInput, llm, usage).flatMap(command -> command
+                    .map(c -> command(ticket, c).map(text -> new Outcome(notice + text, "")))
+                    .orElseGet(() -> Mono.just(new Outcome(null, notice))));
         });
+    }
+
+    private Mono<Optional<MemoryCommand>> classify(TurnTicket ticket, String userInput, LlmClient llm,
+            Consumer<LlmClient.LlmEvent> usage) {
+        var prompt = new LongAdder();
+        var completion = new LongAdder();
+        var total = new LongAdder();
+        var observed = new AtomicBoolean();
+        Consumer<LlmClient.LlmEvent> both = event -> {
+            if (usage != null) {
+                usage.accept(event);
+            }
+            if (event instanceof LlmClient.LlmEvent.Usage u) {
+                prompt.add(u.promptTokens());
+                completion.add(u.completionTokens());
+                total.add(u.totalTokens());
+                observed.set(true);
+            }
+        };
+        return MemoryCommandClassifier.classify(llm, userInput, both, props.getClassifyTimeout(),
+                        metrics::commandClassified)
+                .flatMap(result -> {
+                    if (!observed.get() || quota == null) {
+                        return Mono.just(result);
+                    }
+                    var used = new TokenUsage(true, prompt.sum(), completion.sum(), total.sum());
+                    return quota.settle(ticket.scope().tenantId(), 0, used)
+                            .onErrorResume(e -> {
+                                log.warn("memory.command quota charge failed type={}", e.getClass().getSimpleName());
+                                return Mono.empty();
+                            })
+                            .thenReturn(result);
+                });
     }
 
     private Mono<String> command(TurnTicket ticket, MemoryCommand command) {

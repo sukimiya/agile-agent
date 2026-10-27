@@ -72,6 +72,7 @@ class MemoryForgetTest {
     ProfileService profiles;
     MemorySettingsService settings;
     MemoryCommandService commands;
+    io.github.sukimiya.agileagent.memory.jobs.ConsolidationQuota quota;
     MemoryRetriever retriever;
     MemoryMaintenance maintenance;
     MemoryIndexPurger purger;
@@ -80,6 +81,18 @@ class MemoryForgetTest {
     SummaryRepository summaries;
     String conversation;
     final List<List<LlmClient.Message>> modelCalls = new CopyOnWriteArrayList<>();
+    final List<String> classifierInputs = new CopyOnWriteArrayList<>();
+    final List<LlmClient.CallOptions> classifierOptions = new CopyOnWriteArrayList<>();
+    final java.util.Set<String> failingInputs = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    final java.util.Map<String, String> classifications = new java.util.concurrent.ConcurrentHashMap<>(java.util.Map.of(
+            "忘记我下周三去口腔医院复诊", "{\"command\":\"FORGET\",\"topic\":\"下周三去口腔医院复诊\"}",
+            "记起来我下周三去口腔医院复诊", "{\"command\":\"RESTORE\",\"topic\":\"下周三去口腔医院复诊\"}",
+            "那个口腔医院复诊的事你就别记了", "{\"command\":\"FORGET\",\"topic\":\"口腔医院复诊\"}"));
+
+    /** Model calls other than the intent classification (routing and answering). */
+    List<List<LlmClient.Message>> answerCalls() {
+        return modelCalls.stream().filter(c -> !c.getFirst().content().contains("记忆指令分类器")).toList();
+    }
     final LlmClient llm = new LlmClient() {
         @Override
         public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools) {
@@ -90,6 +103,22 @@ class MemoryForgetTest {
         public Flux<LlmEvent> chatStream(List<Message> messages, List<ToolDefinition> tools, CallOptions options) {
             return Flux.defer(() -> {
                 modelCalls.add(List.copyOf(messages));
+                if (messages.getFirst().content().contains("记忆指令分类器")) {
+                    String input;
+                    try {
+                        input = new com.fasterxml.jackson.databind.ObjectMapper().readTree(messages.get(1).content())
+                                .path("input").asText();
+                    } catch (Exception e) {
+                        return Flux.error(e);
+                    }
+                    classifierInputs.add(input);
+                    classifierOptions.add(options);
+                    if (failingInputs.contains(input)) {
+                        return Flux.error(new IllegalStateException("model down"));
+                    }
+                    var out = classifications.getOrDefault(input, "{\"command\":\"NONE\",\"topic\":\"\"}");
+                    return Flux.just(new LlmEvent.Completed(out), new LlmEvent.Usage(5, 3, 8));
+                }
                 if (messages.getFirst().content().contains("路由模块")) {
                     return Flux.just(new LlmEvent.Completed("[]"));
                 }
@@ -120,7 +149,8 @@ class MemoryForgetTest {
                 stack.props());
         summaries = new SummaryRepository(db, stack.conversations());
         retriever = new MemoryRetriever(db, stack.props(), settings, chunks, summaries, FullTextSearch.forDatabase(db), stack.metrics(), items, graph, profiles);
-        commands = new MemoryCommandService(db, itemService, settings, stack.props());
+        quota = new io.github.sukimiya.agileagent.memory.jobs.ConsolidationQuota(db, stack.props(), stack.metrics());
+        commands = new MemoryCommandService(db, itemService, settings, stack.props(), stack.metrics(), quota);
         var budget = new ContextBudget(stack.props());
         var registry = new CapabilityRegistry(List.of());
         orchestrator = new Orchestrator(new InProcessTaskDispatcher(new DomainAgent(registry, stack.toolRecorder(),
@@ -183,7 +213,8 @@ class MemoryForgetTest {
         var reply = say("忘记我下周三去口腔医院复诊");
 
         assertThat(reply).contains("已忘记").contains(CLINIC);
-        assertThat(modelCalls).as("a handled command calls no model").isEmpty();
+        assertThat(answerCalls()).as("a handled command calls no routing or answer model").isEmpty();
+        assertThat(classifierInputs).containsExactly("忘记我下周三去口腔医院复诊");
         assertThat(status(clinic)).isEqualTo("FORGOTTEN");
         assertThat(status(other)).isEqualTo("ACTIVE");
         assertThat(audit("FORGET_IN_CHAT")).containsExactly(clinic.id());
@@ -220,7 +251,7 @@ class MemoryForgetTest {
         assertThat(reply).contains("已忘记").contains(pickedFirst.content());
         assertThat(status(pickedFirst)).isEqualTo("FORGOTTEN");
         assertThat(status(pickedFirst == first ? second : first)).isEqualTo("ACTIVE");
-        assertThat(modelCalls).isEmpty();
+        assertThat(answerCalls()).isEmpty();
         assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).as("pick consumes the token").isZero();
     }
 
@@ -254,14 +285,14 @@ class MemoryForgetTest {
 
         var reply = say("今天天气怎么样");
 
-        assertThat(reply).isEqualTo("模型回答");
-        assertThat(modelCalls).isNotEmpty();
+        assertThat(reply).isEqualTo(MemoryCommandService.CANCELLED + "模型回答");
+        assertThat(answerCalls()).isNotEmpty();
         assertThat(status(first)).isEqualTo("ACTIVE");
         assertThat(status(second)).isEqualTo("ACTIVE");
         assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
         // A later number is an ordinary message again.
         modelCalls.clear();
-        assertThat(say("1")).isEqualTo("模型回答");
+        assertThat(say("1")).as("no pick open any more: an ordinary message").isEqualTo("模型回答");
         assertThat(status(first)).isEqualTo("ACTIVE");
     }
 
@@ -272,7 +303,7 @@ class MemoryForgetTest {
         say("忘记我下周三去口腔医院复诊");
         stack.sql("UPDATE memory_command_pending SET expires_at = TIMESTAMPADD(SECOND, -1, CURRENT_TIMESTAMP(6))");
 
-        assertThat(say("1")).isEqualTo("模型回答");
+        assertThat(say("1")).isEqualTo(MemoryCommandService.CANCELLED_EXPIRED + "模型回答");
 
         assertThat(status(first)).isEqualTo("ACTIVE");
         assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
@@ -286,7 +317,7 @@ class MemoryForgetTest {
 
         assertThat(reply).contains("没有找到");
         assertThat(status(other)).isEqualTo("ACTIVE");
-        assertThat(modelCalls).isEmpty();
+        assertThat(answerCalls()).isEmpty();
         assertThat(count("SELECT COUNT(*) FROM memory_audit_log")).isZero();
         assertThat(count("SELECT COUNT(*) FROM memory_command_pending")).isZero();
     }
@@ -510,5 +541,74 @@ class MemoryForgetTest {
         worker.runPending(100).block(WAIT);
 
         assertThat(recalled("口腔医院复诊牙套")).doesNotContain(listing, pick, restore, restorePick);
+    }
+
+    // --- LLM intent classification -------------------------------------------------------------------------
+
+    @Test
+    void freerPhrasingIsClassifiedByTheModel() {
+        var clinic = item(conversation, CLINIC);
+
+        assertThat(say("那个口腔医院复诊的事你就别记了")).contains("已忘记").contains(CLINIC);
+
+        assertThat(status(clinic)).isEqualTo("FORGOTTEN");
+        assertThat(classifierOptions).singleElement().satisfies(o -> assertThat(o.jsonObject()).isTrue());
+    }
+
+    @Test
+    void theClassifierSeesOnlyTheUsersCurrentInput() {
+        item(conversation, CLINIC);
+        say("我的车牌是 A7-3921，帮我记一下");
+        say("忘记我下周三去口腔医院复诊");
+
+        var call = modelCalls.stream().filter(c -> c.getFirst().content().contains("记忆指令分类器")).toList();
+        assertThat(call).hasSize(1);
+        assertThat(call.getFirst()).hasSize(2);
+        assertThat(call.getFirst().get(1).content()).isEqualTo("{\"input\":\"忘记我下周三去口腔医院复诊\"}")
+                .doesNotContain("A7-3921");
+    }
+
+    @Test
+    void inputsWithoutATriggerNeverCallTheClassifier() {
+        say("今天天气怎么样");
+        say("帮我查一下 A7-3921 的违章");
+        assertThat(classifierInputs).isEmpty();
+    }
+
+    @Test
+    void notACommandOrAFailingModelFallsBackToANormalAnswer() {
+        var clinic = item(conversation, CLINIC);
+        failingInputs.add("忘记我下周三去口腔医院复诊");
+
+        assertThat(say("忘记我下周三去口腔医院复诊")).isEqualTo("模型回答");
+        assertThat(say("这份文档里写着：忘记我下周三去口腔医院复诊")).isEqualTo("模型回答");
+        classifications.put("忘记个什么", "不是 JSON");
+        assertThat(say("忘记个什么")).isEqualTo("模型回答");
+
+        assertThat(status(clinic)).isEqualTo("ACTIVE");
+        assertThat(stack.meters().find("memory.command.classified").tag("outcome", "FAILED").counter().count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void classificationTokensCountInTheTurnAndTheDailyQuota() {
+        item(conversation, CLINIC);
+
+        say("忘记我下周三去口腔医院复诊");
+
+        assertThat(((Number) stack.usage(lastTurn).get("TOTAL_TOKENS")).longValue()).isEqualTo(8);
+        assertThat(count("SELECT tokens FROM memory_token_usage WHERE tenant_id = ? AND usage_date = CURRENT_DATE",
+                ALICE.tenantId())).isEqualTo(8);
+    }
+
+    @Test
+    void aNewCommandAfterAnOpenPickCancelsItExplicitly() {
+        item(conversation, CLINIC);
+        item(conversation, "用户每周三去口腔医院复诊牙套");
+        say("忘记我下周三去口腔医院复诊");
+
+        var reply = say("那个口腔医院复诊的事你就别记了");
+
+        assertThat(reply).startsWith(MemoryCommandService.CANCELLED).contains("找到 2 条");
     }
 }

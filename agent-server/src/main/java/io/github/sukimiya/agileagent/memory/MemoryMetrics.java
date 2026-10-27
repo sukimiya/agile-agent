@@ -169,6 +169,15 @@ public class MemoryMetrics {
     }
 
     /** Derived index rows physically purged after their retention ({@code kind}: ITEM, CHUNK or SUMMARY). */
+    /**
+     * In-chat forget / restore classification calls ({@code memory.command.classified}, {@code outcome}: FORGET,
+     * RESTORE, NONE or FAILED). Only inputs that pass the keyword prefilter are classified.
+     */
+    public void commandClassified(String outcome) {
+        Counter.builder("memory.command.classified").tag("outcome", outcome == null ? "UNKNOWN" : outcome)
+                .description("Forget / restore intent classification calls").register(meters).increment();
+    }
+
     /** Recall records marked expired by the periodic purge job (never deleted). */
     public void recallRecordsExpired(long count) {
         if (count > 0) {

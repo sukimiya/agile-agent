@@ -50,7 +50,10 @@
 
 ## 对话中遗忘与恢复（M2b，`app.memory.forget.*`）
 
-- 用户本人当前输入是“忘记…/把…忘掉”（恢复：“记起来…/把…记起来”）时，在路由前由确定性规则识别并直接回答，不调用模型；规则与边界见 `docs/memory/api.md`。
+- 在路由前处理用户本人的当前输入：关键词预筛（≤ 500 字，含“忘/记起/想起/恢复/别记/不要记/不用记/别再记/不再记/forget/restore”）命中后，用当前轮的模型做一次 JSON 模式分类（最多 200 输出 Token，只发送这条输入）；识别为指令时直接回答，不再路由和调用回答模型。分类失败、超时或输出无法解析一律按普通消息处理。边界见 `docs/memory/api.md`。
+- 成本：只有预筛命中的输入才多一次小调用。其 Token 计入该轮 usage，并通过 `ConsolidationQuota.settle` 记入租户当天的 `memory_token_usage`（`app.memory.consolidation.daily-token-limit` 同一额度）；额度只计量、不阻止分类（超额时仍分类，后台记忆任务会因额度用尽而顺延）。
+- 指标：`memory.command.classified{outcome=FORGET|RESTORE|NONE|FAILED}`；`FAILED` 持续升高说明模型不可用或超时设置过短，此时遗忘指令会被当作普通消息回答。
+- 待选编号被无关消息取消时，回答前加“已取消上一次的记忆选择。”（已过期时为“…（已超时）。”），该提示也写入保存的回答。
 - 配置：
 
   ```yaml
@@ -61,6 +64,7 @@
         max-candidates: 5     # 最多列出的候选数
         min-score: 0.5        # 条目至少包含话题切分词的比例
         scan-limit: 500       # 每次扫描该范围内最近更新的条目数
+        classify-timeout: 10s # 意图分类调用的超时，超时按普通消息处理
   ```
 
 - 数据：遗忘只把条目状态改为 `FORGOTTEN`（版本号加 1，不置无效、不删除），写 `memory_audit_log`（`FORGET_IN_CHAT` / `RESTORE_IN_CHAT` / `RESTORE`，不含正文）和 `memory.audit` 日志；待选编号存于 `memory_command_pending`（每会话一条，下一轮即消费，过期行在该会话下一轮时删除）；被识别为指令的轮次在 `chat_turns.memory_command` 标记，记忆判断跳过这些轮次。

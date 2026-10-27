@@ -77,7 +77,16 @@ public class MemoryProperties {
         private int maxCandidates = 5;
         private double minScore = 0.5;
         private int scanLimit = 500;
+        private Duration classifyTimeout = Duration.ofSeconds(10);
 
+        /** Upper bound of the forget / restore intent classification call; on timeout it is not a command. */
+        public Duration getClassifyTimeout() { return classifyTimeout; }
+        public void setClassifyTimeout(Duration classifyTimeout) {
+            if (classifyTimeout == null || classifyTimeout.isZero() || classifyTimeout.isNegative()) {
+                throw new IllegalArgumentException("app.memory.forget.classify-timeout must be positive");
+            }
+            this.classifyTimeout = classifyTimeout;
+        }
         public Duration getPendingTtl() { return pendingTtl; }
         public void setPendingTtl(Duration pendingTtl) { this.pendingTtl = pendingTtl; }
         public int getMaxCandidates() { return maxCandidates; }

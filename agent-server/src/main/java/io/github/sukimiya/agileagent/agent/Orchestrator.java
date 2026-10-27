@@ -108,7 +108,8 @@ public class Orchestrator {
 
     /**
      * With in-chat memory commands ("忘记…" / "记起来…", M2b T5 follow-up): the user's input is offered to
-     * {@code commands} first; a handled command is answered with its fixed text and no model call.
+     * {@code commands} first (keyword prefilter, then one classification call on the turn's model); a handled
+     * command is answered with its fixed text and no routing or answer model call.
      */
     @Autowired
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
@@ -185,10 +186,10 @@ public class Orchestrator {
         var usage = new UsageAccumulator();
         var finalText = new AtomicReference<String>();
         Flux<String> body = history.userInput(ticket)
-                .flatMapMany(userMessage -> memoryCommand(ticket, userMessage).flatMapMany(command -> {
-                    var answer = new FinalAnswer(recorder, finalText);
-                    if (command.isPresent()) {
-                        var text = command.get();
+                .flatMapMany(userMessage -> memoryCommand(ticket, userMessage, llm, usage).flatMapMany(command -> {
+                    var answer = new FinalAnswer(recorder, finalText, command.notice());
+                    if (command.handled()) {
+                        var text = command.answer();
                         return streamFinalAnswer(answer, Flux.just(new LlmClient.LlmEvent.ContentDelta(text),
                                 new LlmClient.LlmEvent.Completed(text)));
                     }
@@ -209,9 +210,11 @@ public class Orchestrator {
                         : Flux.empty()));
     }
 
-    /** The fixed answer of an in-chat memory command, or empty to answer normally (no commands: always empty). */
-    private Mono<java.util.Optional<String>> memoryCommand(TurnTicket ticket, String userMessage) {
-        return commands == null ? Mono.just(java.util.Optional.empty()) : commands.handle(ticket, userMessage);
+    /** The in-chat memory command outcome (no commands: always answer normally, no notice). */
+    private Mono<MemoryCommandService.Outcome> memoryCommand(TurnTicket ticket, String userMessage, LlmClient llm,
+            UsageAccumulator usage) {
+        return commands == null ? Mono.just(new MemoryCommandService.Outcome(null, ""))
+                : commands.handle(ticket, userMessage, llm, usage::add);
     }
 
     private Flux<String> replay(AcceptedTurn accepted) {
@@ -236,8 +239,11 @@ public class Orchestrator {
         return "TURN_FAILED";
     }
 
-    /** Where the final model answer's deltas are checkpointed and its full text staged. */
-    private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text) {}
+    /**
+     * Where the final model answer's deltas are checkpointed and its full text staged; {@code prefix} (a cancelled
+     * memory pick notice, usually empty) is streamed before the answer and is part of the stored text.
+     */
+    private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text, String prefix) {}
 
     /**
      * What every model call of one turn shares: the turn, the model, its window, the usage total and the turn's
@@ -421,13 +427,16 @@ public class Orchestrator {
 
     /** Streams the final answer: each delta is checkpointed before it is emitted; Completed stages the text. */
     private Flux<String> streamFinalAnswer(FinalAnswer answer, Flux<LlmClient.LlmEvent> events) {
-        return events
+        var prefix = answer.prefix() == null ? "" : answer.prefix();
+        Flux<LlmClient.LlmEvent> all = prefix.isEmpty() ? events
+                : Flux.concat(Flux.just(new LlmClient.LlmEvent.ContentDelta(prefix)), events);
+        return all
                 .concatMap(event -> switch (event) {
                     case LlmClient.LlmEvent.ContentDelta d ->
                             answer.recorder().delta(d.text()).thenReturn(controlLine("delta", d.text())).flux();
                     case LlmClient.LlmEvent.Completed c -> {
-                        answer.text().set(c.fullText());
-                        yield Flux.just(c.fullText() + "\n");
+                        answer.text().set(prefix + c.fullText());
+                        yield Flux.just(prefix + c.fullText() + "\n");
                     }
                     case LlmClient.LlmEvent.ToolCallsReady tc -> Flux.<String>empty();
                     case LlmClient.LlmEvent.Usage ignored -> Flux.<String>empty();

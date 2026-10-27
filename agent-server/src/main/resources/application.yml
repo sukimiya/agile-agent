@@ -71,6 +71,7 @@ app:
     forget:
       pending-ttl: 5m
       max-candidates: 5
+      classify-timeout: 10s
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
   upload:
     dir: ${app.data-dir}/uploads
