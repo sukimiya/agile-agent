@@ -13,6 +13,7 @@ public class MemoryException extends RuntimeException {
         TENANT_REQUIRED(403),
         CONVERSATION_NOT_FOUND(404),
         MEMORY_ITEM_NOT_FOUND(404),
+        MEMORY_REPLAY_NOT_FOUND(404),
         MEMORY_ITEM_CONFLICT(409),
         IDEMPOTENCY_CONFLICT(409),
         TURN_IN_PROGRESS(409),

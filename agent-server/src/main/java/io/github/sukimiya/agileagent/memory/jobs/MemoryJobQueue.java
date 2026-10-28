@@ -29,11 +29,22 @@ public class MemoryJobQueue {
      */
     public Mono<Boolean> enqueue(MemoryScope scope, String conversationId, JobType type, String dedupeKey,
             String payloadJson) {
+        return enqueue(scope, conversationId, type, dedupeKey, payloadJson, false);
+    }
+
+    /**
+     * Like {@link #enqueue(MemoryScope, String, JobType, String, String)}, but due at the start of the next
+     * calendar day (database timezone) when {@code nextDay}: the continuation of a job postponed by the daily
+     * token quota.
+     */
+    public Mono<Boolean> enqueue(MemoryScope scope, String conversationId, JobType type, String dedupeKey,
+            String payloadJson, boolean nextDay) {
+        String due = nextDay ? "TIMESTAMPADD(DAY, 1, CAST(CURRENT_DATE AS DATETIME(6)))" : "CURRENT_TIMESTAMP(6)";
         return Mono.defer(() -> {
             var insert = db.sql("INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status,"
                             + " attempts, dedupe_key, payload, available_at, created_at, updated_at) VALUES (:id,"
-                            + " :tenantId, :subject, :c, :type, 'PENDING', 0, :dedupeKey, :payload,"
-                            + " CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))")
+                            + " :tenantId, :subject, :c, :type, 'PENDING', 0, :dedupeKey, :payload, " + due + ","
+                            + " CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))")
                     .bind("id", NonBlockingIds.uuid())
                     .bind("tenantId", scope.tenantId())
                     .bind("subject", scope.subject())

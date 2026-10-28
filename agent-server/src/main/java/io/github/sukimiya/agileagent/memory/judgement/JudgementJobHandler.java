@@ -390,7 +390,7 @@ public class JudgementJobHandler {
         return sb.toString();
     }
 
-    private static String payloadContent(String payloadJson) {
+    static String payloadContent(String payloadJson) {
         if (payloadJson == null) {
             return "";
         }

@@ -179,6 +179,13 @@ public class MemoryMetrics {
     }
 
     /** Items made INACTIVE by the periodic decay pass ({@code memory.decay.inactivated}; never deleted). */
+    /** One old item handled by a Rules replay (M2b Task 7): SUPERSEDED, INACTIVATED or SKIPPED. */
+    public void replayItem(String outcome) {
+        Counter.builder("memory.replay.items").tag("outcome", outcome)
+                .description("Old-Rules memory items handled by an explicit Rules replay")
+                .register(meters).increment();
+    }
+
     public void decayInactivated(long count) {
         if (count > 0) {
             Counter.builder("memory.decay.inactivated")

@@ -206,6 +206,15 @@
 - 结算：工人预留 `reserve-tokens`；handler 若观察到用量则 `settle(reserved, actual)` 替换为实际值；成功结束时工人再 `settle(reserved, notObserved)`（若已替换则净变为 0）。失败则退还预留以便重试。未观察到用量时保留预留（偏保守）。
 - 指标：`memory.consolidation.backlog`（仅 `enabled=true` 时注册）、`memory.consolidation.quota.postponed`、`memory.feature.enabled{feature=consolidation}`。
 
+## Rules 回放（M2b Task 7）
+
+- 由平台管理员通过 `POST /api/admin/memory/replays` 显式发起（见 `api.md`），从不自动执行；Rules 版本升级本身不改写任何条目。
+- 后台任务 `REPLAY_RULES`（主体 `system:replay`）逐条处理：每条一次模型调用（租户模型 + 当前 classpath Rules，输入为该条目的来源轮次和条目本身），每条前续租。
+- 额度：每条调用前预留 `reserve-tokens`，调用后按实际用量结算；任务领取时的预留在结束时退还。预留失败时回放转 `POSTPONED`，并入队次日 0 点（数据库时区）的续跑任务。
+- 可续：每条处理结果写入 `memory_replay_items`（主键 `(replay_id, item_id)`），续跑和失败重试只取尚未记录的条目。模型错误或非 JSON 输出按常规退避重试，状态保持 `RUNNING`。
+- 表：`memory_replays`（进度与计数）、`memory_replay_items`（新旧条目对应关系、结果 `SUPERSEDED` / `INACTIVATED` / `SKIPPED` 与原因）、`memory_items.inherited_recall_count`（替代条目继承的召回计数，计入有效召回计数和分档保留）。
+- 指标：`memory.replay.items{outcome}`，以及 `memory.judgement.rejected{reason}`、`memory.judgement.failures{reason}`、`memory.consolidation.quota.postponed`。
+
 ## 基础指标与评测
 
 - 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。

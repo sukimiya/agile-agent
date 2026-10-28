@@ -14,6 +14,7 @@
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
 | `MEMORY_ITEM_NOT_FOUND` | 404 | （M2b 起）记忆条目不存在、属于他人或已被用户删除；不区分具体原因 |
+| `MEMORY_REPLAY_NOT_FOUND` | 404 | （M2b 起）管理接口：Rules 回放不存在 |
 | `MEMORY_ITEM_CONFLICT` | 409 | （M2b 起）更正的条目已被替代，或请求中的 `expectedRevision` 与当前版本不符；重新读取后再试 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 同一用户的同一 `Idempotency-Key`（保留期内）对应不同请求：入口、`conversationId`、消息内容或附件 ID 不同 |
 | `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId` 及其 `conversationId`，前端显示“正在生成” |
@@ -162,6 +163,16 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 - **结果：** 恰好 1 条时立即执行，不需确认，回答写明是哪条；多条时编号列出，回复编号（如“2”“1、3”）或“全部”进行选择，5 分钟内有效；期间任何其他回复（或超时后的回复）都会取消选择：回答以“已取消上一次的记忆选择。”（超时后为“已取消上一次的记忆选择（已超时）。”）开头，空一行后是对这条消息的正常回答；如果这条消息本身是新的遗忘/恢复指令，提示后接新指令的结果；没有匹配时回答“没有找到”，不做任何修改。
 - **遗忘的含义：** 条目状态变为 `FORGOTTEN`，不是删除：仍出现在 `GET /api/memory/items`（可用 `status=FORGOTTEN` 筛选），不再参与 Recall、概要和关系召回，不会被分档清除，也不能被记忆判断修改；遗忘后原话也不再被召回（2026-10-27 起）：该条目来源消息所在的轮次（条目恢复后重新可召回）以及所有遗忘/恢复/编号选择的指令轮（永久）都不会再出现在片段、轮次记录、编号精确匹配等任何原文召回结果中；同样的轮次也从同一会话发给模型的近期对话窗口中去掉（2026-10-27 起），因此下一轮模型看不到原话；`GET /api/conversations/{id}/messages` 等历史接口仍完整列出这些消息。可通过 `POST /api/memory/items/{id}/restore` 或对话中“记起来…”恢复。
 - 指令轮的回答作为普通助手消息保存（含条目正文），没有路由和回答模型调用；分类调用的 Token 计入该轮 usage（流中照常输出 `usage` 事件），并计入租户当天的记忆 Token 额度。预筛命中但判为“不是指令”的轮次同样计入这次分类的 Token。
+
+## Rules 回放（管理接口，M2b Task 7）
+
+只有平台管理员可调用（其他人含租户管理员一律 403 `FORBIDDEN`），可指定任意租户。回放不会自动发生：Rules 版本升级后，旧版本判断出的条目保持原样，直到管理员显式发起回放。
+
+- `POST /api/admin/memory/replays`，请求体 `{"tenantId": "...", "fromRulesVersion": 1}`（`fromRulesVersion` 可选，正整数）→ `202`，返回回放对象。`tenantId` 缺失或为空、`fromRulesVersion` 不是正整数 → 400 `INVALID_ARGUMENT`。不提供 dry-run。
+- `GET /api/admin/memory/replays/{id}` → 回放对象；不存在 → 404 `MEMORY_REPLAY_NOT_FOUND`。
+- 回放对象：`replayId`、`tenantId`、`fromRulesVersion`、`toRulesVersion`（发起时的当前 Rules 版本）、`status`（`PENDING` / `RUNNING` / `POSTPONED`（当天额度用完，次日继续）/ `COMPLETED`）、`requestedBy`、`processed`、`superseded`、`inactivated`、`skipped`、`createdAt`、`updatedAt`、`finishedAt`。
+- 范围：该租户所有用户中，由更早 Rules 版本（且不低于 `fromRulesVersion`）判断、断言为 `INFERRED`、状态为 ACTIVE / CANDIDATE / CONFLICT、仍有效、且用户本人从未操作过（更正、恢复、减少召回计数、遗忘等审计记录）的条目。`USER_STATED`、`USER_CONFIRMED`、已遗忘条目不动。
+- 结果：新 Rules 保留或改写 → 新条目（当前 Rules 版本，继承最近召回时间和召回计数），旧条目 `SUPERSEDED` 并通过 `supersededBy` 指向新条目；新 Rules 不再支持 → 旧条目 `INACTIVE`（不删除）；来源会话已删除 → 跳过不动。每条旧条目的处理结果（新旧对应关系）记录在 `memory_replay_items` 供审计。
 
 ## 每轮记忆解释（`GET /api/conversations/{id}/turns/{turnId}/memory`，M2b 起）
 

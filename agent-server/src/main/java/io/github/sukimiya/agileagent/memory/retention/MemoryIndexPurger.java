@@ -85,9 +85,9 @@ public class MemoryIndexPurger implements SmartLifecycle {
                         + " AND created_at <= TIMESTAMPADD(MICROSECOND, -" + ttlMicros + ", CURRENT_TIMESTAMP(6))")
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 0 ? Mono.just(0) : db.sql("UPDATE memory_items SET recall_ref_offset = "
-                                + RecallReferences.countSql("ITEM", "memory_items", "id")
+                                + RecallReferences.itemReferencesSql("memory_items")
                                 + " WHERE recall_ref_offset > 0 AND recall_ref_offset > "
-                                + RecallReferences.countSql("ITEM", "memory_items", "id"))
+                                + RecallReferences.itemReferencesSql("memory_items"))
                         .fetch().rowsUpdated().thenReturn(n.intValue()));
     }
 
@@ -104,7 +104,7 @@ public class MemoryIndexPurger implements SmartLifecycle {
 
     private Mono<Integer> purgeItems() {
         String select = "SELECT i.id, i.source_deleted_at AS t, i.recall_ref_offset AS o, "
-                + RecallReferences.countSql("ITEM", "i", "id") + " AS n,"
+                + RecallReferences.itemReferencesSql("i") + " AS n,"
                 + " TIMESTAMPDIFF(MICROSECOND, i.source_deleted_at, CURRENT_TIMESTAMP(6)) AS age_us"
                 + " FROM memory_items i WHERE i.source_deleted_at IS NOT NULL AND i.status NOT IN " + KEPT
                 + " AND i.source_deleted_at <= TIMESTAMPADD(MICROSECOND, -:minAge, CURRENT_TIMESTAMP(6))";
