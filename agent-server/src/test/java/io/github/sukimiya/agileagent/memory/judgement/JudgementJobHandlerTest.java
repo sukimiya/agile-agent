@@ -343,6 +343,23 @@ class JudgementJobHandlerTest {
         handler.judge(ALICE, conversation, 1).block(WAIT);
 
         assertThat(recalledDaysAgo(item)).isZero();
+        assertThat(itemCount()).as("REMEMBER of an existing item creates no duplicate").isEqualTo(1);
+    }
+
+    private long itemCount() {
+        return fixture.jdbc().queryForObject("SELECT COUNT(*) FROM memory_items WHERE tenant_id = ?", Long.class,
+                ALICE.tenantId());
+    }
+
+    @Test
+    void inferredRememberOfAnExistingItemNeitherDuplicatesNorRefreshes() throws Exception {
+        var item = agedItem("用户可能在 A7-3921 部门", MemoryItem.Assertion.INFERRED);
+        llmOutputs.add(targeted("REMEMBER", "INFERRED", "用户可能在 A7-3921 部门", item));
+
+        handler.judge(ALICE, conversation, 1).block(WAIT);
+
+        assertThat(itemCount()).isEqualTo(1);
+        assertThat(recalledDaysAgo(item)).isEqualTo(100);
     }
 
     @Test

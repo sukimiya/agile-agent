@@ -304,11 +304,15 @@ public class JudgementJobHandler {
                                         .then(enqueueRebuild(scope, conversationId, cross));
                             }));
         }
+        // REMEMBER of an existing item (targetItemId, validated to exist and not be forgotten or deleted): no
+        // duplicate, only a user re-confirmation refreshes its recall time (user decision 2026-10-28).
+        if (v.targetItemId() != null && !v.targetItemId().isBlank()) {
+            return reconfirmed(scope, v);
+        }
         // REMEMBER
         var item = MemoryItem.newItem(scope, itemConversationId, v.itemType(), v.content(), v.status(),
                 v.assertion(), v.importance(), v.confidence(), rulesVersion, judgeModel, v.reason());
-        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources()))
-                        .then(reconfirmed(scope, v)))
+        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources())))
                 .doOnSuccess(x -> metrics.judgementWritten())
                 .then(enqueueRebuild(scope, conversationId, cross));
     }

@@ -63,7 +63,7 @@
         batch: 200
   ```
 
-- 年龄按数据库时间 `COALESCE(last_recalled_at, created_at)` 计算。`last_recalled_at` 在每轮记忆解释写入时为 `ITEM` 记录刷新（解释队列满被丢弃时不刷新），恢复和记忆判断的再次确认也刷新；概要注入不刷新。
+- 年龄按数据库时间 `COALESCE(last_recalled_at, created_at)` 计算。`last_recalled_at` 在每轮记忆解释写入时为 `ITEM` 记录刷新（解释队列满被丢弃时不刷新），恢复和记忆判断的再次确认也刷新（记忆判断对已有条目的 REMEMBER 只刷新、不新建重复条目）；概要注入不刷新。
 - 周期任务与清除任务一样只在 `app.memory.recovery-enabled` 为 true 的单实例上运行；只改状态为 `INACTIVE`（版本号加 1），不删除，写 `memory_audit_log`（`DECAY_INACTIVATE`，操作者 `system:decay`），并重写受影响用户已有的概要快照。`USER_STATED`/`USER_CONFIRMED` 条目永不因此转为不激活。
 - 指标：`memory.decay.inactivated`。
 
