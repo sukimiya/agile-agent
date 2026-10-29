@@ -391,6 +391,29 @@ class MemoryEvalBaselineTest {
     }
 
     @Test
+    void qualityGateRequiresNoRegressionNoPoisonedFactAndRecallAtLeastPointNine() throws Exception {
+        assertThat(MemoryEvalReport.QualityGate.MIN_RECALL_AT_K).isEqualTo(0.9);
+        assertThat(MemoryEvalReport.gate(List.of(), 0, 0.9).passed()).isTrue();
+        assertThat(MemoryEvalReport.gate(List.of(), 0, 1.0).failures()).isEmpty();
+        assertThat(MemoryEvalReport.gate(List.of("recall-01"), 0, 1.0).failures()).singleElement()
+                .satisfies(f -> assertThat(f).contains("回退").contains("recall-01"));
+        assertThat(MemoryEvalReport.gate(List.of(), 1, 1.0).failures()).singleElement()
+                .satisfies(f -> assertThat(f).contains("投毒"));
+        assertThat(MemoryEvalReport.gate(List.of(), 0, 0.75).failures()).singleElement()
+                .satisfies(f -> assertThat(f).contains("Recall@5").contains("0.75"));
+        assertThat(MemoryEvalReport.gate(List.of(), 0, null).passed()).as("no recall sample cannot pass").isFalse();
+
+        var previous = MemoryEvalReport.loadBaselines();
+        var model = previous.get(0).model();
+        var run = new RunInfo(true, model, model, previous.get(0).endpointHost(), "未发送（使用服务商默认值）",
+                MemoryEvalRunner.M2B_CONTEXT, MemoryEvalRunner.commit(), Instant.now(), "test");
+        var answers = runner.answers(only("coref-01", "recall-02"), fake(q -> "青岛 3000，860 元"), run);
+        var comparison = MemoryEvalReport.compare(previous, answers);
+        assertThat(comparison.gate().passed()).as(String.valueOf(comparison.gate().failures())).isTrue();
+        assertThat(Files.readString(MemoryEvalReport.writeComparison(out, comparison))).contains("质量门槛：达到");
+    }
+
+    @Test
     void m1BaselineComparisonUsesSameModelAndCases() throws Exception {
         var previous = MemoryEvalReport.loadBaselines();
         assertThat(previous).extracting(MemoryEvalReport.Baseline::label).containsExactly("M1", "M2a");
@@ -414,6 +437,9 @@ class MemoryEvalBaselineTest {
         assertThat(comparison.regressions()).containsExactly("recall-01");
         var md = Files.readString(MemoryEvalReport.writeComparison(out, comparison));
         assertThat(md).contains("| 用例 | M1 | M2a | M2b |").contains("recall-01").contains("回退");
+        assertThat(comparison.gate().passed()).isFalse();
+        assertThat(comparison.gate().failures()).anySatisfy(f -> assertThat(f).contains("回退").contains("recall-01"));
+        assertThat(md).contains("质量门槛").contains("未达到");
 
         var otherModel = new RunInfo(true, "other-model", "x", "llm.example.test", "未发送（使用服务商默认值）",
                 MemoryEvalRunner.M2B_CONTEXT, MemoryEvalRunner.commit(), Instant.now(), "test");
