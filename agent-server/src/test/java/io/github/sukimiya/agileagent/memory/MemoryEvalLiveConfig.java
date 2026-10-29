@@ -40,7 +40,7 @@ record MemoryEvalLiveConfig(String baseUrl, String apiKey, String model, String 
 
     RunInfo runInfo(String environment) {
         return new RunInfo(true, model, modelVersion == null ? "未提供（" + MODEL_VERSION + "）" : modelVersion,
-                host(baseUrl), TEMPERATURE, MemoryEvalRunner.M2A_CONTEXT, MemoryEvalRunner.commit(), Instant.now(),
+                host(baseUrl), TEMPERATURE, MemoryEvalRunner.M2B_CONTEXT, MemoryEvalRunner.commit(), Instant.now(),
                 environment);
     }
 

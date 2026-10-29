@@ -13,8 +13,9 @@ import io.github.sukimiya.agileagent.memory.MemoryEvalCases.Verdict;
 import io.github.sukimiya.agileagent.service.OpenAiCompatibleLlmClient;
 
 /**
- * Real-model end-to-end baseline on the M2a path (context budget per model window, basic recall, turn records
- * written with the same model). Opt-in only:
+ * Real-model end-to-end baseline on the M2b path (context budget per model window, basic recall, turn records
+ * written with the same model, memory judgement and the profile after each case's conversation goes idle), compared
+ * with the recorded M1 / M2a baselines of the same model ({@code baseline-comparison.md}). Opt-in only:
  * {@code mvn -B -Pmemory-eval-live -pl agent-server -am test} with {@code MEMORY_EVAL_LLM_BASE_URL},
  * {@code MEMORY_EVAL_LLM_API_KEY} and {@code MEMORY_EVAL_LLM_MODEL} set (optionally
  * {@code MEMORY_EVAL_LLM_MODEL_VERSION}); missing configuration fails the run. Results go to
@@ -47,6 +48,8 @@ class MemoryEvalLiveTest {
                     WebClient.builder());
             var answers = runner.answers(cases, llm, config.runInfo(environment));
             MemoryEvalReport.writeAnswers(out, answers);
+            var comparison = MemoryEvalReport.compare(MemoryEvalReport.loadBaselines(), answers);
+            MemoryEvalReport.writeComparison(out, comparison);
             MemoryEvalReport.writeReplay(out, runner.replaySweep(java.util.List.of(1, 2, 3)), runner.settingsLine());
             MemoryEvalReport.writeComponents(out, runner.components(cases, environment), stack.metrics());
             MemoryEvalReport.writeSweep(out, runner.thresholdSweep(cases, java.util.List.of(1, 2, 3)),

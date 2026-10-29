@@ -26,9 +26,16 @@ final class MemoryEvalCases {
     /** Components added in M2a (context budget, turn records, basic recall, capability background). */
     static final Set<String> M2A_COMPONENTS = Set.of("context-budget", "summary", "recall", "capability-background");
 
-    /** Implemented through M2a; any other component a case names (M2b) is not applicable in this phase. */
-    static final Set<String> IMPLEMENTED = java.util.stream.Stream.concat(M1_COMPONENTS.stream(),
-            M2A_COMPONENTS.stream()).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    /**
+     * Added in M2b: memory judgement, user profile, relation lines, per-turn explanation, decay and the
+     * consolidation token quota (decay and quota only on the engineering path).
+     */
+    static final Set<String> M2B_COMPONENTS = Set.of("memory-judgement", "profile", "relations", "explain", "decay",
+            "quota");
+
+    /** Implemented through M2b; a component outside this set is not applicable in this phase. */
+    static final Set<String> IMPLEMENTED = java.util.stream.Stream.of(M1_COMPONENTS, M2A_COMPONENTS, M2B_COMPONENTS)
+            .flatMap(Set::stream).collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Filler(int chars, String insert, Double at) {}
@@ -47,13 +54,24 @@ final class MemoryEvalCases {
      * One case. Setup fields (M2a): {@code window} model window; {@code crossConversation} turns the owner's
      * cross-conversation recall switch on; {@code recallSource} index of the turn the probe should recall (null:
      * nothing should be recalled); {@code recallReason} the expected recall reason of that turn;
-     * {@code probeTool} the probe goes through the inventory capability in the engineering run.
+     * {@code probeTool} the probe goes through the inventory capability in the engineering run. M2b:
+     * {@code forbiddenMemory} terms no memory item of the case should contain (each such item, or a user-asserted
+     * item from a non-user source, is a false memory); {@code poisoning} marks a poisoning case (no user-asserted
+     * item may carry poisoned content); {@code deleteMemory} deletes the items containing that term after
+     * judgement and runs the background jobs again before the probe; {@code expectSwitchOff} asks the probe again
+     * in another new conversation after turning the cross-conversation switch off.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Case(String id, String category, String requires, boolean answer, List<String> components,
             List<Turn> turns, String probe, boolean probeInNewConversation, Expect expect, String note,
             Window window, boolean crossConversation, Integer recallSource, String recallReason,
-            boolean probeTool) {}
+            boolean probeTool, List<String> forbiddenMemory, boolean poisoning, String deleteMemory,
+            Expect expectSwitchOff) {
+
+        List<String> forbidden() {
+            return forbiddenMemory == null ? List.of() : forbiddenMemory;
+        }
+    }
 
     enum Verdict { CORRECT, PARTIAL, WRONG, ERROR }
 
@@ -148,7 +166,7 @@ final class MemoryEvalCases {
         return String.join("；", parts);
     }
 
-    private static String normalize(String s) {
+    static String normalize(String s) {
         return s.toLowerCase(Locale.ROOT).replaceAll("(?<=\\d)[,，](?=\\d)", "").replaceAll("\\s+", "");
     }
 }

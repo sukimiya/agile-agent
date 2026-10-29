@@ -105,7 +105,7 @@ class MemoryEvalBaselineTest {
         assertThat(run.modelVersion()).isEqualTo("2026-09");
         assertThat(run.endpointHost()).isEqualTo("llm.example.test");
         assertThat(run.temperature()).contains("未发送");
-        assertThat(run.contextInput()).isEqualTo(MemoryEvalRunner.M2A_CONTEXT);
+        assertThat(run.contextInput()).isEqualTo(MemoryEvalRunner.M2B_CONTEXT);
         assertThat(run.commit()).isNotBlank();
 
         var baseline = runner.answers(only("early-01"), fake(q -> "A7-3921"), run);
@@ -115,7 +115,7 @@ class MemoryEvalBaselineTest {
         assertThat(result.answer()).isEqualTo("A7-3921");
         assertThat(result.verdict()).isEqualTo(Verdict.CORRECT);
         assertThat(result.turnStatuses()).hasSize(7).containsOnly("COMPLETED");
-        assertThat(result.context().mode()).isEqualTo(MemoryEvalRunner.M2A_CONTEXT);
+        assertThat(result.context().mode()).isEqualTo(MemoryEvalRunner.M2B_CONTEXT);
         assertThat(result.context().injectedMessages()).isEqualTo(12);
         assertThat(result.context().estimatedTokens()).isPositive();
         // Routing and answer calls of the probe turn each report 11 prompt tokens.
@@ -123,7 +123,7 @@ class MemoryEvalBaselineTest {
         assertThat(result.durationMs()).isNotNegative();
         var md = Files.readString(MemoryEvalReport.writeAnswers(out, baseline));
         assertThat(md).contains("model-x").contains("2026-09").contains("llm.example.test").contains("未发送")
-                .contains("上下文预算与基础 Recall").doesNotContain("sk-never-printed").doesNotContain("fake LLM");
+                .contains("上下文预算、基础 Recall 与长期记忆").doesNotContain("sk-never-printed").doesNotContain("fake LLM");
         // First-token latency is measured on the probe and summarised.
         assertThat(result.firstTokenMs()).isNotNull().isNotNegative();
         assertThat(md).contains("首字延迟");
@@ -151,7 +151,7 @@ class MemoryEvalBaselineTest {
         JsonNode json = JSON.readTree(out.resolve(MemoryEvalReport.COMPONENT_JSON).toFile());
 
         var ids = cases.stream().map(Case::id).toList();
-        assertThat(ids).hasSize(20).doesNotHaveDuplicates();
+        assertThat(ids).hasSize(27).doesNotHaveDuplicates();
         var perCase = new java.util.HashMap<String, Integer>();
         json.path("results").forEach(r -> perCase.merge(r.path("caseId").asText(), 1, Integer::sum));
         for (var c : cases) {
@@ -160,7 +160,7 @@ class MemoryEvalBaselineTest {
         }
         assertThat(json.path("commit").asText()).isNotBlank();
         assertThat(json.path("summary").path("FAIL").asInt()).isZero();
-        assertThat(md).contains("PASS").contains("不适用");
+        assertThat(md).contains("PASS");
     }
 
     @Test
@@ -172,12 +172,8 @@ class MemoryEvalBaselineTest {
                     .allSatisfy(r -> assertThat(r.status()).as(r.caseId() + " " + component + ": " + r.detail())
                             .isEqualTo(ComponentStatus.PASS));
         }
-        // Only M2b components remain not applicable.
-        assertThat(results).filteredOn(r -> r.status() == ComponentStatus.NOT_APPLICABLE).isNotEmpty()
-                .allSatisfy(r -> {
-                    assertThat(r.component()).isEqualTo("memory-judgement");
-                    assertThat(r.detail()).contains("M2b");
-                });
+        // M2b: nothing is not applicable any more (m2bComponentsMeasured).
+        assertThat(results).noneMatch(r -> r.status() == ComponentStatus.NOT_APPLICABLE);
         assertThat(results).noneMatch(r -> r.status() == ComponentStatus.FAIL);
     }
 
@@ -206,10 +202,11 @@ class MemoryEvalBaselineTest {
         assertThat(retrieval.sourceAccuracy()).isEqualTo(1.0);
         var byCase = retrieval.perCase().stream()
                 .collect(Collectors.toMap(MemoryEvalRunner.RecallInfo::caseId, Function.identity()));
-        assertThat(byCase.get("window-01").reasons()).containsExactly("CHUNK_FULLTEXT");
-        assertThat(byCase.get("recall-02").reasons()).containsExactly("ENTITY_EXACT");
-        assertThat(byCase.get("recall-03").reasons()).containsExactly("RECORD_FULLTEXT");
+        assertThat(byCase.get("window-01").reasons()).contains("CHUNK_FULLTEXT").isSubsetOf("CHUNK_FULLTEXT", "ITEM");
+        assertThat(byCase.get("recall-02").reasons()).contains("ENTITY_EXACT").isSubsetOf("ENTITY_EXACT", "ITEM");
+        assertThat(byCase.get("recall-03").reasons()).contains("RECORD_FULLTEXT").isSubsetOf("RECORD_FULLTEXT", "ITEM");
         assertThat(byCase.get("recall-01").crossConversation()).isTrue();
+        // M2b: an item judged from the source turn is a further correct candidate (reason ITEM).
         assertThat(byCase.get("recall-04").items()).isZero();
         assertThat(byCase.get("recall-04").hitAtK()).isNull();
         var md = Files.readString(MemoryEvalReport.writeComponents(out, components, stack.metrics()));
@@ -336,6 +333,110 @@ class MemoryEvalBaselineTest {
                 .isEqualTo(1.0);
     }
 
+    @Test
+    void m2bComponentsMeasured() {
+        var results = runner.components(cases, "test").results();
+
+        for (var component : List.of("memory-judgement", "profile", "relations", "explain", "decay", "quota")) {
+            assertThat(results).as(component).filteredOn(r -> r.component().equals(component)).isNotEmpty()
+                    .allSatisfy(r -> assertThat(r.status()).as(r.caseId() + " " + component + ": " + r.detail())
+                            .isEqualTo(ComponentStatus.PASS));
+        }
+        assertThat(results).noneMatch(r -> r.status() == ComponentStatus.NOT_APPLICABLE);
+        // Every answer case was judged after its turns (idle simulated) before the probe.
+        assertThat(runner.lastMemory()).containsKeys("fact-01", "del-01", "switch-01", "corr-03");
+        assertThat(runner.lastMemory().values()).allSatisfy(m -> assertThat(m.judged()).as(m.caseId()).isTrue());
+    }
+
+    @Test
+    void poisoningCasesProduceNoConfirmedFacts() {
+        var poisoning = cases.stream().filter(Case::poisoning).toList();
+        assertThat(poisoning).extracting(Case::id).containsExactlyInAnyOrder("paste-01", "quote-01", "hypo-01",
+                "role-01", "inject-01", "inject-02");
+
+        var results = runner.components(poisoning, "test").results();
+
+        assertThat(results).noneMatch(r -> r.status() == ComponentStatus.FAIL);
+        for (var c : poisoning) {
+            var memory = runner.lastMemory().get(c.id());
+            assertThat(memory).as(c.id()).isNotNull();
+            // The engineering judge tries to store the poisoned content as the user's own words; none survives.
+            assertThat(memory.attempts()).as(c.id() + " attempts").isPositive();
+            assertThat(memory.confirmedPoisoned()).as(c.id() + " " + memory.details()).isZero();
+        }
+    }
+
+    @Test
+    void falseMemoryCountRecorded() throws Exception {
+        // A judge that keeps the hypothetical identity as an inferred fact: one false memory, counted, not a gate.
+        var llm = judging(fake(q -> "广州"), transcript -> {
+            var id = messageIdOf(transcript, "哈尔滨");
+            return "[{\"action\":\"REMEMBER\",\"itemType\":\"FACT\",\"content\":\"用户可能住在哈尔滨\","
+                    + "\"assertion\":\"INFERRED\",\"sourceMessageIds\":[\"" + id + "\"],"
+                    + "\"evidenceExcerpts\":[\"哈尔滨\"],\"reason\":\"r\",\"importance\":0.5,\"confidence\":0.8}]";
+        });
+
+        var answers = runner.answers(only("hypo-01", "coref-01"), llm, fakeRun());
+
+        var byCase = answers.results().stream().collect(Collectors.toMap(MemoryEvalRunner.AnswerResult::caseId,
+                Function.identity()));
+        assertThat(byCase.get("hypo-01").verdict()).isEqualTo(Verdict.CORRECT);
+        assertThat(byCase.get("hypo-01").memory().falseMemories()).isEqualTo(1);
+        assertThat(byCase.get("hypo-01").memory().details()).anyMatch(d -> d.contains("用户可能住在哈尔滨"));
+        assertThat(byCase.get("coref-01").memory().falseMemories()).isZero();
+        assertThat(answers.memory().falseMemories()).isEqualTo(1);
+        assertThat(answers.memory().judgeCalls()).isPositive();
+        var md = Files.readString(MemoryEvalReport.writeAnswers(out, answers));
+        assertThat(md).contains("错误记忆").contains("用户可能住在哈尔滨");
+    }
+
+    @Test
+    void m1BaselineComparisonUsesSameModelAndCases() throws Exception {
+        var previous = MemoryEvalReport.loadBaselines();
+        assertThat(previous).extracting(MemoryEvalReport.Baseline::label).containsExactly("M1", "M2a");
+        // The recorded baselines name one model and endpoint (kept under docs/, outside the product roots).
+        var model = previous.get(0).model();
+        var host = previous.get(0).endpointHost();
+        assertThat(previous).allSatisfy(b -> assertThat(b.model()).isEqualTo(model))
+                .allSatisfy(b -> assertThat(b.endpointHost()).isEqualTo(host));
+        var sameModel = new RunInfo(true, model, model, host,
+                "未发送（使用服务商默认值）", MemoryEvalRunner.M2B_CONTEXT, MemoryEvalRunner.commit(), Instant.now(), "test");
+        var answers = runner.answers(only("coref-01", "recall-01", "fact-01"), fake(q -> "青岛 3000"), sameModel);
+
+        var comparison = MemoryEvalReport.compare(previous, answers);
+
+        assertThat(comparison.comparable()).as(comparison.reason()).isTrue();
+        var rows = comparison.rows().stream().collect(Collectors.toMap(MemoryEvalReport.ComparisonRow::caseId,
+                Function.identity()));
+        assertThat(rows.get("coref-01").verdicts()).containsExactly("CORRECT", "CORRECT", "CORRECT");
+        assertThat(rows.get("fact-01").verdicts()).containsExactly(null, null, "WRONG");
+        // recall-01 was answered correctly in M2a and is wrong now: a regression, reported, never hidden.
+        assertThat(comparison.regressions()).containsExactly("recall-01");
+        var md = Files.readString(MemoryEvalReport.writeComparison(out, comparison));
+        assertThat(md).contains("| 用例 | M1 | M2a | M2b |").contains("recall-01").contains("回退");
+
+        var otherModel = new RunInfo(true, "other-model", "x", "llm.example.test", "未发送（使用服务商默认值）",
+                MemoryEvalRunner.M2B_CONTEXT, MemoryEvalRunner.commit(), Instant.now(), "test");
+        var other = MemoryEvalReport.compare(previous, runner.answers(only("coref-01"), fake(q -> "青岛 3000"),
+                otherModel));
+        assertThat(other.comparable()).isFalse();
+        assertThat(other.reason()).contains("模型");
+    }
+
+    /** {@code answers} for everything but judgement calls, which {@code judge} answers from the transcript. */
+    static LlmClient judging(LlmClient answers, Function<String, String> judge) {
+        return (messages, tools) -> messages.getFirst().content().contains("你是记忆判断器")
+                ? Flux.just(new LlmClient.LlmEvent.Completed(judge.apply(messages.getLast().content())),
+                        new LlmClient.LlmEvent.Usage(11, 2, 13))
+                : answers.chatStream(messages, tools);
+    }
+
+    /** Message id of the first transcript line containing {@code text}. */
+    static String messageIdOf(String transcript, String text) {
+        return transcript.lines().filter(l -> l.contains(text) && l.startsWith("[")).findFirst()
+                .map(l -> l.substring(1, l.indexOf(']'))).orElse("none");
+    }
+
     private List<Case> only(String... ids) {
         var wanted = List.of(ids);
         var selected = cases.stream().filter(c -> wanted.contains(c.id())).toList();
@@ -344,7 +445,7 @@ class MemoryEvalBaselineTest {
     }
 
     private static RunInfo fakeRun() {
-        return new RunInfo(false, "fake", "n/a", "none", "未发送（使用服务商默认值）", MemoryEvalRunner.M2A_CONTEXT,
+        return new RunInfo(false, "fake", "n/a", "none", "未发送（使用服务商默认值）", MemoryEvalRunner.M2B_CONTEXT,
                 MemoryEvalRunner.commit(), Instant.now(), "test");
     }
 
