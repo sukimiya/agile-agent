@@ -23,6 +23,8 @@ From `agent-server/`, the equivalent server test command is `mvn -f ../pom.xml -
 
 Memory persistence (M1) has opt-in checks beyond the default suite. Real-MySQL integration tests run against the loopback test database from `docker/docker-compose.memory-test.yml`: `mvn -Pmemory-mysql-it -pl agent-server -am test`. The failure-acceptance subset is `-Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest`. H2 runs and successful builds do not count as MySQL concurrency acceptance. The real-model evaluation (`-Pmemory-eval-live`) runs only by hand in an isolated environment. Results, open items and the recovery drill record are in the [M1 acceptance record](docs/memory/phase-1-acceptance.md).
 
+Memory M2a adds a per-model context budget, background for domain agents, per-turn memory records and basic recall (deterministic codes plus Chinese full-text; no vector service), with cross-conversation recall off by default ([M2a acceptance record](docs/memory/phase-2a-acceptance.md)). Memory M2b (in progress on `codex/memory-m2b`) adds LLM + Rules memory judgement with provenance and anti-poisoning checks, a per-user profile (only when cross-conversation memory is on), per-turn recall explanation and the user memory API, soft deletion, forgetting in chat, recall-time decay, Rules replay and a per-tenant consolidation token quota. Its evaluation against the M1 and M2a baselines on the same model and cases is in [eval-baseline.md](docs/memory/eval-baseline.md) section 5; the [M2b acceptance record](docs/memory/phase-2b-acceptance.md) lists open decisions, and raw message tiered compression (M2b Task 9) is not implemented yet and awaits acceptance.
+
 ## Deployment limits
 
 部署限制：单实例（replicas=1），多实例不受支持。
