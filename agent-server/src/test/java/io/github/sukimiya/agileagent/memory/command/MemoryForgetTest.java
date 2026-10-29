@@ -528,6 +528,40 @@ class MemoryForgetTest {
     }
 
     @Test
+    void userDeletedItemExcludesItsSourceTurnsFromRecallForGood() {
+        var source = completedTurn("我下周三去口腔医院复诊，挂号单 K-7788", "好的，记住了");
+        var unrelated = completedTurn("我的车牌是 A7-3921", "好的");
+        var clinic = itemFrom(source, CLINIC);
+        worker.runPending(100).block(WAIT);
+        record(source, "用户下周三去口腔医院复诊，挂号单 K-7788");
+        assertThat(recalled("K-7788 口腔医院复诊")).contains(source);
+
+        itemService.delete(ALICE, clinic.id()).block(WAIT);
+        worker.runPending(100).block(WAIT);
+
+        for (var query : List.of("K-7788", "口腔医院复诊是哪天", "下周三去口腔医院复诊")) {
+            assertThat(recalled(query)).as(query).doesNotContain(source);
+        }
+        assertThat(recalled("A7-3921 违章")).as("other turns stay recallable").contains(unrelated);
+    }
+
+    @Test
+    void userDeletedItemAlsoLeavesTheRecentContextWindowButNotTheHistoryApi() {
+        var source = completedTurn("我下周三去口腔医院复诊，挂号单 K-7788", "好的，K-7788 记住了");
+        completedTurn("我的车牌是 A7-3921", "好的");
+        var clinic = itemFrom(source, CLINIC);
+
+        itemService.delete(ALICE, clinic.id()).block(WAIT);
+        modelCalls.clear();
+        say("今天天气怎么样");
+
+        assertThat(lastAnswerPrompt()).as("the deleted item's source turn is not sent").doesNotContain("K-7788")
+                .contains("A7-3921");
+        var page = stack.history().page(ALICE, conversation, null, 50).block(WAIT);
+        assertThat(page.toString()).contains("K-7788");
+    }
+
+    @Test
     void pickAndRestoreCommandTurnsStayExcluded() {
         item(conversation, CLINIC);
         item(conversation, "用户每周三去口腔医院复诊牙套");

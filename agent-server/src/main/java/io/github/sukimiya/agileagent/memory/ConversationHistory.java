@@ -87,7 +87,7 @@ public class ConversationHistory {
      * The same history as {@link #contextBefore}, grouped by turn (oldest first), without recording metrics. The
      * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND. Turns
      * excluded after an in-chat forget ({@code RecallExclusions#excludedTurn}: memory command turns, and turns
-     * holding a source message of a FORGOTTEN item) are left out; the history API ({@link #page}) still lists them.
+     * holding a source message of a FORGOTTEN or user-DELETED item) are left out; the history API ({@link #page}) still lists them.
      */
     public Mono<List<HistoryTurn>> completedTurnsBefore(TurnTicket ticket) {
         return ownedSession(ticket.scope(), ticket.conversationId())

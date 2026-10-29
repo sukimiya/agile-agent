@@ -13,21 +13,23 @@ import reactor.core.publisher.Mono;
  * Turns whose raw text must not be recalled after an in-chat forget (M2b, user decision 2026-10-27): every turn
  * answered by a memory command (forget / restore instruction, numbered pick; marked in
  * {@code chat_turns.memory_command}, permanently), and every turn that contains a source message of an item that
- * is currently FORGOTTEN (dynamic: restoring the item makes the turn recallable again). Applied to all raw recall
+ * is currently FORGOTTEN (dynamic: restoring the item makes the turn recallable again) or was deleted by the user
+ * (DELETED, user decision 2026-10-29: same as forgetting, permanent because a deleted item cannot be restored; the
+ * join ignores {@code memory_item_sources.is_valid}, which the delete clears). Applied to all raw recall
  * paths (chunks, turn records, exact codes, entity names, the unindexed recent gap) before ranking.
  */
 public final class RecallExclusions {
 
     /**
      * SQL condition true when turn {@code t} (alias) is excluded: a memory command turn, or a turn holding a
-     * source message of a currently FORGOTTEN item of the same owner. Shared by recall and the recent context
+     * source message of a currently FORGOTTEN or user-DELETED item of the same owner. Shared by recall and the recent context
      * window ({@code ConversationHistory#completedTurnsBefore}).
      */
     public static String excludedTurn(String t) {
         return "(" + t + ".memory_command IS NOT NULL OR EXISTS (SELECT 1"
                 + " FROM chat_messages fm JOIN memory_item_sources fs ON fs.message_id = fm.id"
                 + " JOIN memory_items fi ON fi.id = fs.item_id WHERE fm.turn_id = " + t + ".id"
-                + " AND fi.status = 'FORGOTTEN' AND fi.tenant_id = " + t + ".tenant_id AND fi.subject = "
+                + " AND fi.status IN ('FORGOTTEN', 'DELETED') AND fi.tenant_id = " + t + ".tenant_id AND fi.subject = "
                 + t + ".subject))";
     }
 
