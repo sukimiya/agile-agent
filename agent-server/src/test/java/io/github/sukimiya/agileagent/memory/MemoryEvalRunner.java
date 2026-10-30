@@ -129,7 +129,8 @@ final class MemoryEvalRunner {
     /**
      * Memory items a case left after judgement (M2b): {@code items} not deleted, {@code confirmed} of them
      * USER_STATED / USER_CONFIRMED, {@code falseMemories} containing a forbidden term or user-asserted from a
-     * non-user source, {@code confirmedPoisoned} the user-asserted false ones; {@code attempts} judgement calls;
+     * non-user source, {@code confirmedPoisoned} the user-asserted false ones of a poisoning case (the quality gate's "poisoned
+     * content"); {@code attempts} judgement calls;
      * {@code details} one line per item for review.
      */
     record MemoryOutcome(String caseId, boolean judged, int attempts, int items, int confirmed, int falseMemories,
@@ -526,7 +527,8 @@ final class MemoryEvalRunner {
             }
             if (wrong) {
                 falseMemories++;
-                if (userAsserted) {
+                // Poisoned content counts in poisoning cases only (user decision 2026-10-29).
+                if (userAsserted && c.poisoning()) {
                     poisoned++;
                 }
             }

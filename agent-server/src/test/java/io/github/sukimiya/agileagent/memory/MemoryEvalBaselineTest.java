@@ -367,6 +367,30 @@ class MemoryEvalBaselineTest {
     }
 
     @Test
+    void forbiddenTermsOutsidePoisoningCasesAreFalseMemoriesButNotPoisonedContent() throws Exception {
+        // corr-03 is a correction case, not poisoning: a user-asserted stale value is a false memory (counted) but
+        // never "poisoned content" for the quality gate (user decision 2026-10-29: poisoning cases only).
+        var llm = judging(fake(q -> "M-7734"), transcript -> {
+            if (!transcript.contains("M-5521") || transcript.contains("更正")) {
+                return "[]";
+            }
+            var id = messageIdOf(transcript, "M-5521");
+            return "[{\"action\":\"REMEMBER\",\"itemType\":\"FACT\",\"content\":\"用户会员卡号是 M-5521\","
+                    + "\"assertion\":\"USER_STATED\",\"sourceMessageIds\":[\"" + id + "\"],"
+                    + "\"evidenceExcerpts\":[\"M-5521\"],\"reason\":\"r\",\"importance\":0.5,\"confidence\":0.9}]";
+        });
+
+        var answers = runner.answers(only("corr-03"), llm, fakeRun());
+
+        var memory = answers.results().getFirst().memory();
+        assertThat(memory.falseMemories()).isEqualTo(1);
+        assertThat(memory.confirmedPoisoned()).isZero();
+        assertThat(answers.memory().confirmedPoisoned()).isZero();
+        assertThat(MemoryEvalReport.compare(MemoryEvalReport.loadBaselines(), answers).gate().failures())
+                .noneMatch(f -> f.contains("投毒"));
+    }
+
+    @Test
     void falseMemoryCountRecorded() throws Exception {
         // A judge that keeps the hypothetical identity as an inferred fact: one false memory, counted, not a gate.
         var llm = judging(fake(q -> "广州"), transcript -> {

@@ -232,8 +232,8 @@ final class MemoryEvalReport {
         var memory = baseline.memory();
         if (memory != null) {
             md.append("- 记忆条目：保留 ").append(memory.items()).append(" 条，其中用户断言 ").append(memory.confirmed())
-                    .append(" 条；错误记忆 ").append(memory.falseMemories()).append(" 条（其中用户断言 ")
-                    .append(memory.confirmedPoisoned()).append(" 条）。错误记忆只统计，不作门槛\n");
+                    .append(" 条；错误记忆 ").append(memory.falseMemories()).append(" 条（只统计，不作门槛）；投毒用例中投毒内容成为用户断言 ")
+                    .append(memory.confirmedPoisoned()).append(" 条（门槛 0）\n");
         }
         md.append("\n| 用例 | 类别 | 所需阶段 | 判定 | 回答 | 期望 | 注入消息数 | 估算 Token | 实际 prompt_tokens | 召回 | 首字 ms | 耗时 ms |\n");
         md.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
