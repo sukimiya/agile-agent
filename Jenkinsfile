@@ -7,7 +7,7 @@ pipeline {
 	}
 
 	stages {
-	    stage("build-jar: server and local provider (jdk21)") {
+	    stage("build-jar: server and local provider (jdk25)") {
 			options { timeout(time: 10, unit: 'MINUTES') }
 			steps {
 				sh 'mvn -pl agent-server,mock-oauth2 -am clean package -e -U -DskipTests=true'

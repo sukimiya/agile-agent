@@ -22,7 +22,7 @@ services:
   # Development identity provider; never enable this profile in production.
   agile-agent-mock-oauth2:
     profiles: [local-mock]
-    image: eclipse-temurin:21-jre-alpine
+    image: eclipse-temurin:25-jre-alpine
     container_name: agile-agent-mock-oauth2
     restart: unless-stopped
     ports:

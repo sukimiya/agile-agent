@@ -73,6 +73,7 @@ H2 结果不代替 MySQL 迁移与中文全文检索的验收；fake LLM 结果�
 
 1. **关系写入**：`EntityGraphRepository.saveRelation` 只有测试调用，记为 M2b 之后的后续任务（用户决定 2026-10-29）；在此之前一跳关系召回只对已有关系生效。
 2. 偶发失败的 `TurnStreamingIntegrationTest.concurrentFirstRequestsWithTheSameKeyExecuteOnceOnBothEndpoints`（第 3 节），继续观察。
+3. **Jenkins 上的 JDK 25（待办）**：2026-10-30 起构建与运行改为 JDK 25（见 `operations.md`“运行环境”）；Jenkins 构建机是否已有 JDK 25 无法在此确认，第一次发布前需确认。
 
 ## 7. 后续
 

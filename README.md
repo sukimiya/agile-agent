@@ -1,6 +1,6 @@
 # Agile Agent
 
-Agile Agent is an open-source Maven multi-module project for a general-purpose agent server with a stable capability SPI. Build with JDK 21.
+Agile Agent is an open-source Maven multi-module project for a general-purpose agent server with a stable capability SPI. Build with JDK 25.
 
 - `agent-spi` contains the public identity and capability contracts used by server-side adapters.
 - `agent-server` contains HTTP APIs, authentication, orchestration, model integration, and the generic `KNOWLEDGE` capability.

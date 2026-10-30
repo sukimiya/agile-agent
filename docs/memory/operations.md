@@ -114,6 +114,13 @@
 - 手动调整记忆（例如减少召回引用数）写入数据库表 `memory_audit_log`（操作者、动作、目标、数量、前后值、数据库时间，不含内容），同时在 logger `memory.audit` 写一行 JSON。
 - **运维要求：** 将这一行投递到与数据库**不同故障域**的日志存储，投递延迟和 binlog 一样要为 15 分钟 RPO 留出余量。保留期不短于“最早可恢复的全量备份”到现在的时间跨度（本地 `logs/` 只保留 7 天，不能替代日志存储）。另外需要能够查到每个实例最后一条日志的接收时间，用来判断日志覆盖到哪个时间点。
 
+## 运行环境（2026-10-30 起 JDK 25）
+
+- 构建与运行使用 JDK 25 LTS（原为 JDK 21），Spring Boot 3.5.16。镜像 `docker/Dockerfile` 基于 `eclipse-temurin:25-jdk-alpine-3.22`，启动参数含 `-XX:+UseCompactObjectHeaders`（紧凑对象头，JDK 25 为正式特性但默认关闭；粗测约减少 5–20% 的存活对象占用和约 25% 的 GC 次数）。堆仍固定为 `-Xms1024m -Xmx1024m`，因此进程 RSS 不会因此下降，收益是堆内余量和更少的 GC；是否调小堆另行评估。
+- 回退：如紧凑对象头出现问题，可去掉该参数重建镜像（不需要改代码）；回退到 JDK 21 需要同时回退 `pom.xml` 的 `java.version`（字节码为 Java 25 版本，JDK 21 无法加载）。
+- **待办（部署前确认）：** Jenkins 构建机上是否已安装 JDK 25 并作为 `mvn` 使用的 JDK，在仓库里无法确认；第一次发布前需在 Jenkins 上确认 `mvn -v` 显示 Java 25，否则 `build-jar` 阶段会因 `release 25` 无效而编译失败。
+- Spring Boot 3.5 的开源免费支持已于 2026-06-30 结束（3.5.16 为最后一个免费补丁），升级到 Boot 4.x 另行规划。
+
 ## 单实例保护
 
 - M1 只支持单实例部署（`replicas=1`），多实例不受支持。`InstanceGuard` 在启动时于 `service_instances` 登记本实例，此后每隔 `app.memory.instance-heartbeat-interval`（默认 10 秒）续期。心跳与判定都使用数据库时间。

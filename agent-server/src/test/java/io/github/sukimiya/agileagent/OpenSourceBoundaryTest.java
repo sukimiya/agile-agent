@@ -75,6 +75,25 @@ class OpenSourceBoundaryTest {
     }
 
     @Test
+    void buildAndRuntimeUseJdk25() throws IOException {
+        Path root = findRepositoryRoot(Path.of("").toAbsolutePath());
+        String pom = Files.readString(root.resolve("pom.xml"), StandardCharsets.UTF_8);
+        String dockerfile = Files.readString(root.resolve("docker/Dockerfile"), StandardCharsets.UTF_8);
+        String compose = Files.readString(root.resolve("docker/docker-compose.yml"), StandardCharsets.UTF_8);
+        String jenkinsfile = Files.readString(root.resolve("Jenkinsfile"), StandardCharsets.UTF_8);
+        String migration = Files.readString(root.resolve("docs/spec/migration-from-single-module.md"),
+                StandardCharsets.UTF_8);
+
+        assertThat(pom).contains("<java.version>25</java.version>", "<version>3.5.16</version>");
+        assertThat(dockerfile).contains("FROM eclipse-temurin:25-jdk-alpine-3.22", "\"-XX:+UseCompactObjectHeaders\"")
+                .doesNotContain("temurin:21");
+        assertThat(compose).contains("image: eclipse-temurin:25-jre-alpine").doesNotContain("temurin:21");
+        assertThat(jenkinsfile).contains("(jdk25)").doesNotContain("jdk21");
+        assertThat(migration).contains("Use JDK 25").doesNotContain("JDK 21");
+        assertThat(Runtime.version().feature()).isGreaterThanOrEqualTo(25);
+    }
+
+    @Test
     void defaultContainerConfigurationDoesNotRequireNacos() throws IOException {
         Path root = findRepositoryRoot(Path.of("").toAbsolutePath());
         String dockerfile = Files.readString(root.resolve("docker/Dockerfile"), StandardCharsets.UTF_8);
@@ -139,7 +158,7 @@ class OpenSourceBoundaryTest {
         assertThat(isProductFile("docs/spec/migration-from-single-module.md")).isTrue();
         assertThat(isProductFile("docs/capability-adapters.md")).isTrue();
         assertThat(readme)
-                .contains("JDK 21", "mvn -pl agent-server -am test",
+                .contains("JDK 25", "mvn -pl agent-server -am test",
                         "mvn -pl agent-server,mock-oauth2 -am -DskipTests package",
                         "LLM_CONFIG_SECRET", "OAUTH2_CLIENT_ID", "OAUTH2_CLIENT_SECRET",
                         "OAUTH2_AUTHORIZATION_URI", "OAUTH2_TOKEN_URI", "OAUTH2_USERINFO_URI",

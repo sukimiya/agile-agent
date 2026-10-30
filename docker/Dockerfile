@@ -1,5 +1,5 @@
-# JDK21 runtime image
-FROM eclipse-temurin:21-jdk-alpine-3.22
+# JDK 25 LTS runtime image
+FROM eclipse-temurin:25-jdk-alpine-3.22
 
 # 装 bash：Alpine 默认只有 busybox 的 /bin/sh，Portainer 的 Console 功能默认尝试 /bin/bash
 # 会连不上，装了才能在线排查（unzip 查 jar 内容等）
@@ -16,4 +16,4 @@ ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH=$PATH:$JAVA_HOME/bin
 ENV APP_DATA_DIR=/data
 
-ENTRYPOINT ["java","-server","-Xms1024m","-Xmx1024m","-Djava.security.egd=file:/dev/urandom","-Duser.timezone=Asia/Shanghai","-jar","/app/agile-agent-server.jar"]
+ENTRYPOINT ["java","-server","-XX:+UseCompactObjectHeaders","-Xms1024m","-Xmx1024m","-Djava.security.egd=file:/dev/urandom","-Duser.timezone=Asia/Shanghai","-jar","/app/agile-agent-server.jar"]
