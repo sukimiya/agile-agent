@@ -391,6 +391,45 @@ class MemoryEvalBaselineTest {
     }
 
     @Test
+    void onlyCurrentItemsAreFalseMemoriesAndMentionsOfTheOldValueAreListedForReview() throws Exception {
+        // corr-03 after a working correction: the old item is SUPERSEDED (not current: no false memory) and the new
+        // item mentions the voided value next to the correct one (listed for manual review, not counted).
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var llm = judgingWithExisting(fake(q -> "M-7734"), (existing, transcript) -> {
+            try {
+                if (!transcript.contains("更正")) {
+                    var id = messageIdOf(transcript, "M-5521");
+                    return "[{\"action\":\"REMEMBER\",\"itemType\":\"FACT\",\"content\":\"用户会员卡号是 M-5521\","
+                            + "\"assertion\":\"USER_STATED\",\"sourceMessageIds\":[\"" + id + "\"],"
+                            + "\"evidenceExcerpts\":[\"M-5521\"],\"reason\":\"r\",\"importance\":0.5,"
+                            + "\"confidence\":0.9}]";
+                }
+                var old = json.readTree(existing).get(0);
+                var id = messageIdOf(transcript, "M-7734");
+                return "[{\"action\":\"SUPERSEDE\",\"itemType\":\"FACT\","
+                        + "\"content\":\"用户会员卡号是 M-7734（原卡号 M-5521 已作废）\",\"assertion\":\"USER_STATED\","
+                        + "\"sourceMessageIds\":[\"" + id + "\"],\"evidenceExcerpts\":[\"M-7734\"],\"reason\":\"更正\","
+                        + "\"targetItemId\":\"" + old.path("id").asText() + "\",\"expectedRevision\":"
+                        + old.path("revision").asLong() + "}]";
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+        var answers = runner.answers(only("corr-03"), llm, fakeRun());
+
+        var memory = answers.results().getFirst().memory();
+        assertThat(memory.details()).anyMatch(d -> d.contains("SUPERSEDED") && d.contains("M-5521"));
+        assertThat(memory.falseMemories()).isZero();
+        assertThat(memory.reviewMentions()).isEqualTo(1);
+        assertThat(memory.details()).anyMatch(d -> d.startsWith("【待复核：提及旧值】") && d.contains("M-7734"));
+        assertThat(answers.memory().falseMemories()).isZero();
+        assertThat(answers.memory().reviewMentions()).isEqualTo(1);
+        var md = Files.readString(MemoryEvalReport.writeAnswers(out, answers));
+        assertThat(md).contains("待复核").contains("原卡号 M-5521 已作废");
+    }
+
+    @Test
     void falseMemoryCountRecorded() throws Exception {
         // A judge that keeps the hypothetical identity as an inferred fact: one false memory, counted, not a gate.
         var llm = judging(fake(q -> "广州"), transcript -> {
@@ -474,6 +513,21 @@ class MemoryEvalBaselineTest {
     }
 
     /** {@code answers} for everything but judgement calls, which {@code judge} answers from the transcript. */
+    /** Like {@link #judging}, with the existing-items JSON the judgement was given as the first argument. */
+    static LlmClient judgingWithExisting(LlmClient answers,
+            java.util.function.BiFunction<String, String, String> judge) {
+        var marker = "已有条目（可能为空）：\n";
+        return (messages, tools) -> {
+            var system = messages.getFirst().content();
+            if (!system.contains("你是记忆判断器")) {
+                return answers.chatStream(messages, tools);
+            }
+            var existing = system.substring(system.indexOf(marker) + marker.length());
+            return Flux.just(new LlmClient.LlmEvent.Completed(judge.apply(existing, messages.getLast().content())),
+                    new LlmClient.LlmEvent.Usage(11, 2, 13));
+        };
+    }
+
     static LlmClient judging(LlmClient answers, Function<String, String> judge) {
         return (messages, tools) -> messages.getFirst().content().contains("你是记忆判断器")
                 ? Flux.just(new LlmClient.LlmEvent.Completed(judge.apply(messages.getLast().content())),

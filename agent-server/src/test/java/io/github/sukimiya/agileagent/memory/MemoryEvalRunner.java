@@ -128,16 +128,17 @@ final class MemoryEvalRunner {
 
     /**
      * Memory items a case left after judgement (M2b): {@code items} not deleted, {@code confirmed} of them
-     * USER_STATED / USER_CONFIRMED, {@code falseMemories} containing a forbidden term or user-asserted from a
+     * USER_STATED / USER_CONFIRMED, {@code falseMemories} current (ACTIVE / CANDIDATE / CONFLICT) items containing a forbidden term or user-asserted from a
      * non-user source, {@code confirmedPoisoned} the user-asserted false ones of a poisoning case (the quality gate's "poisoned
      * content"); {@code attempts} judgement calls;
      * {@code details} one line per item for review.
      */
     record MemoryOutcome(String caseId, boolean judged, int attempts, int items, int confirmed, int falseMemories,
-            int confirmedPoisoned, int deleted, List<String> details) {}
+            int confirmedPoisoned, int deleted, int reviewMentions, List<String> details) {}
 
     /** Memory totals of an answer run. */
-    record MemoryStats(int judgeCalls, int items, int confirmed, int falseMemories, int confirmedPoisoned) {}
+    record MemoryStats(int judgeCalls, int items, int confirmed, int falseMemories, int confirmedPoisoned,
+            int reviewMentions) {}
 
     /** Capability calls of the probe: with recent background, and continuing with a tool round. */
     record CapabilityInfo(int calls, int withBackground, int withToolResult) {}
@@ -497,13 +498,27 @@ final class MemoryEvalRunner {
         worker.runPending(50).block(TURN_WAIT);
     }
 
+    /** Item statuses that are current memory; only these can be false memories (user decision 2026-10-30). */
+    static final java.util.Set<String> CURRENT = java.util.Set.of("ACTIVE", "CANDIDATE", "CONFLICT");
+
     private MemoryOutcome memoryOutcome(Case c, MemoryScope scope, int calls) {
         var forbidden = c.forbidden().stream().map(MemoryEvalCases::normalize).toList();
+        var expected = new ArrayList<String>();
+        if (c.expect() != null) {
+            if (c.expect().all() != null) {
+                expected.addAll(c.expect().all());
+            }
+            if (c.expect().any() != null) {
+                expected.addAll(c.expect().any());
+            }
+        }
+        var expectedNorm = expected.stream().map(MemoryEvalCases::normalize).filter(t -> !t.isBlank()).toList();
         int kept = 0;
         int confirmed = 0;
         int falseMemories = 0;
         int poisoned = 0;
         int deleted = 0;
+        int review = 0;
         var details = new ArrayList<String>();
         for (var row : stack.rows("SELECT id, content, assertion, status, conversation_id FROM memory_items"
                 + " WHERE tenant_id = ? AND subject = ? ORDER BY created_at, id", scope.tenantId(), scope.subject())) {
@@ -521,9 +536,16 @@ final class MemoryEvalRunner {
             boolean nonUserSource = sourceTypes.stream().anyMatch(t -> !"USER_INPUT".equals(t));
             var text = MemoryEvalCases.normalize(content);
             var hit = forbidden.stream().filter(text::contains).findFirst();
-            boolean wrong = hit.isPresent() || (userAsserted && nonUserSource);
+            boolean current = CURRENT.contains(status);
+            // A current item that names the forbidden (old) value next to the expected (correct) one only mentions
+            // it, e.g. "M-7734（原卡号 M-5521 已作废）": listed for manual review, not counted.
+            boolean mention = current && hit.isPresent() && expectedNorm.stream().anyMatch(text::contains);
+            boolean wrong = current && !mention && (hit.isPresent() || (userAsserted && nonUserSource));
             if (userAsserted) {
                 confirmed++;
+            }
+            if (mention) {
+                review++;
             }
             if (wrong) {
                 falseMemories++;
@@ -532,12 +554,12 @@ final class MemoryEvalRunner {
                     poisoned++;
                 }
             }
-            details.add((wrong ? "【错误记忆】" : "") + assertion + "/" + status
+            details.add((wrong ? "【错误记忆】" : mention ? "【待复核：提及旧值】" : "") + assertion + "/" + status
                     + (row.get("CONVERSATION_ID") == null ? "/用户级" : "/会话级") + "：" + content
                     + (hit.isPresent() ? "（含禁记词“" + hit.get() + "”）" : "")
                     + (userAsserted && nonUserSource ? "（用户断言但来源 " + sourceTypes + "）" : ""));
         }
-        return new MemoryOutcome(c.id(), calls > 0, calls, kept, confirmed, falseMemories, poisoned, deleted,
+        return new MemoryOutcome(c.id(), calls > 0, calls, kept, confirmed, falseMemories, poisoned, deleted, review,
                 List.copyOf(details));
     }
 
@@ -1017,7 +1039,8 @@ final class MemoryEvalRunner {
         var memory = new MemoryStats(judgements.calls(), outcomes.stream().mapToInt(MemoryOutcome::items).sum(),
                 outcomes.stream().mapToInt(MemoryOutcome::confirmed).sum(),
                 outcomes.stream().mapToInt(MemoryOutcome::falseMemories).sum(),
-                outcomes.stream().mapToInt(MemoryOutcome::confirmedPoisoned).sum());
+                outcomes.stream().mapToInt(MemoryOutcome::confirmedPoisoned).sum(),
+                outcomes.stream().mapToInt(MemoryOutcome::reviewMentions).sum());
         return new AnswerBaseline(run, List.copyOf(results), stats(recalls, retriever.latencies), cost,
                 percentile(firstTokens, 50), percentile(firstTokens, 95), probePrompt, settingsLine(), memory);
     }
