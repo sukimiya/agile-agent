@@ -1032,7 +1032,10 @@ final class MemoryEvalRunner {
                 + "; context.estimate-factor=" + stack.props().getContext().getEstimateFactor()
                 + "; judgement.enabled=" + stack.props().getJudgement().isEnabled() + ", max-source-tokens="
                 + stack.props().getJudgement().getMaxSourceTokens() + ", max-output-tokens="
-                + stack.props().getJudgement().getMaxOutputTokens() + ", rules-version="
+                + stack.props().getJudgement().getMaxOutputTokens() + ", existing-max-items="
+                + stack.props().getJudgement().getExistingMaxItems() + ", existing-recent-items="
+                + stack.props().getJudgement().getExistingRecentItems() + ", existing-max-tokens="
+                + stack.props().getJudgement().getExistingMaxTokens() + ", rules-version="
                 + GlobalRules.loadFromClasspath().current().version();
     }
 

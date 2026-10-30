@@ -69,6 +69,7 @@ public class JudgementJobHandler {
     private final MemoryJobWorker worker;
     private final ConsolidationQuota quota;
     private final MemoryJobQueue jobs;
+    private final ExistingItems existingItems;
 
     @Autowired
     public JudgementJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementProgress progress,
@@ -100,6 +101,8 @@ public class JudgementJobHandler {
         this.worker = worker;
         this.quota = quota;
         this.jobs = new MemoryJobQueue(db);
+        props.getJudgement().validate();
+        this.existingItems = new ExistingItems(db, props);
         if (props.getJudgement().isEnabled()) {
             worker.register(JobType.JUDGE_MEMORY, this::handle);
         }
@@ -221,10 +224,13 @@ public class JudgementJobHandler {
         if (TokenEstimator.estimate(transcript) > cap) {
             transcript = SummaryJobHandler.truncate(transcript, cap);
         }
-        String existing = "[]";
         var rulesVersion = rules.current();
         String finalTranscript = transcript;
-        return call(model, rulesVersion.text(), finalTranscript, existing, usageAcc)
+        var turnText = String.join("\n", turn.stream().map(TurnMsg::content)
+                .filter(c -> c != null && !c.isBlank()).toList());
+        // Read before every turn: items written for an earlier turn of this job are visible (2026-10-30).
+        return existingItems.json(scope, conversationId, cross, turnText)
+                .flatMap(existing -> call(model, rulesVersion.text(), finalTranscript, existing, usageAcc))
                 .flatMap(raw -> parseActions(raw)
                         .flatMapMany(Flux::fromIterable)
                         .concatMap(action -> validator.validate(scope, action, rulesVersion)

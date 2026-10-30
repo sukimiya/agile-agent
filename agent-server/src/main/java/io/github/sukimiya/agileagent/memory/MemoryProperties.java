@@ -270,6 +270,46 @@ public class MemoryProperties {
             }
             this.maxSourceTokens = v;
         }
+
+        /**
+         * Existing items sent with each turn's judgement (user decision 2026-10-30): at most this many in total
+         * (0 = none), of which up to {@link #existingRecentItems} are the newest of this conversation regardless of
+         * a literal match; the rest are items matching the turn's codes and keywords.
+         */
+        private int existingMaxItems = 10;
+        private int existingRecentItems = 5;
+        /** Estimated-token cap of the existing-items JSON; separate from {@link #maxSourceTokens}. */
+        private int existingMaxTokens = 1_500;
+
+        public int getExistingMaxItems() { return existingMaxItems; }
+        public void setExistingMaxItems(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-max-items must be >= 0");
+            }
+            this.existingMaxItems = v;
+        }
+        public int getExistingRecentItems() { return existingRecentItems; }
+        public void setExistingRecentItems(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-recent-items must be >= 0");
+            }
+            this.existingRecentItems = v;
+        }
+        public int getExistingMaxTokens() { return existingMaxTokens; }
+        public void setExistingMaxTokens(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-max-tokens must be >= 0");
+            }
+            this.existingMaxTokens = v;
+        }
+
+        /** Cross-field check, run once the properties are bound (at startup, by the judgement handler). */
+        public void validate() {
+            if (existingRecentItems > existingMaxItems) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-recent-items (" + existingRecentItems
+                        + ") must not exceed existing-max-items (" + existingMaxItems + ")");
+            }
+        }
     }
 
     /**

@@ -189,6 +189,7 @@
 闲置后对未判断轮次调用租户模型 + classpath Rules，写入 `memory_items` / `memory_item_sources`。
 
 - 配置 `app.memory.judgement.*`：`enabled`（默认 `false`）、`max-source-tokens`（默认 12000）、`max-output-tokens`（默认 1200）、`job-timeout`（默认 120s）。
+- 已有条目（2026-10-30）：每轮判断前重新读取相关已有条目一并发给模型，使更正能以 UPDATE / SUPERSEDE 取代旧条目。相关 = 本会话最近写入的有效条目（不看字面是否匹配；跨会话开关打开时为来源消息在本会话中的用户级条目）与按本轮编号、关键词匹配到的条目的并集，范围与召回相同（开关开：用户级；关：本会话的会话级），只含 ACTIVE（未过期）、CANDIDATE、CONFLICT；按衰减后的分数排序、去重；字段为 id、revision、itemType、content、assertion、status。配置（`application.yml`）：`existing-max-items`（总条数，默认 10，0 表示不带）、`existing-recent-items`（其中本会话最近条目，默认 5）、`existing-max-tokens`（估算 Token 上限，默认 1500，超出时先去掉排名靠后的条目；不占用 `max-source-tokens`，实际用量照常计入租户每日额度）。三者只接受非负数，且 `existing-recent-items` 不得大于 `existing-max-items`，否则启动失败。
 - 触发：与轮次记录共用 `IdleConversationScanner`（D19）；启用 judgement 或 summary 任一即可扫描；去重键 `judge:<conversationId>:<lastSeq>`。
 - 进度：`memory_index_progress.judged_through_sequence`（V12）。
 - 跨会话开关关闭时只写 `conversation_id` 非空的会话级条目。

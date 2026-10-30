@@ -73,6 +73,14 @@ app:
           keep: 7d
         - from-count: 5
           keep: 30d
+    # Memory judgement: existing items sent with each turn so corrections can UPDATE / SUPERSEDE (2026-10-30).
+    # Union of the newest items of this conversation (no literal match needed) and items matching the turn's codes
+    # and keywords, same scope as recall; ranked by decayed score; lowest-ranked dropped over the token cap.
+    # Non-negative; existing-recent-items <= existing-max-items (checked at startup); existing-max-items 0 = none.
+    judgement:
+      existing-max-items: 10
+      existing-recent-items: 5
+      existing-max-tokens: 1500   # estimated tokens; separate from max-source-tokens, usage counts toward quota
     # In-chat forget / restore ("忘记…" / "记起来…"): several matches are listed for a pick that stays open this long.
     forget:
       pending-ttl: 5m
