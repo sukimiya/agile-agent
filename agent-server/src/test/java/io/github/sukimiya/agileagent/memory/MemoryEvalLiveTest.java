@@ -15,7 +15,7 @@ import io.github.sukimiya.agileagent.service.OpenAiCompatibleLlmClient;
 /**
  * Real-model end-to-end baseline on the M2b path (context budget per model window, basic recall, turn records
  * written with the same model, memory judgement and the profile after each case's conversation goes idle), compared
- * with the recorded M1 / M2a baselines of the same model ({@code baseline-comparison.md}). Opt-in only:
+ * with the recorded M1 / M2a / M2b baselines of the same model ({@code baseline-comparison.md}). Opt-in only:
  * {@code mvn -B -Pmemory-eval-live -pl agent-server -am test} with {@code MEMORY_EVAL_LLM_BASE_URL},
  * {@code MEMORY_EVAL_LLM_API_KEY} and {@code MEMORY_EVAL_LLM_MODEL} set (optionally
  * {@code MEMORY_EVAL_LLM_MODEL_VERSION}); missing configuration fails the run. Results go to

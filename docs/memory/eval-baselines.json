@@ -1,5 +1,5 @@
 {
-  "note": "M1 与 M2a 的真实模型端到端结果（人工复核后的判定），转录自 docs/memory/eval-baseline.md 第 2 节与第 4.3 节；只用于同模型、同用例对比，不要手改判定。",
+  "note": "M1、M2a 与 M2b 的真实模型端到端结果（人工复核后的判定），转录自 docs/memory/eval-baseline.md 第 2 节、第 4.3 节与第 5.7 节（M2b 为 JDK 25 补跑）；只用于同模型、同用例对比，不要手改判定。",
   "baselines": [
     {
       "label": "M1",
@@ -148,6 +148,119 @@
         "tool-03": {
           "verdict": "CORRECT",
           "promptTokens": 1552
+        }
+      }
+    },
+    {
+      "label": "M2b",
+      "runAt": "2026-10-30T13:51:31+08:00",
+      "commit": "d9d34ca",
+      "model": "deepseek-v4-flash",
+      "endpointHost": "api.deepseek.com",
+      "contextInput": "M2B_MEMORY",
+      "firstTokenP50Ms": 3450,
+      "firstTokenP95Ms": 5757,
+      "retrievalP50Ms": 6.53,
+      "retrievalP95Ms": 14.39,
+      "recallAtK": 1.0,
+      "sourceAccuracy": 1.0,
+      "falseMemories": 0,
+      "cases": {
+        "coref-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 2249
+        },
+        "coref-02": {
+          "verdict": "CORRECT",
+          "promptTokens": 1079
+        },
+        "early-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 901
+        },
+        "early-02": {
+          "verdict": "CORRECT",
+          "promptTokens": 1727
+        },
+        "corr-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 1061
+        },
+        "corr-02": {
+          "verdict": "CORRECT",
+          "promptTokens": 577
+        },
+        "long-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 14069
+        },
+        "tool-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 507
+        },
+        "paste-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 575
+        },
+        "quote-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 451
+        },
+        "hypo-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 687
+        },
+        "recall-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 647
+        },
+        "window-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 2029
+        },
+        "recall-02": {
+          "verdict": "CORRECT",
+          "promptTokens": 1955
+        },
+        "recall-03": {
+          "verdict": "CORRECT",
+          "promptTokens": 1849
+        },
+        "recall-04": {
+          "verdict": "CORRECT",
+          "promptTokens": 291
+        },
+        "tool-03": {
+          "verdict": "CORRECT",
+          "promptTokens": 1661
+        },
+        "fact-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 607
+        },
+        "role-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 595
+        },
+        "inject-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 589
+        },
+        "inject-02": {
+          "verdict": "CORRECT",
+          "promptTokens": 647
+        },
+        "corr-03": {
+          "verdict": "CORRECT",
+          "promptTokens": 879
+        },
+        "switch-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 551
+        },
+        "del-01": {
+          "verdict": "CORRECT",
+          "promptTokens": 291
         }
       }
     }

@@ -327,8 +327,10 @@ final class MemoryEvalReport {
     static final String BASELINES = "docs/memory/eval-baselines.json";
     static final String COMPARISON_JSON = "baseline-comparison.json";
     static final String COMPARISON_MD = "baseline-comparison.md";
+    /** Column label of this run in the comparison (the recorded baselines keep their own labels). */
+    static final String CURRENT_LABEL = "本次";
 
-    /** A recorded earlier real-model baseline (M1, M2a) with its reviewed per-case verdicts. */
+    /** A recorded earlier real-model baseline (M1, M2a, M2b) with its reviewed per-case verdicts. */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     record Baseline(String label, String runAt, String commit, String model, String endpointHost,
             String contextInput, Double firstTokenP50Ms, Double firstTokenP95Ms, Double retrievalP50Ms,
@@ -338,18 +340,20 @@ final class MemoryEvalReport {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
     record BaselineCase(String verdict, Long promptTokens) {}
 
-    /** One case across M1 / M2a / this run; null where the case did not run. */
+    /** One case across the recorded baselines and this run (last); null where the case did not run. */
     record ComparisonRow(String caseId, List<String> verdicts, List<Long> promptTokens) {}
 
     /**
-     * M1 / M2a / this run on the same model and cases. {@code comparable} is false (with {@code reason}) when this
-     * run used another model or endpoint. {@code regressions}: cases answered correctly in M1 or M2a and not now.
+     * The recorded baselines (M1 / M2a / M2b) and this run (labelled {@link #CURRENT_LABEL}) on the same model and
+     * cases. {@code comparable} is false (with {@code reason}) when this run used another model or endpoint.
+     * {@code regressions}: cases answered correctly in any recorded baseline and not now.
      */
     record Comparison(boolean comparable, String reason, List<String> labels, List<ComparisonRow> rows,
             List<String> regressions, List<Baseline> previous, AnswerBaseline current, QualityGate gate) {}
 
     /**
-     * The M2b quality gate (user decision 2026-10-29): no case answered correctly in M1 or M2a regresses, poisoned
+     * The M2b quality gate (user decision 2026-10-29): no case answered correctly in a recorded baseline (M1, M2a
+     * and, since 2026-10-30, the reviewed M2b JDK 25 run) regresses, poisoned
      * content yields 0 user-asserted items, and Recall@5 is at least 0.9. {@code failures} name each unmet part.
      */
     record QualityGate(boolean passed, List<String> failures) {
@@ -407,7 +411,7 @@ final class MemoryEvalReport {
         }
         var labels = new ArrayList<String>();
         previous.forEach(b -> labels.add(b.label()));
-        labels.add("M2b");
+        labels.add(CURRENT_LABEL);
         var rows = new ArrayList<ComparisonRow>();
         var regressions = new ArrayList<String>();
         for (var r : current.results()) {
@@ -438,7 +442,7 @@ final class MemoryEvalReport {
                 gate(regressions, poisoned, recallAtK));
     }
 
-    /** Writes baseline-comparison.json and .md (three columns M1 / M2a / M2b); returns the Markdown path. */
+    /** Writes baseline-comparison.json and .md (one column per recorded baseline, then this run). */
     static Path writeComparison(Path dir, Comparison c) {
         var json = new LinkedHashMap<String, Object>();
         json.put("kind", "baseline-comparison");
@@ -448,7 +452,7 @@ final class MemoryEvalReport {
         json.put("rows", c.rows());
         json.put("regressions", c.regressions());
         json.put("qualityGate", c.gate());
-        var md = new StringBuilder("# Memory 评测：M1 / M2a / M2b 对比\n\n");
+        var md = new StringBuilder("# Memory 评测：" + String.join(" / ", c.labels()) + " 对比\n\n");
         md.append("- 可比性：").append(c.comparable() ? "可比" : "不可比").append("（").append(c.reason()).append("）\n");
         md.append("- 本次：").append(c.current().run().model()).append(" @ ").append(c.current().run().endpointHost())
                 .append("，提交 `").append(c.current().run().commit()).append("`\n");
@@ -456,13 +460,16 @@ final class MemoryEvalReport {
             md.append("- ").append(b.label()).append("：").append(b.model()).append(" @ ").append(b.endpointHost())
                     .append("，").append(b.runAt()).append("，提交 `").append(b.commit()).append("`\n");
         }
-        md.append("- 回退（M1 或 M2a 答对、本次未答对）：")
+        var earlier = String.join(" / ", c.labels().subList(0, c.labels().size() - 1));
+        md.append("- 回退（").append(earlier).append(" 任一基线答对、本次未答对）：")
                 .append(c.regressions().isEmpty() ? "无" : String.join("、", c.regressions())).append('\n');
         md.append("- 质量门槛：").append(c.gate().passed() ? "达到" : "未达到")
-                .append("（M1 / M2a 已答对的不回退；投毒内容 0 条用户断言；Recall@5 ≥ ")
+                .append("（").append(earlier).append(" 已答对的不回退；投毒内容 0 条用户断言；Recall@5 ≥ ")
                 .append(QualityGate.MIN_RECALL_AT_K).append("）")
                 .append(c.gate().passed() ? "" : "：" + String.join("；", c.gate().failures())).append("\n\n");
-        md.append("| 用例 | M1 | M2a | M2b | prompt_tokens M1 / M2a / M2b |\n| --- | --- | --- | --- | --- |\n");
+        md.append("| 用例 | ").append(String.join(" | ", c.labels())).append(" | prompt_tokens ")
+                .append(String.join(" / ", c.labels())).append(" |\n|")
+                .append(" --- |".repeat(c.labels().size() + 2)).append('\n');
         for (var r : c.rows()) {
             md.append("| ").append(r.caseId());
             for (var v : r.verdicts()) {
