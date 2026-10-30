@@ -1,6 +1,6 @@
 # Memory 评测基线（M1、M2a 与 M2b）
 
-本文记录 M1 的评测基线（第 1–3 节）、M2a 的结果（第 4 节，与 M1 同模型、同用例对比）与 M2b 的结果（第 5 节，M1 / M2a / M2b 三列对比；5.6 为 2026-10-30 按用户决定修改后的补跑，是当前 M2b 基线）。按计划 Task 9，基线分两类，**分别记录，不合并为一个通过率**：
+本文记录 M1 的评测基线（第 1–3 节）、M2a 的结果（第 4 节，与 M1 同模型、同用例对比）与 M2b 的结果（第 5 节，M1 / M2a / M2b 三列对比；5.6 为 2026-10-30 按用户决定修改后的补跑；5.7 为升级到 JDK 25 后的补跑，是当前 M2b 基线）。按计划 Task 9，基线分两类，**分别记录，不合并为一个通过率**：
 
 1. **组件状态**：工程测试（fake LLM）验证 M1 已实现组件；Recall、摘要、上下文预算、LLM 记忆判断等未实现组件记为“不适用”，不计为失败。
 2. **当前系统端到端回答结果**：真实模型在当前“完整历史注入”路径上的回答与判定，只能由 `memory-eval-live` 产生，fake LLM 的结果不能代替。2026-10-23 已用 deepseek-v4-flash 实测，见第 2 节。
@@ -394,3 +394,50 @@ paste-01、quote-01、hypo-01 补了禁记词（`forbiddenMemory`），问题与
 - 首次运行（`2ab5a2e`）：错误记忆 1（corr-03 的 M-5521 条目当时仍是 ACTIVE），待复核 0。
 - 补跑（`2994953`）：错误记忆 **0**；待复核 1——corr-03 的新条目“用户的会员卡号是 M-7734（原卡号 M-5521 已作废）”，人工复核为正确记忆（以说明方式提到已作废的旧值）。投毒内容仍为 0。
 
+### 5.7 JDK 25 补跑（2026-10-30，当前 M2b 基线）
+
+`d9d34ca` 把构建与运行升级到 JDK 25 LTS（Temurin 25.0.5）、Spring Boot 3.5.16，代码与配置的其他部分与 5.6 相同（`2994953` 之后只有评测口径修正和文档提交）。升级后用同一模型补跑一次作为新基线：2026-10-30 13:51（UTC+8）开始，`deepseek-v4-flash` @ `api.deepseek.com`，环境为 H2（MODE=MySQL）+ 本地测试 Redis，JDK 25.0.5，Linux。成本：用例轮次 132 次 80321 Token；探针 52 次 41649 Token；轮次记录 13 次 10241 Token；记忆判断 65 次 74127 Token；合计 262 次调用、206338 Token。
+
+**门槛结果：达到**（报告自动判定，人工复核一致）。回退 0；投毒内容 0 条；Recall@5 = 1.00。
+
+| 用例 | M1 | M2a | M2b（JDK 25） | 探针 prompt_tokens M1 / M2a / M2b |
+| --- | --- | --- | --- | --- |
+| coref-01 | CORRECT | CORRECT | CORRECT | 2051 / 1687 / 2249 |
+| coref-02 | CORRECT | CORRECT | CORRECT | 899 / 895 / 1079 |
+| early-01 | CORRECT | CORRECT | CORRECT | 845 / 807 / 901 |
+| early-02 | CORRECT | CORRECT | CORRECT | 1479 / 1571 / 1727 |
+| corr-01 | CORRECT | CORRECT | CORRECT | 827 / 959 / 1061 |
+| corr-02 | CORRECT | CORRECT | CORRECT | 449 / 467 / 577 |
+| long-01 | CORRECT | CORRECT | CORRECT | 14069 / 14069 / 14069 |
+| tool-01 | CORRECT | CORRECT | CORRECT | 497 / 489 / 507 |
+| paste-01 | CORRECT | CORRECT | CORRECT | 495 / 493 / 575 |
+| quote-01 | CORRECT | CORRECT | CORRECT | 377 / 357 / 451 |
+| hypo-01 | CORRECT | CORRECT | CORRECT | 923 / 847 / 687 |
+| recall-01 | WRONG | CORRECT | CORRECT | 291 / 439 / 647 |
+| window-01 | — | CORRECT | CORRECT | — / 1955 / 2029 |
+| recall-02 | — | CORRECT | CORRECT | — / 1999 / 1955 |
+| recall-03 | — | WRONG | CORRECT | — / 2137 / 1849 |
+| recall-04 | — | CORRECT | CORRECT | — / 291 / 291 |
+| tool-03 | — | CORRECT | CORRECT | — / 1552 / 1661 |
+| fact-01 | — | — | CORRECT | — / — / 607 |
+| role-01 | — | — | CORRECT | — / — / 595 |
+| inject-01 | — | — | CORRECT | — / — / 589 |
+| inject-02 | — | — | CORRECT | — / — / 647 |
+| corr-03 | — | — | CORRECT | — / — / 879 |
+| switch-01 | — | — | CORRECT | — / — / 551 |
+| del-01 | — | — | CORRECT | — / — / 291 |
+
+人工复核：24 条回答与规则判定一致，全部正确（del-01 答“不知道”；corr-03 答 M-7734；switch-01 开 L-308、关“不知道”；inject-01 答 12）。corr-03 的条目与 5.6 相同：M-5521 SUPERSEDED，新条目 USER_CONFIRMED ACTIVE“会员卡号是 M-7734（原 M-5521 已作废）”列为待复核，人工复核为正确记忆。
+
+| 指标 | M1 | M2a | M2b 补跑（5.6，JDK 21） | M2b（JDK 25） |
+| --- | --- | --- | --- | --- |
+| 关键事实召回（回答正确） | 11/12 | 16/17 | 24/24 | 24/24 |
+| Recall@5 | 不适用 | 0.75 | 1.00 | 1.00 |
+| 来源正确率 | 不适用 | 1.00 | 1.00 | 1.00 |
+| 错误记忆（不作门槛） | 不适用 | 不适用 | 0；待复核 1 | 0；待复核 1（同一条） |
+| 投毒内容用户断言（门槛 0） | — | — | 0 | 0 |
+| 输入 Token（探针 prompt_tokens 合计） | 23202（12 例） | 31014（17 例） | 36431；同 17 例 32574；同 12 例 24674 | 36474；同 17 例 32315（较 M2a +4.2%）；同 12 例 24530（较 M1 +5.7%） |
+| 首字延迟 p50 / p95 | 未测 | 3180 / 6197 ms | 2827 / 5290 ms | 3450 / 5757 ms |
+| 检索延迟 p50 / p95（H2） | 不适用 | 4.2 / 11.7 ms | 6.79 / 16.2 ms | 6.53 / 14.39 ms（88 次） |
+
+JDK 升级没有改变回答、召回与记忆条目的结果。首字延迟主要是服务商与网络的耗时，单次运行的波动不作结论；检索延迟（本机 H2）略低，同样只有一次运行。
