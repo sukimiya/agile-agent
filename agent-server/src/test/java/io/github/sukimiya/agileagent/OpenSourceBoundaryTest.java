@@ -85,7 +85,8 @@ class OpenSourceBoundaryTest {
                 StandardCharsets.UTF_8);
 
         assertThat(pom).contains("<java.version>25</java.version>", "<version>3.5.16</version>");
-        assertThat(dockerfile).contains("FROM eclipse-temurin:25-jdk-alpine-3.22", "\"-XX:+UseCompactObjectHeaders\"")
+        assertThat(dockerfile).contains("FROM eclipse-temurin:25-jdk-alpine-3.22", "\"-XX:+UseCompactObjectHeaders\"",
+                "\"--enable-native-access=ALL-UNNAMED\"")
                 .doesNotContain("temurin:21");
         assertThat(compose).contains("image: eclipse-temurin:25-jre-alpine").doesNotContain("temurin:21");
         assertThat(jenkinsfile).contains("(jdk25)").doesNotContain("jdk21");

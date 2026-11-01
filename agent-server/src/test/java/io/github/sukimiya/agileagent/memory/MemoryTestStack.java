@@ -114,9 +114,27 @@ public final class MemoryTestStack implements AutoCloseable {
                 turnId);
     }
 
+    /** Tool event rows; ARGUMENTS and RESULT hold the plain text, also when stored compressed (M2b Task 9). */
     public java.util.List<Map<String, Object>> toolEventRowsOfConversation(String conversationId) {
-        return support.fixture.jdbc().queryForList(
+        var rows = support.fixture.jdbc().queryForList(
                 "SELECT * FROM chat_tool_events WHERE conversation_id = ? ORDER BY started_at", conversationId);
+        for (var row : rows) {
+            for (var field : java.util.List.of(
+                    io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.Field.TOOL_ARGUMENTS,
+                    io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.Field.TOOL_RESULT)) {
+                var text = support.fixture.databaseClient()
+                        .sql("SELECT " + io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.select(field, "x")
+                                + " FROM chat_tool_events x"
+                                + io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.join(field, "x")
+                                + " WHERE x.id = :id")
+                        .bind("id", row.get("ID"))
+                        .map(r -> java.util.Optional.ofNullable(
+                                io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.text(r, field)))
+                        .one().block(WAIT);
+                row.put(field.column(), text == null ? null : text.orElse(null));
+            }
+        }
+        return rows;
     }
 
     /** Runs one recovery scan (marks turns with expired leases INTERRUPTED). */

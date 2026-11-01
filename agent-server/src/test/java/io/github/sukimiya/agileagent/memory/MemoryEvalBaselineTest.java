@@ -191,6 +191,38 @@ class MemoryEvalBaselineTest {
                 .allMatch(r -> r.detail().contains("全部"));
     }
 
+    /**
+     * M2b Task 9 acceptance (user decision 2026-10-30 point 9): compression age 0, and every case's originals are
+     * compressed warm and then cold before its probe, so the probe reads them only through the transparent path.
+     */
+    @Test
+    void originalsAreCompressedWarmThenColdBeforeEveryProbe() {
+        var answers = runner.answers(only("coref-01", "recall-01"), fake(q -> "青岛 3000"), fakeRun());
+
+        assertThat(answers.results()).filteredOn(r -> r.caseId().equals("coref-01"))
+                .singleElement().satisfies(r -> assertThat(r.verdict()).isEqualTo(Verdict.CORRECT));
+        assertThat(answers.results()).filteredOn(r -> r.caseId().equals("recall-01")).singleElement()
+                .satisfies(r -> {
+                    assertThat(r.recall().hitAtK()).as("compressed original recalled").isTrue();
+                    assertThat(r.recall().referenceInjected()).isTrue();
+                });
+        var storage = runner.storageByCase();
+        assertThat(storage).containsOnlyKeys("coref-01", "recall-01");
+        assertThat(storage.values()).allSatisfy(s -> {
+            assertThat(s.warm()).as("warm pass").isPositive();
+            assertThat(s.cold()).as("cold pass").isPositive();
+        });
+        assertThat(stack.props().getStorage().isEnabled()).isTrue();
+        assertThat(stack.props().getStorage().getCompressAfter()).isZero();
+        assertThat(answers.settings()).contains("storage.enabled=true")
+                .contains("compress-after=PT0S").contains("warm then cold before each probe");
+        // Everything but the probe turns (written after compression) is stored compressed, never plain.
+        assertThat(((Number) stack.rows("SELECT COUNT(*) AS n FROM chat_messages WHERE payload_codec IS NOT NULL")
+                .getFirst().get("N")).longValue()).isPositive();
+        assertThat(((Number) stack.rows("SELECT COUNT(*) AS n FROM chat_messages WHERE payload_tier = 'WARM'")
+                .getFirst().get("N")).longValue()).isZero();
+    }
+
     @Test
     void recallAtKAndSourceAccuracyRecorded() throws Exception {
         var components = runner.components(cases, "test");

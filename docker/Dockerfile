@@ -16,4 +16,4 @@ ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH=$PATH:$JAVA_HOME/bin
 ENV APP_DATA_DIR=/data
 
-ENTRYPOINT ["java","-server","-XX:+UseCompactObjectHeaders","-Xms1024m","-Xmx1024m","-Djava.security.egd=file:/dev/urandom","-Duser.timezone=Asia/Shanghai","-jar","/app/agile-agent-server.jar"]
+ENTRYPOINT ["java","-server","-XX:+UseCompactObjectHeaders","--enable-native-access=ALL-UNNAMED","-Xms1024m","-Xmx1024m","-Djava.security.egd=file:/dev/urandom","-Duser.timezone=Asia/Shanghai","-jar","/app/agile-agent-server.jar"]

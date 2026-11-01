@@ -223,6 +223,51 @@
 - 表：`memory_replays`（进度与计数）、`memory_replay_items`（新旧条目对应关系、结果 `SUPERSEDED` / `INACTIVATED` / `SKIPPED` 与原因）、`memory_items.inherited_recall_count`（替代条目继承的召回计数，计入有效召回计数和分档保留）。
 - 指标：`memory.replay.items{outcome}`，以及 `memory.judgement.rejected{reason}`、`memory.judgement.failures{reason}`、`memory.consolidation.quota.postponed`。
 
+## 原始消息分层压缩（M2b Task 9，默认关闭）
+
+原文仍是唯一事实源，压缩只改变存放方式，读取透明。配置在 `app.memory.storage.*`，启动时校验（不合法时启动失败）：
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `false` | 总开关。关闭时不扫描、不压缩；已压缩的行照常解压读取 |
+| `decompress` | `false` | 回滚模式：后台任务把压缩数据写回明文（见下文“回滚与降级”）。需要 `enabled=true` |
+| `compress-after` | `7d` | 已结束轮次的原文，从消息创建（工具调用开始）起超过此时长后以温层级别压缩 |
+| `recompress-after` | `90d` | 超过此时长后以冷层级别重压；不得小于 `compress-after`。已超过此时长的明文直接以冷层级别压缩 |
+| `warm-level` / `cold-level` | `3` / `19` | zstd 级别，须在 zstd 合法范围内（启用时校验） |
+| `dedupe-min-bytes` | `4096` | 不小于此字节数（UTF-8）的相同内容在同一租户内只存一份（`message_blobs`），行内只留 SHA-256；从不跨租户 |
+| `batch` | `200` | 每次扫描最多入队的会话数，以及每个任务最多处理的行数 |
+| `interval` | `10m` | 扫描间隔 |
+| `recall-cache-ttl` | `1h` | 召回展开的已压缩原文解压后在 Redis 中的保留时间 |
+
+- **范围：** `chat_messages.payload` 与 `chat_tool_events` 的 `arguments` / `result`；只压已结束（任一终态）的轮次；已软删除、已遗忘、对应条目被删除的轮次到期照样压缩（召回排除照常生效）。轮次记录、片段与全文索引永不压缩。
+- **任务：** 扫描器每 `interval` 找出有待处理行、且没有 PENDING/RUNNING 压缩任务的会话，每个会话入队一个 `COMPRESS_MESSAGES`；任务按会话、分批执行，沿用持久任务的租约（每 10 行续约）、退避与实例冲突暂停；剩余的由下次扫描继续。每行按编码列与 `updated_at` 比较后写入，可重复执行、可中断续跑，期间被改写的行留到下次。压缩在 bounded-elastic 线程上进行；解压是小块内存计算，在调用线程上进行（BlockHound 覆盖）。
+- **完整性：** 每条压缩数据保存明文 SHA-256，并开启 zstd 帧校验；读取时都校验，不一致时报错（`CorruptStoredPayloadException`）并计 `memory.storage.integrity.failures{field}`，从不返回损坏内容。压缩任务遇到损坏数据只记日志并跳过，不改写。
+- **软删除：** 压缩数据与明文一样只做软删除，从不物理删除；共享块不做无引用回收。
+- **指标：** `memory.storage.compressed{tier}`（行数）、`memory.storage.compressed.bytes{tier}`（写入的压缩字节）、`memory.storage.compression.ratio`（每条明文/压缩字节）、`memory.storage.dedupe.hits`、`memory.storage.decompressed{field}`（回滚写回的行）、`memory.storage.integrity.failures{field}`。
+- **召回缓存：** Redis 键 `memory:<namespace>:recall:<tenant>:<subject>:<conversationId>`（哈希，字段为轮次 ID），只放召回展开时读到的已压缩轮次；删除会话、遗忘条目、删除条目时主动清除对应会话。缓存命中前仍查数据库确认轮次属于本人、会话未删除且已完成，因此缓存只省解压，不绕过删除与排除。Redis 不可用时按未命中处理。
+
+### 容量估算
+
+- 存储量约为 明文字节 ÷ 压缩比；压缩比随内容变化，以 `memory.storage.compression.ratio` 的实际值为准（评测数据见 `eval-baseline.md` 第 5.8 节）。短消息（几十到几百字节的 JSON）压缩比低，长工具结果与重复内容收益最大。
+- 新增列与 `message_blobs` 表本身很小；压缩是逐行替换，表空间不会立即缩小（InnoDB 需要 `OPTIMIZE TABLE` 才会回收，按 DBA 窗口执行）。
+- CPU：19 级压缩明显慢于 3 级，只在冷层重压时发生，每个任务最多 `batch` 行；首次开启时积压较多，可先调小 `batch` 或调大 `interval`。
+
+### 排查
+
+- 读取报 `CorruptStoredPayloadException` / `integrity.failures` 增长：该行数据损坏，服务不会返回错误内容；从备份恢复该行（`<列>_blob` 或 `message_blobs.data` 与 `<列>_sha256`）。
+- 积压不下降：查 `memory_jobs` 中 `job_type = 'COMPRESS_MESSAGES'` 的 `status`、`attempts`、`last_error`；实例冲突时整个任务框架暂停（见“单实例保护”）。
+- 启用后启动失败并提示 zstd 本地库：当前平台不能加载 zstd-jni 自带的本地库。镜像基于 Alpine（musl）：2026-11-01 在 Alpine 3.22 + Temurin 25 JRE（musl）上实测 zstd-jni 1.5.7-25 的 x86_64 库可以加载并正确压缩/解压，无需 gcompat；其他平台首次启用前同样先验证。
+- JDK 25 对 JNI 加载会打印“restricted method”警告；镜像的启动参数已加 `--enable-native-access=ALL-UNNAMED`，本地运行时如需消除警告请自行添加。
+
+### 回滚与降级（降级前必须先执行）
+
+旧版本不认识压缩列，降级到不含 Task 9 的版本之前必须先把数据写回明文：
+
+1. 设置 `app.memory.storage.enabled=true` 与 `app.memory.storage.decompress=true`，重启。扫描器会为所有含压缩数据的会话入队任务，任务把压缩数据解压、校验后写回明文列，并清空 `<列>_codec/_tier/_blob/_sha256`。共享块保留（软删除）。
+2. 等待完成：`SELECT COUNT(*) FROM chat_messages WHERE payload_codec IS NOT NULL` 与 `chat_tool_events` 的 `arguments_codec`、`result_codec` 同样为 0；`memory.storage.decompressed` 不再增长。若有行因损坏无法写回（日志 `cannot restore damaged`），先从备份修复。
+3. 再部署旧版本。V17 迁移保留在库中即可（Flyway 默认忽略库中较新的已执行迁移）；旧版本写入 `payload` 时不受新列影响。注意 V17 把 `chat_messages.payload` 改为可空，旧版本不依赖其非空约束。
+4. 只想停用压缩而不降级时，设 `enabled=false` 即可，已压缩的数据照常读取。
+
 ## 基础指标与评测
 
 - 内存相关指标由 `MemoryMetrics` 记录（Micrometer），完整口径见 `docs/memory/eval-baseline.md` 第 3 节。默认只暴露 `/actuator/health`；需要采集时由部署方另外开放 metrics 端点或配置导出，不要开放其他 actuator 端点。

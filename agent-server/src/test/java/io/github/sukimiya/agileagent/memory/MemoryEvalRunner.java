@@ -187,6 +187,32 @@ final class MemoryEvalRunner {
     /** Recall cases of the last answer run, kept to replay retrieval at other thresholds without model calls. */
     private final List<Replay> replays = new CopyOnWriteArrayList<>();
 
+    /** Rows changed by the forced warm and cold passes before one case's probe (M2b Task 9). */
+    record StorageRun(int warm, int cold) {}
+
+    private static final java.time.Duration HOLD_WARM = java.time.Duration.ofDays(36500);
+    private final io.github.sukimiya.agileagent.memory.storage.MessageCompressor compressor;
+    private final Map<String, StorageRun> storageByCase = new java.util.concurrent.ConcurrentSkipListMap<>();
+
+    /** Forced compression per case of the last runs. */
+    Map<String, StorageRun> storageByCase() {
+        return Map.copyOf(storageByCase);
+    }
+
+    /**
+     * Compresses every pending original warm (cold age held off), then cold (cold age 0), as the background job
+     * would after both ages passed; the cold age is held off again for the next case.
+     */
+    private void forceCompression(String caseId) {
+        var storage = stack.props().getStorage();
+        storage.setRecompressAfter(HOLD_WARM);
+        int warm = compressor.compressAll().block(TURN_WAIT);
+        storage.setRecompressAfter(java.time.Duration.ZERO);
+        int cold = compressor.compressAll().block(TURN_WAIT);
+        storage.setRecompressAfter(HOLD_WARM);
+        storageByCase.put(caseId, new StorageRun(warm, cold));
+    }
+
     private record Replay(Case c, MemoryScope scope, String conversationId, List<String> turnIds,
             AtomicReference<String> probeTurnId) {}
 
@@ -194,7 +220,15 @@ final class MemoryEvalRunner {
         this.stack = stack;
         var db = stack.fixture().databaseClient();
         this.worker = new MemoryJobWorker(db, () -> false);
-        var chunks = new ChunkRepository(db, stack.conversations());
+        var props0 = stack.props();
+        // M2b Task 9 acceptance: compression on with age 0; each case is compressed warm, then cold, before its probe.
+        props0.getStorage().setEnabled(true);
+        props0.getStorage().setCompressAfter(java.time.Duration.ZERO);
+        props0.getStorage().setRecompressAfter(HOLD_WARM);
+        this.compressor = new io.github.sukimiya.agileagent.memory.storage.MessageCompressor(db, props0,
+                stack.meters());
+        var chunks = new ChunkRepository(db, stack.conversations(),
+                new io.github.sukimiya.agileagent.memory.recall.RecallTextCache(null, props0), props0);
         new ChunkIndexer(db, stack.fixture().connectionFactory(), chunks, worker, stack.props());
         this.settings = new MemorySettingsService(db);
         this.summaries = new SummaryRepository(db, stack.conversations());
@@ -259,6 +293,7 @@ final class MemoryEvalRunner {
     ComponentBaseline components(List<Case> cases, String environment) {
         retriever.reset();
         lastMemory.clear();
+        storageByCase.clear();
         var results = new ArrayList<ComponentResult>();
         var recalls = new ArrayList<RecallInfo>();
         for (var c : cases) {
@@ -423,6 +458,7 @@ final class MemoryEvalRunner {
             buildRecords(scope, conversation, llm);
         }
         var memory = consolidate(c, scope, conversation, llm);
+        forceCompression(c.id());
         String probeConversation = null;
         String probeTurn = null;
         List<CallLog> probeCalls = null;
@@ -1013,6 +1049,7 @@ final class MemoryEvalRunner {
         retriever.reset();
         replays.clear();
         lastMemory.clear();
+        storageByCase.clear();
         var counting = new CountingLlm(llm);
         var orchestrator = orchestrator();
         var results = new ArrayList<AnswerResult>();
@@ -1045,6 +1082,17 @@ final class MemoryEvalRunner {
                 percentile(firstTokens, 50), percentile(firstTokens, 95), probePrompt, settingsLine(), memory);
     }
 
+    /** Storage compression settings of the run and what the forced passes did (M2b Task 9). */
+    String storageLine() {
+        var st = stack.props().getStorage();
+        int warm = storageByCase.values().stream().mapToInt(StorageRun::warm).sum();
+        int cold = storageByCase.values().stream().mapToInt(StorageRun::cold).sum();
+        return "storage.enabled=" + st.isEnabled() + ", compress-after=" + st.getCompressAfter()
+                + ", warm-level=" + st.getWarmLevel() + ", cold-level=" + st.getColdLevel() + ", dedupe-min-bytes="
+                + st.getDedupeMinBytes() + ", forced warm then cold before each probe (" + storageByCase.size()
+                + " cases, warm " + warm + " / cold " + cold + " rows)";
+    }
+
     /** The recall and record parameters in effect (D19, D24), for the report. */
     String settingsLine() {
         var recall = stack.props().getRecall();
@@ -1055,6 +1103,7 @@ final class MemoryEvalRunner {
                 + "; summary.max-source-tokens=" + summary.getMaxSourceTokens() + ", max-output-tokens="
                 + summary.getMaxOutputTokens() + ", max-invalid-attempts=" + summary.getMaxInvalidAttempts()
                 + "; context.estimate-factor=" + stack.props().getContext().getEstimateFactor()
+                + "; " + storageLine()
                 + "; judgement.enabled=" + stack.props().getJudgement().isEnabled() + ", max-source-tokens="
                 + stack.props().getJudgement().getMaxSourceTokens() + ", max-output-tokens="
                 + stack.props().getJudgement().getMaxOutputTokens() + ", existing-max-items="
@@ -1095,6 +1144,7 @@ final class MemoryEvalRunner {
                 }
             }
             var memory = consolidate(c, scope, conversation, llm);
+            forceCompression(c.id());
             var probeConversation = c.probeInNewConversation() ? MemoryTestStack.newConversationId() : conversation;
             var replay = new Replay(c, scope, probeConversation, List.copyOf(turnIds), new AtomicReference<>());
             if (c.components().contains("recall")) {
@@ -1275,17 +1325,27 @@ final class MemoryEvalRunner {
 
     private record StoredText(String turnId, String role, String content) {}
 
+    /** Stored messages of a conversation, read through the payload codec (they may be compressed, Task 9). */
     private List<StoredText> messages(String conversationId) {
-        return stack.rows("SELECT turn_id, role, payload FROM chat_messages WHERE conversation_id = ? ORDER BY sequence",
-                conversationId).stream().map(row -> {
+        var codec = io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.class;
+        return stack.fixture().databaseClient()
+                .sql("SELECT m.turn_id, m.role, "
+                        + io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.messageColumns("m")
+                        + " FROM chat_messages m"
+                        + io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.messageJoin("m")
+                        + " WHERE m.conversation_id = :c ORDER BY m.sequence")
+                .bind("c", conversationId)
+                .map(row -> {
                     try {
-                        var payload = JSON.readTree(String.valueOf(row.get("PAYLOAD")));
-                        return new StoredText(String.valueOf(row.get("TURN_ID")), String.valueOf(row.get("ROLE")),
+                        var payload = JSON.readTree(
+                                io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec.messageText(row));
+                        return new StoredText(row.get("turn_id", String.class), row.get("role", String.class),
                                 payload.path("content").asText(null));
                     } catch (Exception e) {
-                        throw new IllegalStateException("unreadable payload", e);
+                        throw new IllegalStateException("unreadable payload (" + codec.getSimpleName() + ")", e);
                     }
-                }).toList();
+                })
+                .all().collectList().block(TURN_WAIT);
     }
 
     private static void require(boolean condition, String message) {
