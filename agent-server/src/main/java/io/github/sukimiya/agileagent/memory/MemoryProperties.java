@@ -66,6 +66,103 @@ public class MemoryProperties {
 
     public Forget getForget() { return forget; }
 
+    private final Storage storage = new Storage();
+
+    public Storage getStorage() { return storage; }
+
+    /**
+     * Tiered compression of stored original messages (M2b Task 9, {@code app.memory.storage.*}, user decisions
+     * 2026-10-30): plain text of finished turns older than {@code compress-after} (by message creation) is stored
+     * zstd-compressed at {@code warm-level}, and recompressed at {@code cold-level} after {@code recompress-after};
+     * identical texts of at least {@code dedupe-min-bytes} are stored once per tenant. The background job works in
+     * batches of {@code batch} rows every {@code interval}. {@code decompress} turns the job around (rollback: write
+     * everything back as plain text). Recalled compressed text is kept in Redis for {@code recall-cache-ttl}. Off by
+     * default; checked by {@link #validate()} at startup.
+     */
+    public static class Storage {
+
+        private boolean enabled;
+        private boolean decompress;
+        private Duration compressAfter = Duration.ofDays(7);
+        private Duration recompressAfter = Duration.ofDays(90);
+        private int warmLevel = 3;
+        private int coldLevel = 19;
+        private int dedupeMinBytes = 4096;
+        private int batch = 200;
+        private Duration interval = Duration.ofMinutes(10);
+        private Duration recallCacheTtl = Duration.ofHours(1);
+
+        private static Duration notNegative(Duration value, String name) {
+            if (value == null || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be >= 0");
+            }
+            return value;
+        }
+
+        private static Duration positive(Duration value, String name) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be positive");
+            }
+            return value;
+        }
+
+        private static int atLeastOne(int value, String name) {
+            if (value < 1) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be >= 1");
+            }
+            return value;
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public boolean isDecompress() { return decompress; }
+        public void setDecompress(boolean decompress) { this.decompress = decompress; }
+        public Duration getCompressAfter() { return compressAfter; }
+        public void setCompressAfter(Duration v) { this.compressAfter = notNegative(v, "compress-after"); }
+        public Duration getRecompressAfter() { return recompressAfter; }
+        public void setRecompressAfter(Duration v) { this.recompressAfter = notNegative(v, "recompress-after"); }
+        public int getWarmLevel() { return warmLevel; }
+        public void setWarmLevel(int warmLevel) { this.warmLevel = warmLevel; }
+        public int getColdLevel() { return coldLevel; }
+        public void setColdLevel(int coldLevel) { this.coldLevel = coldLevel; }
+        public int getDedupeMinBytes() { return dedupeMinBytes; }
+        public void setDedupeMinBytes(int v) { this.dedupeMinBytes = atLeastOne(v, "dedupe-min-bytes"); }
+        public int getBatch() { return batch; }
+        public void setBatch(int v) { this.batch = atLeastOne(v, "batch"); }
+        public Duration getInterval() { return interval; }
+        public void setInterval(Duration v) { this.interval = positive(v, "interval"); }
+        public Duration getRecallCacheTtl() { return recallCacheTtl; }
+        public void setRecallCacheTtl(Duration v) { this.recallCacheTtl = positive(v, "recall-cache-ttl"); }
+
+        /**
+         * Cross-field checks, run once the properties are bound (at startup, by the compression job).
+         * Compression levels are checked against the zstd library only when the feature is on, so the native
+         * library is never loaded while it is off.
+         */
+        public void validate() {
+            if (recompressAfter.compareTo(compressAfter) < 0) {
+                throw new IllegalArgumentException("app.memory.storage.recompress-after (" + recompressAfter
+                        + ") must not be shorter than compress-after (" + compressAfter + ")");
+            }
+            if (decompress && !enabled) {
+                throw new IllegalArgumentException(
+                        "app.memory.storage.decompress needs app.memory.storage.enabled=true to run");
+            }
+            if (enabled) {
+                int min = com.github.luben.zstd.Zstd.minCompressionLevel();
+                int max = com.github.luben.zstd.Zstd.maxCompressionLevel();
+                if (warmLevel < min || warmLevel > max) {
+                    throw new IllegalArgumentException("app.memory.storage.warm-level must be a zstd level in ["
+                            + min + ", " + max + "], was " + warmLevel);
+                }
+                if (coldLevel < min || coldLevel > max) {
+                    throw new IllegalArgumentException("app.memory.storage.cold-level must be a zstd level in ["
+                            + min + ", " + max + "], was " + coldLevel);
+                }
+            }
+        }
+    }
+
     private final Decay decay = new Decay();
 
     public Decay getDecay() { return decay; }

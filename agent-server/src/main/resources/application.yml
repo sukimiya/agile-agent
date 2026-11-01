@@ -81,6 +81,23 @@ app:
       existing-max-items: 10
       existing-recent-items: 5
       existing-max-tokens: 1500   # estimated tokens; separate from max-source-tokens, usage counts toward quota
+    # Tiered compression of stored original messages (M2b Task 9). Finished turns' message payloads and tool
+    # arguments/results older than compress-after (by creation) are stored zstd-compressed at warm-level and
+    # recompressed at cold-level after recompress-after; identical texts >= dedupe-min-bytes are stored once per
+    # tenant. Plain-text SHA-256 and the zstd frame checksum are verified on every read. decompress=true (with
+    # enabled=true) writes everything back as plain text: run it before downgrading (see operations.md).
+    # Recalled compressed text is cached in Redis for recall-cache-ttl. Checked at startup.
+    storage:
+      enabled: false
+      decompress: false
+      compress-after: 7d
+      recompress-after: 90d   # must not be shorter than compress-after
+      warm-level: 3           # zstd levels, checked against the library when enabled
+      cold-level: 19
+      dedupe-min-bytes: 4096
+      batch: 200              # rows per job run, and conversations per scan
+      interval: 10m           # scan interval of the compression job
+      recall-cache-ttl: 1h
     # In-chat forget / restore ("忘记…" / "记起来…"): several matches are listed for a pick that stays open this long.
     forget:
       pending-ttl: 5m
