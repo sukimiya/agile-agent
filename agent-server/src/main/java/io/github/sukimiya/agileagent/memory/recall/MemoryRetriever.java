@@ -256,7 +256,7 @@ public class MemoryRetriever {
         if (hits.isEmpty()) {
             return Mono.just(List.of());
         }
-        return chunks.turnTexts(scope, ids, hits.stream().map(Scored::turnId).toList())
+        return chunks.recallTexts(scope, ids, hits.stream().map(Scored::turnId).toList())
                 .collectMap(TurnText::turnId, Function.identity())
                 .map(turns -> hits.stream().filter(h -> turns.containsKey(h.turnId())).map(h -> {
                     var turn = turns.get(h.turnId());

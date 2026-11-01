@@ -59,6 +59,27 @@ public class MemoryItemService {
     private final RetentionTiers tiers;
     private final RecallReferences references;
     private final MemoryAudit audit;
+    private volatile io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts;
+
+    /** Recalled original text cache (M2b Task 9): forgetting or deleting an item evicts its source conversations. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRecallTextCache(io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts) {
+        this.recallTexts = recallTexts;
+    }
+
+    private Mono<Void> evictSources(MemoryScope scope, List<String> itemIds) {
+        var current = recallTexts;
+        if (current == null || itemIds.isEmpty()) {
+            return Mono.empty();
+        }
+        return db.sql("SELECT DISTINCT s.conversation_id FROM memory_item_sources s JOIN memory_items i"
+                        + " ON i.id = s.item_id WHERE s.item_id IN (:ids) AND i.tenant_id = :tenantId"
+                        + " AND i.subject = :subject")
+                .bind("ids", List.copyOf(itemIds)).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .map(row -> row.get("conversation_id", String.class))
+                .all().collectList()
+                .flatMap(conversations -> current.evict(scope, conversations));
+    }
 
     public MemoryItemService(DatabaseClient db, ConnectionFactory connectionFactory, MemoryItemRepository items,
             MemoryItemSourceRepository sources, EntityGraphRepository graph, ProfileService profiles,
@@ -172,7 +193,8 @@ public class MemoryItemService {
                                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                                 .fetch().rowsUpdated())
                         .as(transactions::transactional)
-                        .then(profiles.refreshSnapshot(scope)));
+                        .then(profiles.refreshSnapshot(scope))
+                        .then(Mono.defer(() -> evictSources(scope, List.of(id)))));
     }
 
     /**
@@ -238,7 +260,9 @@ public class MemoryItemService {
      * the given order; a kept profile snapshot is re-rendered without them.
      */
     public Mono<List<MemoryItem>> forget(MemoryScope scope, List<String> ids, String actor, String action) {
-        return transition(scope, ids, actor, action, "'FORGOTTEN'", "ACTIVE", "", "");
+        return transition(scope, ids, actor, action, "'FORGOTTEN'", "ACTIVE", "", "")
+                .flatMap(changed -> evictSources(scope, changed.stream().map(MemoryItem::id).toList())
+                        .thenReturn(changed));
     }
 
     /**

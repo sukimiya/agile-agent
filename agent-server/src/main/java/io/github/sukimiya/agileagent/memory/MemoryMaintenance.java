@@ -84,6 +84,18 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final ProfileCache profileCache;
     private final io.github.sukimiya.agileagent.memory.items.ProfileService profiles;
     private volatile Disposable schedule;
+    private volatile io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts;
+
+    /** Recalled original text cache (M2b Task 9), evicted with the conversation. */
+    @Autowired(required = false)
+    public void setRecallTextCache(io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts) {
+        this.recallTexts = recallTexts;
+    }
+
+    private Mono<Void> evictRecallTexts(MemoryScope scope, String conversationId) {
+        var current = recallTexts;
+        return current == null ? Mono.empty() : current.evict(scope, java.util.List.of(conversationId));
+    }
 
     /** Standalone wiring (tests): its own worker, which never pauses for an instance conflict. */
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
@@ -154,6 +166,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                                         NestedExceptionUtils.getMostSpecificCause(e).toString());
                                 return Mono.empty();
                             }).then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope))
+                                    .then(Mono.defer(() -> evictRecallTexts(scope, conversationId)))
                             : Mono.empty());
         });
     }
@@ -286,6 +299,7 @@ public class MemoryMaintenance implements SmartLifecycle {
                 .then(invalidate("memory_summaries", scope, c))
                 .then(invalidate("memory_recall_events", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))
+                .then(Mono.defer(() -> evictRecallTexts(scope, c)))
                 .then(Mono.defer(() -> profiles == null ? Mono.<Void>empty() : profiles.refreshSnapshot(scope)));
     }
 
