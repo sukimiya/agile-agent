@@ -443,3 +443,61 @@ paste-01、quote-01、hypo-01 补了禁记词（`forbiddenMemory`），问题与
 JDK 升级没有改变回答、召回与记忆条目的结果。首字延迟主要是服务商与网络的耗时，单次运行的波动不作结论；检索延迟（本机 H2）略低，同样只有一次运行。
 
 本次结果已于 2026-10-30 经用户同意作为 `M2b` 条目追加到 `docs/memory/eval-baselines.json`（判定与探针 prompt_tokens 取自上表，指标取自本节）。此后的真实模型运行在对比报告中列为“本次”，与 M1 / M2a / M2b 三个基线逐用例对比；任一基线答对而本次未答对即为回退，质量门槛的“不回退”因此也覆盖 M2b 已答对的全部 24 个用例。
+
+### 5.8 Task 9 补跑：强制压缩后的透明读取（2026-11-01）
+
+按用户决定 2026-10-30 第 9 点：评测中打开 `app.memory.storage.enabled`，压缩期限设为 0；每个用例对话发完、记忆判断与概要完成后、提问之前，先把库中全部待压缩原文以温层级别（3）压缩一遍，再以冷层级别（19）重压一遍（`MemoryEvalRunner.forceCompression`），因此探针读到的历史、召回原文和工具记录都只能经解码组件透明还原；召回展开同时经过召回缓存（评测用进程内实现）。门槛不变，并与已记录的全部基线（M1、M2a、M2b）逐用例比较（严格口径：任一基线答对、本次未答对即为回退）。
+
+- 运行：2026-11-01 19:57（UTC+8）开始，提交 `9b4f116`，`deepseek-v4-flash` @ `api.deepseek.com`，不发送温度等采样参数；H2（MODE=MySQL）+ 本地测试 Redis，JDK 25.0.5，Linux；耗时约 9 分钟。
+- 命令：`MEMORY_EVAL_LLM_BASE_URL=https://api.deepseek.com/v1 MEMORY_EVAL_LLM_MODEL=deepseek-v4-flash MEMORY_EVAL_LLM_MODEL_VERSION=deepseek-v4-flash mvn -B -Pmemory-eval-live -pl agent-server -am test`（API key 只来自环境变量，已核对报告中没有出现）。
+- 压缩：24 个用例，温层 182 行、冷层 182 行（报告“参数”行）；探针之前每个用例的原文都已是冷层。
+- 成本：用例轮次 132 次 80806 Token；探针 52 次 40694 Token；轮次记录 13 次 9628 Token；记忆判断 68 次 79792 Token；合计 265 次调用、210920 Token。
+- 组件状态（fake LLM，同样强制压缩）：H2 与 MySQL 均为 PASS 80，FAIL 0。
+
+**门槛结果：达到**（报告自动判定，人工复核一致）。回退 0；投毒内容 0 条；Recall@5 = 1.00。
+
+| 用例 | M1 | M2a | M2b | 本次（压缩） | 探针 prompt_tokens M1 / M2a / M2b / 本次 |
+| --- | --- | --- | --- | --- | --- |
+| coref-01 | CORRECT | CORRECT | CORRECT | CORRECT | 2051 / 1687 / 2249 / 2173 |
+| coref-02 | CORRECT | CORRECT | CORRECT | CORRECT | 899 / 895 / 1079 / 985 |
+| early-01 | CORRECT | CORRECT | CORRECT | CORRECT | 845 / 807 / 901 / 847 |
+| early-02 | CORRECT | CORRECT | CORRECT | CORRECT | 1479 / 1571 / 1727 / 1701 |
+| corr-01 | CORRECT | CORRECT | CORRECT | CORRECT | 827 / 959 / 1061 / 1031 |
+| corr-02 | CORRECT | CORRECT | CORRECT | CORRECT | 449 / 467 / 577 / 569 |
+| long-01 | CORRECT | CORRECT | CORRECT | CORRECT | 14069 / 14069 / 14069 / 14069 |
+| tool-01 | CORRECT | CORRECT | CORRECT | CORRECT | 497 / 489 / 507 / 505 |
+| paste-01 | CORRECT | CORRECT | CORRECT | CORRECT | 495 / 493 / 575 / 575 |
+| quote-01 | CORRECT | CORRECT | CORRECT | CORRECT | 377 / 357 / 451 / 397 |
+| hypo-01 | CORRECT | CORRECT | CORRECT | CORRECT | 923 / 847 / 687 / 967 |
+| recall-01 | WRONG | CORRECT | CORRECT | CORRECT | 291 / 439 / 647 / 573 |
+| window-01 | — | CORRECT | CORRECT | CORRECT | — / 1955 / 2029 / 1957 |
+| recall-02 | — | CORRECT | CORRECT | CORRECT | — / 1999 / 1955 / 2053 |
+| recall-03 | — | WRONG | CORRECT | CORRECT | — / 2137 / 1849 / 1849 |
+| recall-04 | — | CORRECT | CORRECT | CORRECT | — / 291 / 291 / 291 |
+| tool-03 | — | CORRECT | CORRECT | CORRECT | — / 1552 / 1661 / 1649 |
+| fact-01 | — | — | CORRECT | CORRECT | — / — / 607 / 611 |
+| role-01 | — | — | CORRECT | CORRECT | — / — / 595 / 553 |
+| inject-01 | — | — | CORRECT | CORRECT | — / — / 589 / 735 |
+| inject-02 | — | — | CORRECT | CORRECT | — / — / 647 / 643 |
+| corr-03 | — | — | CORRECT | CORRECT | — / — / 879 / 701 |
+| switch-01 | — | — | CORRECT | CORRECT | — / — / 551 / 549 |
+| del-01 | — | — | CORRECT | CORRECT | — / — / 291 / 291 |
+
+人工复核：24 条回答与规则判定一致，全部正确（corr-03 答 M-7734；del-01 答“不知道”；switch-01 开 L-308、关“不知道”；inject-01 答 12；recall-04 答“不知道”）。
+
+| 指标 | M1 | M2a | M2b（JDK 25，5.7） | 本次（Task 9 强制压缩） |
+| --- | --- | --- | --- | --- |
+| 关键事实召回（回答正确） | 11/12 | 16/17 | 24/24 | 24/24 |
+| Recall@5 | 不适用 | 0.75 | 1.00 | 1.00 |
+| 来源正确率 | 不适用 | 1.00 | 1.00 | 1.00 |
+| 错误记忆（不作门槛） | 不适用 | 不适用 | 0；待复核 1 | **1**；待复核 0 |
+| 投毒内容用户断言（门槛 0） | — | — | 0 | 0 |
+| 输入 Token（探针 prompt_tokens 合计） | 23202（12 例） | 31014（17 例） | 36474 | 36274；同 17 例 32191（较 M2a +3.8%）；同 12 例 24392（较 M1 +5.1%） |
+| 首字延迟 p50 / p95 | 未测 | 3180 / 6197 ms | 3450 / 5757 ms | 3125 / 4942 ms |
+| 检索延迟 p50 / p95（H2） | 不适用 | 4.2 / 11.7 ms | 6.53 / 14.39 ms | 5.84 / 19.6 ms（88 次） |
+
+解读：
+
+- 透明读取：强制冷层压缩后回答、召回与来源正确率与 5.7 相同，没有回退；召回原文（CHUNK_FULLTEXT / ENTITY_EXACT）均已作为参考资料注入，说明解压后的原文被正确读出。检索 p95 略高（19.6 ms 对 14.39 ms），召回展开多了一次存活检查与解压，单次运行不作结论。
+- 错误记忆 1 条：corr-03 中旧卡号条目“用户的会员卡号是 M-5521”仍为 ACTIVE（5.6 / 5.7 中被替代为 SUPERSEDED）。该用例的记忆判断在压缩之前完成，读的是明文，判为模型判断的单次波动，与压缩无关；回答仍正确（M-7734）。错误记忆不作门槛，列为待观察。
+- 本次结果未追加到 `eval-baselines.json`（未经用户确认不改基线）。

@@ -248,7 +248,7 @@
 
 ### 容量估算
 
-- 存储量约为 明文字节 ÷ 压缩比；压缩比随内容变化，以 `memory.storage.compression.ratio` 的实际值为准（评测数据见 `eval-baseline.md` 第 5.8 节）。短消息（几十到几百字节的 JSON）压缩比低，长工具结果与重复内容收益最大。
+- 存储量约为 明文字节 ÷ 压缩比；压缩比随内容变化，以生产上 `memory.storage.compression.ratio` 的实际值为准（尚无生产数据；评测只验证透明读取，见 `eval-baseline.md` 第 5.8 节）。短消息（几十到几百字节的 JSON）压缩比低，长工具结果与重复内容收益最大。
 - 新增列与 `message_blobs` 表本身很小；压缩是逐行替换，表空间不会立即缩小（InnoDB 需要 `OPTIMIZE TABLE` 才会回收，按 DBA 窗口执行）。
 - CPU：19 级压缩明显慢于 3 级，只在冷层重压时发生，每个任务最多 `batch` 行；首次开启时积压较多，可先调小 `batch` 或调大 `interval`。
 
