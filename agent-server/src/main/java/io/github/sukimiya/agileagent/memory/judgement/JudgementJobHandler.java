@@ -38,6 +38,7 @@ import io.github.sukimiya.agileagent.memory.summary.SummaryJobHandler;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -171,8 +172,9 @@ public class JudgementJobHandler {
     private record TurnMsg(String id, long sequence, String turnId, String role, String content) {}
 
     private Mono<List<List<TurnMsg>>> sourceTurns(MemoryScope scope, String conversationId, long after, long through) {
-        return db.sql("SELECT m.id, m.sequence, m.turn_id, m.role, m.payload FROM chat_messages m"
-                        + " JOIN chat_turns t ON t.id = m.turn_id WHERE m.conversation_id = :c"
+        return db.sql("SELECT m.id, m.sequence, m.turn_id, m.role, " + MessagePayloadCodec.messageColumns("m")
+                        + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
+                        + MessagePayloadCodec.messageJoin("m") + " WHERE m.conversation_id = :c"
                         + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED' AND m.is_valid = 1"
                         + " AND t.memory_command IS NULL"
                         + " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence")
@@ -180,7 +182,7 @@ public class JudgementJobHandler {
                 .bind("after", after).bind("through", through)
                 .map((row, meta) -> new TurnMsg(row.get("id", String.class),
                         ((Number) row.get("sequence")).longValue(), row.get("turn_id", String.class),
-                        row.get("role", String.class), payloadContent(row.get("payload", String.class))))
+                        row.get("role", String.class), payloadContent(MessagePayloadCodec.messageText(row))))
                 .all()
                 .collectList()
                 .map(JudgementJobHandler::groupByTurn);

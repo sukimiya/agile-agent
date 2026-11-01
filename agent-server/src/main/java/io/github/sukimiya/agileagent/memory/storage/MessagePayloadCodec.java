@@ -83,6 +83,21 @@ public final class MessagePayloadCodec {
                 + field.shaColumn();
     }
 
+    /** {@link #select} of {@code chat_messages.payload}. */
+    public static String messageColumns(String alias) {
+        return select(Field.MESSAGE_PAYLOAD, alias);
+    }
+
+    /** {@link #join} of {@code chat_messages.payload}. */
+    public static String messageJoin(String alias) {
+        return join(Field.MESSAGE_PAYLOAD, alias);
+    }
+
+    /** The plain {@code chat_messages.payload} JSON of a row selected with {@link #messageColumns}. */
+    public static String messageText(Readable row) {
+        return text(row, Field.MESSAGE_PAYLOAD);
+    }
+
     /** The stored columns of {@code field} in a row selected with {@link #select}. */
     public static Stored stored(Readable row, Field field) {
         return new Stored(row.get(field.column(), String.class), row.get(field.codecColumn(), String.class),

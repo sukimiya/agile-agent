@@ -20,6 +20,7 @@ import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.Entity;
 import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.KeyFact;
 import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.MemoryType;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -69,13 +70,14 @@ public class SummaryRepository {
 
     /** The original messages of one completed turn, in order: what a record hit expands to. */
     public Flux<LlmClient.Message> originalTurn(MemoryScope scope, String conversationId, String turnId) {
-        return db.sql("SELECT m.payload FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
-                        + LIVE_SESSION.formatted("m")
+        return db.sql("SELECT " + MessagePayloadCodec.messageColumns("m")
+                        + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
+                        + LIVE_SESSION.formatted("m") + MessagePayloadCodec.messageJoin("m")
                         + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
                         + " AND m.turn_id = :turn AND t.status = 'COMPLETED' ORDER BY m.sequence")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .bind("turn", turnId)
-                .map(row -> conversations.deserialize(row.get("payload", String.class)))
+                .map(row -> conversations.deserialize(MessagePayloadCodec.messageText(row)))
                 .all();
     }
 

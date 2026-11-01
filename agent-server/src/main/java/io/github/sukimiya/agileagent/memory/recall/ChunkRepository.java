@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import io.github.sukimiya.agileagent.memory.ConversationRepository;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -59,8 +60,10 @@ public class ChunkRepository {
         if (conversationIds.isEmpty() || turnIds.isEmpty()) {
             return Flux.empty();
         }
-        return db.sql("SELECT m.turn_id, m.conversation_id, m.sequence, m.role, m.payload, t.finished_at"
+        return db.sql("SELECT m.turn_id, m.conversation_id, m.sequence, m.role, "
+                        + MessagePayloadCodec.messageColumns("m") + ", t.finished_at"
                         + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id" + LIVE_SESSION.formatted("m")
+                        + MessagePayloadCodec.messageJoin("m")
                         + " WHERE m.tenant_id = :tenantId AND m.subject = :subject AND m.conversation_id IN (:ids)"
                         + " AND m.turn_id IN (:turns) AND t.status = 'COMPLETED' AND t.tenant_id = m.tenant_id"
                         + " AND t.subject = m.subject ORDER BY m.turn_id, m.sequence")
@@ -68,7 +71,7 @@ public class ChunkRepository {
                 .bind("ids", List.copyOf(conversationIds)).bind("turns", List.copyOf(turnIds))
                 .map(row -> new MessageRow(row.get("turn_id", String.class), row.get("conversation_id", String.class),
                         number(row.get("sequence")), row.get("role", String.class),
-                        row.get("payload", String.class), row.get("finished_at", LocalDateTime.class)))
+                        MessagePayloadCodec.messageText(row), row.get("finished_at", LocalDateTime.class)))
                 .all()
                 .collectList()
                 .flatMapIterable(this::toTurns);

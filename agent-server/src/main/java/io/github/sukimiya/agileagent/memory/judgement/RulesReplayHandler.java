@@ -42,6 +42,7 @@ import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Mono;
 
@@ -459,10 +460,10 @@ public class RulesReplayHandler {
 
     /** The turns (live conversation, completed, not a memory command) holding the item's source messages. */
     private Mono<List<TurnMsg>> sourceTurns(Candidate c) {
-        return db.sql("SELECT m.id, m.conversation_id, m.role, m.payload FROM chat_messages m"
-                        + " JOIN chat_turns t ON t.id = m.turn_id"
+        return db.sql("SELECT m.id, m.conversation_id, m.role, " + MessagePayloadCodec.messageColumns("m")
+                        + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
                         + " JOIN sessions s ON s.id = m.conversation_id AND s.tenant_id = m.tenant_id"
-                        + " AND s.user_id = m.subject"
+                        + " AND s.user_id = m.subject" + MessagePayloadCodec.messageJoin("m")
                         + " WHERE m.tenant_id = :tenantId AND m.subject = :subject AND m.is_valid = 1"
                         + " AND t.status = 'COMPLETED' AND t.memory_command IS NULL AND s.is_valid = 1"
                         + " AND m.turn_id IN (SELECT src.turn_id FROM chat_messages src"
@@ -471,7 +472,7 @@ public class RulesReplayHandler {
                 .bind("tenantId", c.scope().tenantId()).bind("subject", c.scope().subject()).bind("id", c.id())
                 .map((row, meta) -> new TurnMsg(row.get("id", String.class), row.get("conversation_id", String.class),
                         row.get("role", String.class),
-                        JudgementJobHandler.payloadContent(row.get("payload", String.class))))
+                        JudgementJobHandler.payloadContent(MessagePayloadCodec.messageText(row))))
                 .all()
                 .collectList()
                 .map(ArrayList::new);

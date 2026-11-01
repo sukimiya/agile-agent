@@ -29,6 +29,7 @@ import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmConfigRequiredException;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Mono;
 
@@ -167,9 +168,10 @@ public class SummaryJobHandler {
 
     private Mono<List<List<SourceMessage>>> sourceTurns(MemoryScope scope, String conversationId, long after,
             long through) {
-        return db.sql("SELECT m.id, m.sequence, m.turn_id, m.payload,"
+        return db.sql("SELECT m.id, m.sequence, m.turn_id, " + MessagePayloadCodec.messageColumns("m") + ","
                         + " TIMESTAMPDIFF(MICROSECOND, t.finished_at, CURRENT_TIMESTAMP(6)) AS age_us FROM chat_messages m"
-                        + " JOIN chat_turns t ON t.id = m.turn_id WHERE m.conversation_id = :c"
+                        + " JOIN chat_turns t ON t.id = m.turn_id" + MessagePayloadCodec.messageJoin("m")
+                        + " WHERE m.conversation_id = :c"
                         + " AND m.tenant_id = :tenantId AND m.subject = :subject AND t.status = 'COMPLETED' AND m.is_valid = 1"
                         + " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
@@ -177,7 +179,7 @@ public class SummaryJobHandler {
                 .map(row -> new SourceMessage(row.get("id", String.class), SummaryRepository.number(
                         row.get("sequence")), row.get("turn_id", String.class),
                         row.get("age_us") == null ? 0 : SummaryRepository.number(row.get("age_us")),
-                        conversations.deserialize(row.get("payload", String.class))))
+                        conversations.deserialize(MessagePayloadCodec.messageText(row))))
                 .all()
                 .collectList()
                 .map(SummaryJobHandler::groupByTurn);

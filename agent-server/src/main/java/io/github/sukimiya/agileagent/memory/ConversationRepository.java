@@ -12,6 +12,7 @@ import io.github.sukimiya.agileagent.repository.SessionRepository;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Mono;
 
 /**
@@ -90,10 +91,11 @@ public class ConversationRepository {
 
     /** Stored assistant text of a turn, or empty when none was saved. */
     public Mono<String> assistantText(String turnId) {
-        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'assistant'"
-                        + " AND is_valid = 1")
+        return db.sql("SELECT " + MessagePayloadCodec.messageColumns("m") + " FROM chat_messages m"
+                        + MessagePayloadCodec.messageJoin("m")
+                        + " WHERE m.turn_id = :turnId AND m.role = 'assistant' AND m.is_valid = 1")
                 .bind("turnId", turnId)
-                .map(row -> row.get("payload", String.class))
+                .map(MessagePayloadCodec::messageText)
                 .one()
                 .map(payload -> deserialize(payload).content());
     }

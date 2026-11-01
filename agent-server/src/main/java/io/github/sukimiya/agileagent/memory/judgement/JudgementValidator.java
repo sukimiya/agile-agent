@@ -19,6 +19,7 @@ import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
 import io.github.sukimiya.agileagent.memory.judgement.GlobalRules.RulesVersion;
 import io.github.sukimiya.agileagent.memory.judgement.ValidatedAction.SourceRef;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Mono;
 
 /**
@@ -211,10 +212,12 @@ public class JudgementValidator {
                     long idx = tuple.getT1();
                     String id = tuple.getT2();
                     String wantExcerpt = idx < excerpts.size() ? excerpts.get((int) idx) : null;
-                    return db.sql("SELECT m.id, m.conversation_id, m.source_type, m.payload, se.is_valid AS session_valid,"
+                    return db.sql("SELECT m.id, m.conversation_id, m.source_type, "
+                                    + MessagePayloadCodec.messageColumns("m") + ", se.is_valid AS session_valid,"
                                     + " m.is_valid AS message_valid"
                                     + " FROM chat_messages m JOIN sessions se ON se.id = m.conversation_id"
                                     + " AND se.tenant_id = m.tenant_id AND se.user_id = m.subject"
+                                    + MessagePayloadCodec.messageJoin("m")
                                     + " WHERE m.id = :id AND m.tenant_id = :tenantId AND m.subject = :subject")
                             .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                             .map((row, meta) -> {
@@ -223,7 +226,7 @@ public class JudgementValidator {
                                     throw new RejectedException("DELETED_SOURCE");
                                 }
                                 SourceType type = SourceType.valueOf(row.get("source_type", String.class));
-                                String payload = row.get("payload", String.class);
+                                String payload = MessagePayloadCodec.messageText(row);
                                 String body = payloadBody(payload);
                                 String excerpt = wantExcerpt == null ? "" : wantExcerpt;
                                 if (!excerpt.isBlank() && !body.contains(excerpt)) {
