@@ -15,5 +15,7 @@ public enum JobType {
     /** Rebuild the user memory profile (M2b). */
     REBUILD_PROFILE,
     /** Replay judgement under a new Rules version (M2b, D13). */
-    REPLAY_RULES
+    REPLAY_RULES,
+    /** Tier and compress stored original text of one conversation (M2b Task 9). */
+    COMPRESS_MESSAGES
 }

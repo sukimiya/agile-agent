@@ -38,20 +38,24 @@ public final class MessagePayloadCodec {
 
     /** A compressible text column. */
     public enum Field {
-        MESSAGE_PAYLOAD("chat_messages", "payload"),
-        TOOL_ARGUMENTS("chat_tool_events", "arguments"),
-        TOOL_RESULT("chat_tool_events", "result");
+        MESSAGE_PAYLOAD("chat_messages", "payload", "created_at"),
+        TOOL_ARGUMENTS("chat_tool_events", "arguments", "started_at"),
+        TOOL_RESULT("chat_tool_events", "result", "started_at");
 
         private final String table;
         private final String column;
+        private final String createdColumn;
 
-        Field(String table, String column) {
+        Field(String table, String column, String createdColumn) {
             this.table = table;
             this.column = column;
+            this.createdColumn = createdColumn;
         }
 
         public String table() { return table; }
         public String column() { return column; }
+        /** The creation time the age of the field is counted from. */
+        public String createdColumn() { return createdColumn; }
         public String codecColumn() { return column + "_codec"; }
         public String tierColumn() { return column + "_tier"; }
         public String blobColumn() { return column + "_blob"; }
@@ -129,16 +133,25 @@ public final class MessagePayloadCodec {
     public static String decode(Field field, Stored stored) {
         if (stored.codec() == null) {
             if (stored.plain() == null && field == Field.MESSAGE_PAYLOAD) {
-                throw corrupt(field, "neither plain text nor compressed data");
+                throw corrupt(field.column(), "neither plain text nor compressed data");
             }
             return stored.plain();
         }
         byte[] data = switch (stored.codec()) {
             case CODEC_ZSTD -> stored.blob();
             case CODEC_REF -> stored.shared();
-            default -> throw corrupt(field, "unknown codec");
+            default -> throw corrupt(field.column(), "unknown codec");
         };
-        if (data == null || stored.sha256() == null) {
+        return decompress(field.column(), data, stored.sha256());
+    }
+
+    /** Restores the text of a shared {@code message_blobs} row (same checks as {@link #decode}). */
+    public static String decodeShared(byte[] data, String sha256) {
+        return decompress("message_blobs", data, sha256);
+    }
+
+    private static String decompress(String field, byte[] data, String sha256) {
+        if (data == null || sha256 == null) {
             throw corrupt(field, "missing compressed data or hash");
         }
         byte[] plain;
@@ -155,15 +168,15 @@ public final class MessagePayloadCodec {
         } catch (RuntimeException e) {
             throw corrupt(field, "damaged zstd frame (" + e.getClass().getSimpleName() + ")");
         }
-        if (!sha256(plain).equals(stored.sha256())) {
+        if (!sha256(plain).equals(sha256)) {
             throw corrupt(field, "SHA-256 mismatch");
         }
         return new String(plain, StandardCharsets.UTF_8);
     }
 
-    private static CorruptStoredPayloadException corrupt(Field field, String reason) {
-        Metrics.counter("memory.storage.integrity.failures", "field", field.column()).increment();
-        return new CorruptStoredPayloadException(field.column(), reason);
+    private static CorruptStoredPayloadException corrupt(String field, String reason) {
+        Metrics.counter("memory.storage.integrity.failures", "field", field).increment();
+        return new CorruptStoredPayloadException(field, reason);
     }
 
     /** zstd at {@code level}, with content size and frame checksum. */

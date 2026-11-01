@@ -80,7 +80,9 @@ public class ConversationRepository {
     /** Creates or replaces the turn's assistant message (checkpoints and terminal text). */
     public Mono<Void> saveAssistantText(TurnTicket ticket, String text) {
         var payload = serialize(LlmClient.Message.assistantText(text));
-        return db.sql("UPDATE chat_messages SET payload = :payload, updated_at = CURRENT_TIMESTAMP(6)"
+        // New plain text replaces any compressed value (M2b Task 9).
+        return db.sql("UPDATE chat_messages SET payload = :payload, payload_codec = NULL, payload_tier = NULL,"
+                        + " payload_blob = NULL, payload_sha256 = NULL, updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE turn_id = :turnId AND role = 'assistant'")
                 .bind("payload", payload).bind("turnId", ticket.turnId())
                 .fetch().rowsUpdated()

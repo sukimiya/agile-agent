@@ -22,6 +22,11 @@ public class ToolEventRepository {
     private static final String TURN_OWNED = "EXISTS (SELECT 1 FROM chat_turns t WHERE t.id = :turnId"
             + " AND t.fence = :fence AND t.status IN " + TurnRepository.ACTIVE
             + " AND t.lease_expires_at > CURRENT_TIMESTAMP(6) AND t.tenant_id = :tenantId AND t.subject = :subject)";
+    /** New plain text replaces any compressed value (M2b Task 9). */
+    private static final String CLEAR_ARGUMENTS = "arguments_codec = NULL, arguments_tier = NULL,"
+            + " arguments_blob = NULL, arguments_sha256 = NULL";
+    private static final String CLEAR_RESULT = "result_codec = NULL, result_tier = NULL, result_blob = NULL,"
+            + " result_sha256 = NULL";
     private static final String SCOPED = "turn_id = :turnId AND call_id = :callId AND tenant_id = :tenantId"
             + " AND subject = :subject";
 
@@ -39,6 +44,7 @@ public class ToolEventRepository {
             String arguments, SourceType source) {
         var update = db.sql("UPDATE chat_tool_events SET capability = :capability, tool_name = :toolName,"
                         + " status = 'STARTED', source_type = :source, arguments = :arguments, result = NULL,"
+                        + " " + CLEAR_ARGUMENTS + ", " + CLEAR_RESULT + ","
                         + " error_type = NULL, started_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6),"
                         + " finished_at = NULL WHERE " + SCOPED + " AND " + TURN_OWNED)
                 .bind("capability", capability).bind("toolName", toolName).bind("source", source.name())
@@ -67,7 +73,8 @@ public class ToolEventRepository {
         if (status != Status.SUCCEEDED && status != Status.FAILED) {
             return Mono.error(new IllegalArgumentException("not an outcome: " + status));
         }
-        var spec = db.sql("UPDATE chat_tool_events SET status = :status, result = :result, error_type = :errorType,"
+        var spec = db.sql("UPDATE chat_tool_events SET status = :status, result = :result, " + CLEAR_RESULT + ","
+                        + " error_type = :errorType,"
                         + " finished_at = CURRENT_TIMESTAMP(6), updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE " + SCOPED + " AND status IN ('STARTED', 'UNCERTAIN')")
                 .bind("status", status.name()).bind("callId", callId);
