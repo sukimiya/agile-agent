@@ -210,13 +210,19 @@ public class MessageCompressor {
         var budget = new AtomicInteger(limit);
         var attempts = new AtomicInteger();
         var steps = new ArrayList<Supplier<Flux<Boolean>>>();
-        for (var f : Field.values()) {
-            steps.add(() -> warmStep(scope, conversationId, f, budget.get()));
+        if (props.getStorage().isDecompress()) {
+            for (var f : Field.values()) {
+                steps.add(() -> decompressStep(scope, conversationId, f, budget.get()));
+            }
+        } else {
+            for (var f : Field.values()) {
+                steps.add(() -> warmStep(scope, conversationId, f, budget.get()));
+            }
+            for (var f : Field.values()) {
+                steps.add(() -> coldStep(scope, conversationId, f, budget.get()));
+            }
+            steps.add(() -> coldBlobs(scope, conversationId, budget.get()));
         }
-        for (var f : Field.values()) {
-            steps.add(() -> coldStep(scope, conversationId, f, budget.get()));
-        }
-        steps.add(() -> coldBlobs(scope, conversationId, budget.get()));
         return Flux.fromIterable(steps)
                 .concatMap(step -> budget.get() <= 0 ? Flux.<Boolean>empty() : step.get()
                         .concatMap(changed -> {
@@ -382,6 +388,57 @@ public class MessageCompressor {
                                 .bind("data", enc.data()).bind("tenantId", scope.tenantId()).bind("hash", blob.hash())
                                 .fetch().rowsUpdated().map(n -> n == 1),
                         blob.hash()));
+    }
+
+    private record Compressed(String id, String codec, String sha256, String text) {}
+
+    /**
+     * Rollback ({@code decompress=true}): writes compressed values back as plain text and clears the codec
+     * columns. Shared blobs are kept (soft delete only); damaged data is skipped and reported, never written.
+     */
+    private Flux<Boolean> decompressStep(MemoryScope scope, String c, Field f, int limit) {
+        if (limit <= 0) {
+            return Flux.empty();
+        }
+        return db.sql("SELECT x.id, " + MessagePayloadCodec.select(f, "x") + " FROM " + f.table() + " x"
+                        + MessagePayloadCodec.join(f, "x") + " WHERE x.tenant_id = :tenantId AND x.subject = :subject"
+                        + " AND x.conversation_id = :c AND x." + f.codecColumn() + " IS NOT NULL ORDER BY x.id"
+                        + " LIMIT :limit")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("c", c)
+                .bind("limit", limit)
+                .map(row -> {
+                    var stored = MessagePayloadCodec.stored(row, f);
+                    String text;
+                    try {
+                        text = MessagePayloadCodec.decode(f, stored);
+                    } catch (CorruptStoredPayloadException e) {
+                        log.warn("memory.storage cannot restore damaged {} id={}: {}", f.column(),
+                                row.get("id", String.class), e.getMessage());
+                        text = null;
+                    }
+                    return new Compressed(row.get("id", String.class), stored.codec(), stored.sha256(), text);
+                })
+                .all()
+                .collectList()
+                .flatMapMany(Flux::fromIterable)
+                .concatMap(row -> {
+                    if (row.text() == null) {
+                        return Mono.just(false);
+                    }
+                    beforeWrite.run();
+                    return db.sql("UPDATE " + f.table() + " SET " + f.column() + " = :plain, " + f.codecColumn()
+                                    + " = NULL, " + f.tierColumn() + " = NULL, " + f.blobColumn() + " = NULL, "
+                                    + f.shaColumn() + " = NULL WHERE id = :id AND " + f.codecColumn() + " = :codec AND "
+                                    + f.shaColumn() + " = :sha")
+                            .bind("plain", row.text()).bind("id", row.id()).bind("codec", row.codec())
+                            .bind("sha", row.sha256())
+                            .fetch().rowsUpdated().map(n -> n == 1)
+                            .doOnNext(ok -> {
+                                if (ok) {
+                                    meters.counter("memory.storage.decompressed", "field", f.column()).increment();
+                                }
+                            });
+                });
     }
 
     /**

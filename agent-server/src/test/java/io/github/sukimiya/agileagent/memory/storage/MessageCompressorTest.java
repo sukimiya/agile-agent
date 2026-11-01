@@ -123,8 +123,7 @@ class MessageCompressorTest {
     }
 
     private double counter(String name, String... tags) {
-        var c = meters.find(name).tags(tags).counter();
-        return c == null ? 0 : c.count();
+        return meters.find(name).tags(tags).counters().stream().mapToDouble(c -> c.count()).sum();
     }
 
     private static String large(String seed) {
@@ -411,6 +410,46 @@ class MessageCompressorTest {
         assertThat(jdbc.queryForObject("SELECT result_codec FROM chat_tool_events", String.class)).isNull();
         assertThat(storedText(Field.TOOL_RESULT, "e1")).isEqualTo("{\"r\":2}");
         assertThat(storedText(Field.TOOL_ARGUMENTS, "e1")).isEqualTo("{}");
+    }
+
+    @Test
+    void decompressModeWritesEverythingBackAsPlainText() {
+        var big = large("回滚时要还原的大块内容");
+        turn(ALICE, "c1", "turn-1", "COMPLETED", 10, "温层问题", "温层回答");
+        turn(ALICE, "c2", "turn-2", "COMPLETED", 100, "冷层问题", "冷层回答");
+        toolEvent(ALICE, "c1", "turn-1", "e1", 10, "{\"q\":1}", big);
+        toolEvent(ALICE, "c2", "turn-2", "e2", 100, "{\"q\":2}", big);
+        jdbc.update("UPDATE sessions SET is_valid = 0 WHERE id = 'c2'");
+        var before = jdbc.queryForList("SELECT id, payload FROM chat_messages ORDER BY id");
+        compressAll();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_messages WHERE payload_codec IS NULL",
+                Integer.class)).isZero();
+
+        props.getStorage().setDecompress(true);
+        var db = fixture.databaseClient();
+        var worker = new MemoryJobWorker(db, () -> false);
+        var scanner = new MessageStorageScanner(db, new MemoryJobQueue(db), worker, compressor, props, () -> false);
+        assertThat(scanner.scan().block()).isEqualTo(2);
+        worker.runPending(10).block();
+
+        assertThat(jdbc.queryForList("SELECT id, payload FROM chat_messages ORDER BY id")).isEqualTo(before);
+        for (var column : List.of("payload_codec", "payload_tier", "payload_blob", "payload_sha256")) {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_messages WHERE " + column + " IS NOT NULL",
+                    Integer.class)).as(column).isZero();
+        }
+        for (var column : List.of("arguments_codec", "arguments_blob", "result_codec", "result_sha256")) {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM chat_tool_events WHERE " + column + " IS NOT NULL",
+                    Integer.class)).as(column).isZero();
+        }
+        assertThat(jdbc.queryForList("SELECT result FROM chat_tool_events ORDER BY id", String.class))
+                .containsExactly(big, big);
+        assertThat(jdbc.queryForList("SELECT arguments FROM chat_tool_events ORDER BY id", String.class))
+                .containsExactly("{\"q\":1}", "{\"q\":2}");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM message_blobs", Integer.class))
+                .as("shared blobs are kept (soft delete only)").isEqualTo(1);
+        assertThat(counter("memory.storage.decompressed")).isEqualTo(4 + 4);
+        assertThat(scanner.scan().block()).as("nothing left").isZero();
+        assertThat(compressAll()).isZero();
     }
 
     @Test
