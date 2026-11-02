@@ -1,6 +1,6 @@
 # Agile Agent
 
-Agile Agent is an open-source Maven multi-module project for a general-purpose agent server with a stable capability SPI. Build with JDK 25.
+Agile Agent is an open-source Maven multi-module project for a general-purpose agent server with a stable capability SPI. Build and run with JDK 25 (LTS) and Spring Boot 3.5.16.
 
 - `agent-spi` contains the public identity and capability contracts used by server-side adapters.
 - `agent-server` contains HTTP APIs, authentication, orchestration, model integration, and the generic `KNOWLEDGE` capability.
@@ -21,9 +21,54 @@ mvn -pl agent-server,mock-oauth2 -am -DskipTests package
 
 From `agent-server/`, the equivalent server test command is `mvn -f ../pom.xml -pl agent-server -am test`.
 
-Memory persistence (M1) has opt-in checks beyond the default suite. Real-MySQL integration tests run against the loopback test database from `docker/docker-compose.memory-test.yml`: `mvn -Pmemory-mysql-it -pl agent-server -am test`. The failure-acceptance subset is `-Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest`. H2 runs and successful builds do not count as MySQL concurrency acceptance. The real-model evaluation (`-Pmemory-eval-live`) runs only by hand in an isolated environment. Results, open items and the recovery drill record are in the [M1 acceptance record](docs/memory/phase-1-acceptance.md).
+## Memory
 
-Memory M2a adds a per-model context budget, background for domain agents, per-turn memory records and basic recall (deterministic codes plus Chinese full-text; no vector service), with cross-conversation recall off by default ([M2a acceptance record](docs/memory/phase-2a-acceptance.md)). Memory M2b (in progress on `codex/memory-m2b`) adds LLM + Rules memory judgement with provenance and anti-poisoning checks, a per-user profile (only when cross-conversation memory is on), per-turn recall explanation and the user memory API, soft deletion, forgetting in chat, recall-time decay, Rules replay and a per-tenant consolidation token quota. Its evaluation against the M1 and M2a baselines on the same model and cases is in [eval-baseline.md](docs/memory/eval-baseline.md) section 5; the [M2b acceptance record](docs/memory/phase-2b-acceptance.md) lists open decisions, and raw message tiered compression (M2b Task 9) is not implemented yet and awaits acceptance.
+Conversation memory is built in three phases, all on `main`:
+
+- **M1: durable persistence.** Conversations, turns, tool calls and attachments are stored in MySQL, with idempotent chat entry points, recovery of interrupted turns and single-instance protection ([M1 acceptance record](docs/memory/phase-1-acceptance.md)).
+- **M2a: context and recall.** A per-model context budget, background for domain agents, per-turn memory records and basic recall (deterministic codes plus Chinese full-text; no vector service). Cross-conversation recall is off by default ([M2a acceptance record](docs/memory/phase-2a-acceptance.md)).
+- **M2b: long-term memory.** This phase adds:
+  - LLM + versioned global Rules memory judgement with provenance and anti-poisoning checks. Corrections update or supersede existing items.
+  - A per-tenant consolidation token quota.
+  - A per-user profile and light one-hop relations (the profile only when cross-conversation memory is on).
+  - A per-turn recall explanation and the user memory API.
+  - Soft deletion with tiered purge of the derived index, forgetting and restoring in chat, and recall-record expiry.
+  - Recall-recency decay and Rules version replay.
+  - Tiered compression of raw messages.
+  
+  See the [M2b acceptance record](docs/memory/phase-2b-acceptance.md).
+
+Migrations V11–V17 are added in M2b; V1–V10 are unchanged. The new background features are opt-in: memory judgement (`app.memory.judgement.enabled`), turn records and raw-message compression are all off by default.
+
+**Raw-message compression** (`app.memory.storage.*`, default `enabled: false`) works as follows:
+- Message payloads and tool arguments/results of finished turns are stored zstd-compressed (zstd-jni). They go to the warm tier at level 3 after `compress-after` (7d) and are recompressed to the cold tier at level 19 after `recompress-after` (90d).
+- Identical texts of at least 4 KB are stored once per tenant.
+- Every read is transparent and verified by SHA-256 plus the zstd frame checksum. Corrupt data is never returned.
+- Compressed data is only ever soft-deleted.
+- Recalled originals are cached in Redis for `recall-cache-ttl` (1h) and evicted on delete and forget.
+- Set `decompress: true` to write everything back as plain text. Do this before downgrading.
+
+The image starts the JVM with `--enable-native-access=ALL-UNNAMED` for the zstd native library. See the [memory operations notes](docs/memory/operations.md#原始消息分层压缩m2b-task-9默认关闭) for configuration, metrics, capacity, rollback and troubleshooting. The HTTP API is described in the [memory API notes](docs/memory/api.md).
+
+**Evaluation.** The real-model evaluation (`-Pmemory-eval-live`) uses one fixed provider model (named in the eval docs) on 24 answer cases and is run only by hand in an isolated environment. It is compared case by case against every recorded baseline in [eval-baselines.json](docs/memory/eval-baselines.json): M1, M2a, M2b, and M2b-T9.
+- M2b: 24/24 correct, with no regressions against M1 (11/12) or M2a (16/17).
+- Recall@5 and source accuracy are both 1.00, and 0 poisoned items were asserted as user facts.
+- The Task 9 run forced warm-then-cold compression of every original before the probes and was also 24/24 with no regressions.
+
+Details, cost and latency are in [eval-baseline.md](docs/memory/eval-baseline.md), sections 4–5. The quality gate is three conditions: no regression against any baseline, no poisoned content, and Recall@5 ≥ 0.9.
+
+Opt-in checks beyond the default suite:
+- Real-MySQL integration tests run against the loopback test database from `docker/docker-compose.memory-test.yml`: `mvn -Pmemory-mysql-it -pl agent-server -am test`.
+- The failure-acceptance subset is `-Dtest=MemoryFailureIntegrationTest,TurnConcurrencyIntegrationTest`.
+
+H2 runs and successful builds do not count as MySQL concurrency acceptance.
+
+Known follow-ups:
+- Relations have no production write path yet.
+- The compression ratio has not been measured on production data.
+- The Docker image with zstd-jni on Alpine has been verified only in a chroot.
+- JDK 25 on the Jenkins build agents must be confirmed before the first release.
+- mcp-tool adaptation follows M2 acceptance.
 
 ## Deployment limits
 
