@@ -74,6 +74,8 @@ H2 结果不代替 MySQL 迁移与中文全文检索的验收；fake LLM 结果�
 
 已决定并实施（2026-10-29 / 10-30）：删除条目排除来源原话；判断带入相关已有条目（条数与 Token 上限为配置）；投毒口径；质量门槛；错误记忆只统计当前有效条目、提及旧值单列复核。
 
+已决定（2026-11-02）：召回缓存设计（用户 2026-11-02 确认接受）：只缓存压缩过的轮次（明文轮次直接读库）；每次召回先查数据库确认会话与轮次仍有效，再用缓存（删除、遗忘后不会读到旧缓存，代价是每次召回多一次查询）；评测使用进程内缓存，Redis 实现由单元测试与 MySQL IT 验证。
+
 1. **关系写入**：`EntityGraphRepository.saveRelation` 只有测试调用，记为 M2b 之后的后续任务（用户决定 2026-10-29）；在此之前一跳关系召回只对已有关系生效。
 2. 偶发失败的 `TurnStreamingIntegrationTest.concurrentFirstRequestsWithTheSameKeyExecuteOnceOnBothEndpoints`（第 3 节），继续观察。
 3. **Jenkins 上的 JDK 25（待办）**：2026-10-30 起构建与运行改为 JDK 25（见 `operations.md`“运行环境”）；Jenkins 构建机是否已有 JDK 25 无法在此确认，第一次发布前需确认。
@@ -99,7 +101,7 @@ H2 结果不代替 MySQL 迁移与中文全文检索的验收；fake LLM 结果�
 | 5 明文 SHA-256 + zstd 帧校验，绝不返回损坏内容 | 读取与重压都校验，失败计 `memory.storage.integrity.failures` | `MessagePayloadCodecTest`（损坏帧、哈希不符均报错） |
 | 6 配置触发的回滚模式；V17 在 H2 与 MySQL 通过 | `decompress=true`；`operations.md`“回滚与降级” | `decompressModeWritesEverythingBackAsPlainText`、`StorageSchemaMySqlIntegrationTest` |
 | 7 配置与启动校验 | `app.memory.storage.*`，`validate()` 由 `MessageCompressor` 启动时调用 | `StoragePropertiesTest`、`disabledStorageDoesNothing` |
-| 8 召回预热进 Redis，TTL 1h，删除/遗忘/条目删除时清除 | `RecallTextCache`、`ChunkRepository.recallTexts` | `recalledOriginalWarmedIntoCache`、`cachedTurnIsServedOnlyWhileLiveAndInTheRequestedConversations`、`cacheEntriesExpireAfterTheTtl`、`conversationDeleteEvicts`、`forgettingOrDeletingAnItemEvictsItsSourceConversations` |
+| 8 召回预热进 Redis，TTL 1h，删除/遗忘/条目删除时清除；只缓存压缩轮次、召回前先查存活（设计 2026-11-02 用户确认） | `RecallTextCache`、`ChunkRepository.recallTexts` | `recalledOriginalWarmedIntoCache`、`cachedTurnIsServedOnlyWhileLiveAndInTheRequestedConversations`、`cacheEntriesExpireAfterTheTtl`、`conversationDeleteEvicts`、`forgettingOrDeletingAnItemEvictsItsSourceConversations` |
 | 9 评测：期限 0，探针前温层、冷层各一次，门槛不变 | `MemoryEvalRunner.forceCompression` | `originalsAreCompressedWarmThenColdBeforeEveryProbe`；真实模型补跑见下 |
 
 另：去重只在同一租户（`duplicateLargeToolResultStoredOnce`、`dedupeNeverCrossesTenants`、`sharedBlobGoesColdWithItsNewestReference`）；任务幂等、可续跑、受批量上限约束（`compressionJobIsIdempotentAndResumable`、`aRowChangedMeanwhileIsLeftForTheNextRun`）；重新写入文本会清除旧的压缩值（`writingTextAgainReplacesTheCompressedValue`）；读取不阻塞（`PayloadReadBlockHoundTest.readPathNonBlocking`）。压缩与召回缓存测试另有 MySQL IT 子类。
