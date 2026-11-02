@@ -149,8 +149,10 @@ class ChunkIndexerTest {
         var lateTurn = (String) stack.rows("SELECT id FROM chat_turns WHERE conversation_id = ? ORDER BY created_at"
                 + " DESC", conversation).getFirst().get("ID");
         assertThat(indexer.index(ALICE, conversation, lateTurn).block(WAIT)).isFalse();
-        // The cleanup job removes the chunks.
+        // The cleanup job invalidates the chunks (soft delete); the purge job removes them later.
         maintenance.runPending(10).block(WAIT);
-        assertThat(chunks()).isEmpty();
+        assertThat(stack.rows("SELECT id FROM memory_chunks WHERE conversation_id = ? AND is_valid = 1",
+                conversation)).isEmpty();
+        assertThat(chunks()).isNotEmpty();
     }
 }

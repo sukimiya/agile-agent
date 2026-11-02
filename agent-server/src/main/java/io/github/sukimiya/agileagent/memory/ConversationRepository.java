@@ -12,6 +12,7 @@ import io.github.sukimiya.agileagent.repository.SessionRepository;
 import io.github.sukimiya.agileagent.service.LlmClient;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Mono;
 
 /**
@@ -51,7 +52,7 @@ public class ConversationRepository {
 
     public Mono<Void> bumpRevision(String conversationId) {
         return db.sql("UPDATE sessions SET revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
-                        + " WHERE id = :id AND deleted_at IS NULL")
+                        + " WHERE id = :id AND is_valid = 1")
                 .bind("id", conversationId).fetch().rowsUpdated().then();
     }
 
@@ -79,7 +80,9 @@ public class ConversationRepository {
     /** Creates or replaces the turn's assistant message (checkpoints and terminal text). */
     public Mono<Void> saveAssistantText(TurnTicket ticket, String text) {
         var payload = serialize(LlmClient.Message.assistantText(text));
-        return db.sql("UPDATE chat_messages SET payload = :payload, updated_at = CURRENT_TIMESTAMP(6)"
+        // New plain text replaces any compressed value (M2b Task 9).
+        return db.sql("UPDATE chat_messages SET payload = :payload, payload_codec = NULL, payload_tier = NULL,"
+                        + " payload_blob = NULL, payload_sha256 = NULL, updated_at = CURRENT_TIMESTAMP(6)"
                         + " WHERE turn_id = :turnId AND role = 'assistant'")
                 .bind("payload", payload).bind("turnId", ticket.turnId())
                 .fetch().rowsUpdated()
@@ -90,9 +93,11 @@ public class ConversationRepository {
 
     /** Stored assistant text of a turn, or empty when none was saved. */
     public Mono<String> assistantText(String turnId) {
-        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'assistant'")
+        return db.sql("SELECT " + MessagePayloadCodec.messageColumns("m") + " FROM chat_messages m"
+                        + MessagePayloadCodec.messageJoin("m")
+                        + " WHERE m.turn_id = :turnId AND m.role = 'assistant' AND m.is_valid = 1")
                 .bind("turnId", turnId)
-                .map(row -> row.get("payload", String.class))
+                .map(MessagePayloadCodec::messageText)
                 .one()
                 .map(payload -> deserialize(payload).content());
     }

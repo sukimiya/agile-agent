@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.function.Function;
 
 import org.springframework.r2dbc.core.DatabaseClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +20,10 @@ import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.SourceType;
 import io.github.sukimiya.agileagent.memory.recall.ChunkRepository.TurnText;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
+import io.github.sukimiya.agileagent.memory.items.MemoryItem;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.ProfileService;
 import io.github.sukimiya.agileagent.memory.summary.SummaryRepository;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -44,6 +49,8 @@ import reactor.core.publisher.Mono;
 @Component
 public class MemoryRetriever {
 
+    private final RecallExclusions exclusions;
+
     static final String ENTITY_EXACT = "ENTITY_EXACT";
     static final String RECORD_FULLTEXT = "RECORD_FULLTEXT";
     static final String CHUNK_FULLTEXT = "CHUNK_FULLTEXT";
@@ -60,16 +67,30 @@ public class MemoryRetriever {
     private final SummaryRepository summaries;
     private final FullTextSearch fullText;
     private final MemoryMetrics metrics;
+    private final MemoryItemRepository memoryItems;
+    private final EntityGraphRepository entities;
+    private final ProfileService profiles;
 
     public MemoryRetriever(DatabaseClient db, MemoryProperties props, MemorySettingsService settings,
             ChunkRepository chunks, SummaryRepository summaries, FullTextSearch fullText, MemoryMetrics metrics) {
+        this(db, props, settings, chunks, summaries, fullText, metrics, null, null, null);
+    }
+
+    @Autowired
+    public MemoryRetriever(DatabaseClient db, MemoryProperties props, MemorySettingsService settings,
+            ChunkRepository chunks, SummaryRepository summaries, FullTextSearch fullText, MemoryMetrics metrics,
+            MemoryItemRepository memoryItems, EntityGraphRepository entities, ProfileService profiles) {
         this.db = db;
+        this.exclusions = new RecallExclusions(db);
         this.props = props;
         this.settings = settings;
         this.chunks = chunks;
         this.summaries = summaries;
         this.fullText = fullText;
         this.metrics = metrics;
+        this.memoryItems = memoryItems;
+        this.entities = entities;
+        this.profiles = profiles;
         if (props.getRecall().isEnabled() && metrics != null) {
             metrics.enableRecall();
         }
@@ -111,9 +132,9 @@ public class MemoryRetriever {
                                         ids.addAll(others);
                                         return List.copyOf(ids);
                                     }))
-                    .flatMap(ids -> search(scope, current, ids, query))
-                    .map(result -> new RecallResult(result.items(), result.coverageLimited(),
-                            Duration.ofNanos(System.nanoTime() - start)))
+                    .flatMap(ids -> search(scope, current, ids, query)
+                            .flatMap(result -> enrich(scope, current, query, result)))
+                    .map(result -> result.withLatency(Duration.ofNanos(System.nanoTime() - start)))
                     .doOnNext(result -> {
                         if (metrics != null) {
                             metrics.recalled(result.latency(), result.items().size(), result.coverageLimited());
@@ -151,6 +172,9 @@ public class MemoryRetriever {
             Flux<Scored> gap = chunks.turnTexts(scope, List.of(current), scanned)
                     .flatMap(turn -> gapHit(turn, codes, terms, min));
             return Flux.concat(exact, names, chunkText, recordText, gap).collectList()
+                    .flatMap(hits -> exclusions.excluded(scope, hits.stream().map(Scored::turnId).toList())
+                            .map(excluded -> excluded.isEmpty() ? hits
+                                    : hits.stream().filter(h -> !excluded.contains(h.turnId())).toList()))
                     .zipWith(chunks.anyUnindexed(scope, others))
                     .flatMap(t -> expand(scope, current, ids, merge(t.getT1(), limit))
                             .map(items -> new RecallResult(items, beyondBackfill || t.getT2(), Duration.ZERO)));
@@ -232,7 +256,7 @@ public class MemoryRetriever {
         if (hits.isEmpty()) {
             return Mono.just(List.of());
         }
-        return chunks.turnTexts(scope, ids, hits.stream().map(Scored::turnId).toList())
+        return chunks.recallTexts(scope, ids, hits.stream().map(Scored::turnId).toList())
                 .collectMap(TurnText::turnId, Function.identity())
                 .map(turns -> hits.stream().filter(h -> turns.containsKey(h.turnId())).map(h -> {
                     var turn = turns.get(h.turnId());
@@ -243,4 +267,85 @@ public class MemoryRetriever {
                             turn.content(), h.excerpt());
                 }).toList());
     }
+
+    private Mono<RecallResult> enrich(MemoryScope scope, String current, String query, RecallResult base) {
+        Mono<java.util.Optional<io.github.sukimiya.agileagent.memory.items.Profile>> profileMono = profiles == null
+                ? Mono.just(java.util.Optional.empty())
+                : profiles.current(scope);
+        Mono<List<RecallResult.RelationHit>> relMono = relationLines(scope, query);
+        Mono<List<RecallCandidate>> itemMono = itemCandidates(scope, current, query);
+        return Mono.zip(profileMono.defaultIfEmpty(java.util.Optional.empty()), relMono.defaultIfEmpty(List.of()),
+                        itemMono.defaultIfEmpty(List.of()))
+                .map(t -> {
+                    var merged = new ArrayList<>(base.items());
+                    merged.addAll(t.getT3());
+                    var profile = t.getT1().filter(p -> p.content() != null && !p.content().isBlank());
+                    return new RecallResult(merged, base.coverageLimited(), base.latency(),
+                            profile.map(p -> p.content()).orElse(null), profile.map(p -> p.version()).orElse(null),
+                            t.getT2());
+                });
+    }
+
+    private Mono<List<RecallCandidate>> itemCandidates(MemoryScope scope, String current, String query) {
+        if (memoryItems == null) {
+            return Mono.just(List.of());
+        }
+        var needles = new ArrayList<String>();
+        needles.addAll(EntityTerms.codes(query));
+        needles.addAll(EntityTerms.terms(query));
+        return settings.crossConversationEnabled(scope).flatMapMany(cross -> {
+            String conv = cross ? null : current;
+            return memoryItems.searchRecallable(scope, conv, needles, props.getRecall().getMaxItems(),
+                    new io.github.sukimiya.agileagent.memory.items.DecayPolicy(props.getDecay()));
+        }).map(MemoryRetriever::toItemCandidate).collectList();
+    }
+
+    /** An item hit; its score is already decayed by the last recall (M2b Task 6). */
+    private static RecallCandidate toItemCandidate(MemoryItemRepository.ScoredItem scored) {
+        var item = scored.item();
+        return new RecallCandidate(item.id(), null, item.conversationId() == null ? "" : item.conversationId(),
+                0, 0, TURN_SOURCES, "ITEM", scored.score(),
+                item.conversationId() == null, null, item.content(), null);
+    }
+
+    private Mono<List<RecallResult.RelationHit>> relationLines(MemoryScope scope, String query) {
+        if (entities == null) {
+            return Mono.just(List.of());
+        }
+        var keys = new ArrayList<String>();
+        keys.addAll(EntityTerms.codes(query));
+        // CJK bigrams alone are weak keys; also try contiguous Han runs of length >= 2 from the query.
+        if (query != null) {
+            var run = new StringBuilder();
+            for (int i = 0; i < query.length(); ) {
+                int cp = query.codePointAt(i);
+                i += Character.charCount(cp);
+                if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) {
+                    run.appendCodePoint(cp);
+                } else {
+                    if (run.length() >= 2) {
+                        keys.add(run.toString());
+                    }
+                    run.setLength(0);
+                }
+            }
+            if (run.length() >= 2) {
+                keys.add(run.toString());
+            }
+        }
+        int limit = props.getProfile().getMaxRelations();
+        return entities.oneHop(scope, keys, limit)
+                .concatMap(rel -> formatRelation(scope, rel))
+                .take(limit)
+                .collectList();
+    }
+
+    private Mono<RecallResult.RelationHit> formatRelation(MemoryScope scope,
+            io.github.sukimiya.agileagent.memory.items.MemoryRelation rel) {
+        return entities.findById(scope, rel.fromEntityId())
+                .zipWith(entities.findById(scope, rel.toEntityId()))
+                .map(t -> new RecallResult.RelationHit(rel.id(),
+                        t.getT1().name() + " —" + rel.relation() + "→ " + t.getT2().name()));
+    }
+
 }

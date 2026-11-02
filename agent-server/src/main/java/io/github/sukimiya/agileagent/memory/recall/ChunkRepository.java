@@ -5,11 +5,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Repository;
 
 import io.github.sukimiya.agileagent.memory.ConversationRepository;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -22,7 +25,8 @@ import reactor.core.publisher.Mono;
 public class ChunkRepository {
 
     static final String LIVE_SESSION = " JOIN sessions se ON se.id = %s.conversation_id"
-            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.deleted_at IS NULL";
+            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.is_valid = 1"
+            + " AND %<s.is_valid = 1";
 
     /** One completed turn as recall sees it: the user message and the final answer, with its message range. */
     public record TurnText(String turnId, String conversationId, long fromSequence, long toSequence,
@@ -40,10 +44,20 @@ public class ChunkRepository {
 
     private final DatabaseClient db;
     private final ConversationRepository conversations;
+    private final RecallTextCache cache;
+    private final MemoryProperties props;
 
     public ChunkRepository(DatabaseClient db, ConversationRepository conversations) {
+        this(db, conversations, null, null);
+    }
+
+    @Autowired
+    public ChunkRepository(DatabaseClient db, ConversationRepository conversations, RecallTextCache cache,
+            MemoryProperties props) {
         this.db = db;
         this.conversations = conversations;
+        this.cache = cache;
+        this.props = props;
     }
 
     DatabaseClient db() {
@@ -55,11 +69,69 @@ public class ChunkRepository {
      * that are not completed, foreign or deleted are absent. Order of {@code turnIds} is not kept.
      */
     public Flux<TurnText> turnTexts(MemoryScope scope, List<String> conversationIds, List<String> turnIds) {
+        return load(scope, conversationIds, turnIds).map(Loaded::turn);
+    }
+
+    /**
+     * {@link #turnTexts} for recall expansion (M2b Task 9): with storage compression on, compressed originals are
+     * served from {@link RecallTextCache} and written there after a database read. Which turns may be served is
+     * still decided by the database (live session, owner, completed), so a cached turn of a deleted or foreign
+     * conversation is never returned.
+     */
+    public Flux<TurnText> recallTexts(MemoryScope scope, List<String> conversationIds, List<String> turnIds) {
+        if (cache == null || props == null || !props.getStorage().isEnabled() || conversationIds.isEmpty()
+                || turnIds.isEmpty()) {
+            return turnTexts(scope, conversationIds, turnIds);
+        }
+        return liveTurns(scope, conversationIds, turnIds).flatMapMany(live -> {
+            if (live.isEmpty()) {
+                return Flux.<TurnText>empty();
+            }
+            var liveIds = List.copyOf(live.keySet());
+            return cache.get(scope, conversationIds, liveIds).flatMapMany(cached -> {
+                var hits = cached.values().stream()
+                        .filter(t -> t.conversationId().equals(live.get(t.turnId()))).toList();
+                var hitIds = hits.stream().map(TurnText::turnId).collect(java.util.stream.Collectors.toSet());
+                var missing = liveIds.stream().filter(id -> !hitIds.contains(id)).toList();
+                if (missing.isEmpty()) {
+                    return Flux.fromIterable(hits);
+                }
+                return load(scope, conversationIds, missing).collectList().flatMapMany(loaded -> {
+                    var compressed = loaded.stream().filter(Loaded::compressed).map(Loaded::turn).toList();
+                    return cache.put(scope, compressed)
+                            .thenMany(Flux.concat(Flux.fromIterable(hits),
+                                    Flux.fromIterable(loaded).map(Loaded::turn)));
+                });
+            });
+        });
+    }
+
+    /** Live completed turns of the owner among {@code turnIds}, by turn id to conversation id; no text read. */
+    private Mono<java.util.Map<String, String>> liveTurns(MemoryScope scope, List<String> conversationIds,
+            List<String> turnIds) {
+        return db.sql("SELECT DISTINCT m.turn_id, m.conversation_id FROM chat_messages m"
+                        + " JOIN chat_turns t ON t.id = m.turn_id" + LIVE_SESSION.formatted("m")
+                        + " WHERE m.tenant_id = :tenantId AND m.subject = :subject AND m.conversation_id IN (:ids)"
+                        + " AND m.turn_id IN (:turns) AND t.status = 'COMPLETED' AND t.tenant_id = m.tenant_id"
+                        + " AND t.subject = m.subject")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .bind("ids", List.copyOf(conversationIds)).bind("turns", List.copyOf(turnIds))
+                .map(row -> java.util.Map.entry(row.get("turn_id", String.class),
+                        row.get("conversation_id", String.class)))
+                .all()
+                .collectMap(java.util.Map.Entry::getKey, java.util.Map.Entry::getValue);
+    }
+
+    private record Loaded(TurnText turn, boolean compressed) {}
+
+    private Flux<Loaded> load(MemoryScope scope, List<String> conversationIds, List<String> turnIds) {
         if (conversationIds.isEmpty() || turnIds.isEmpty()) {
             return Flux.empty();
         }
-        return db.sql("SELECT m.turn_id, m.conversation_id, m.sequence, m.role, m.payload, t.finished_at"
+        return db.sql("SELECT m.turn_id, m.conversation_id, m.sequence, m.role, "
+                        + MessagePayloadCodec.messageColumns("m") + ", t.finished_at"
                         + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id" + LIVE_SESSION.formatted("m")
+                        + MessagePayloadCodec.messageJoin("m")
                         + " WHERE m.tenant_id = :tenantId AND m.subject = :subject AND m.conversation_id IN (:ids)"
                         + " AND m.turn_id IN (:turns) AND t.status = 'COMPLETED' AND t.tenant_id = m.tenant_id"
                         + " AND t.subject = m.subject ORDER BY m.turn_id, m.sequence")
@@ -67,19 +139,20 @@ public class ChunkRepository {
                 .bind("ids", List.copyOf(conversationIds)).bind("turns", List.copyOf(turnIds))
                 .map(row -> new MessageRow(row.get("turn_id", String.class), row.get("conversation_id", String.class),
                         number(row.get("sequence")), row.get("role", String.class),
-                        row.get("payload", String.class), row.get("finished_at", LocalDateTime.class)))
+                        MessagePayloadCodec.messageText(row), row.get("finished_at", LocalDateTime.class),
+                        row.get(MessagePayloadCodec.Field.MESSAGE_PAYLOAD.codecColumn(), String.class) != null))
                 .all()
                 .collectList()
                 .flatMapIterable(this::toTurns);
     }
 
     private record MessageRow(String turnId, String conversationId, long sequence, String role, String payload,
-            LocalDateTime finishedAt) {}
+            LocalDateTime finishedAt, boolean compressed) {}
 
-    private List<TurnText> toTurns(List<MessageRow> rows) {
+    private List<Loaded> toTurns(List<MessageRow> rows) {
         var byTurn = new LinkedHashMap<String, List<MessageRow>>();
         rows.forEach(r -> byTurn.computeIfAbsent(r.turnId(), k -> new ArrayList<>()).add(r));
-        var out = new ArrayList<TurnText>();
+        var out = new ArrayList<Loaded>();
         for (var messages : byTurn.values()) {
             String user = null;
             String answer = null;
@@ -100,8 +173,9 @@ public class ChunkRepository {
             }
             var first = messages.getFirst();
             var last = messages.getLast();
-            out.add(new TurnText(first.turnId(), first.conversationId(), first.sequence(), last.sequence(),
-                    answerSequence < 0 ? last.sequence() : answerSequence, user, answer, first.finishedAt()));
+            out.add(new Loaded(new TurnText(first.turnId(), first.conversationId(), first.sequence(), last.sequence(),
+                    answerSequence < 0 ? last.sequence() : answerSequence, user, answer, first.finishedAt()),
+                    messages.stream().anyMatch(MessageRow::compressed)));
         }
         return out;
     }
@@ -161,7 +235,7 @@ public class ChunkRepository {
     /** The owner's other live conversations, most recently updated first, at most {@code limit}. */
     public Flux<String> otherLiveConversations(MemoryScope scope, String currentId, int limit) {
         return db.sql("SELECT id FROM sessions WHERE tenant_id = :tenantId AND user_id = :subject"
-                        + " AND deleted_at IS NULL AND id <> :current ORDER BY updated_at DESC, id LIMIT :limit")
+                        + " AND is_valid = 1 AND id <> :current ORDER BY updated_at DESC, id LIMIT :limit")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject()).bind("current", currentId)
                 .bind("limit", limit)
                 .map(row -> row.get("id", String.class))

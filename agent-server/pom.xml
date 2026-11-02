@@ -70,6 +70,13 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- zstd for tiered compression of stored original messages (M2b Task 9; JNI, D25 revised 2026-10-30). -->
+		<dependency>
+			<groupId>com.github.luben</groupId>
+			<artifactId>zstd-jni</artifactId>
+			<version>1.5.7-25</version>
+		</dependency>
+
 		<dependency>
 			<groupId>org.apache.tika</groupId>
 			<artifactId>tika-core</artifactId>

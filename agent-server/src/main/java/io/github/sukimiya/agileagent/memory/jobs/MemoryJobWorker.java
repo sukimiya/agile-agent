@@ -14,6 +14,9 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Component;
 
 import io.github.sukimiya.agileagent.memory.InstanceGuard;
+import io.github.sukimiya.agileagent.memory.MemoryMetrics;
+import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.util.NonBlockingIds;
 import reactor.core.publisher.Mono;
@@ -23,6 +26,10 @@ import reactor.core.publisher.Mono;
  * <ul>
  * <li>A job is due when PENDING with {@code available_at} reached, or RUNNING with an expired lease (its process
  * died). Claiming sets a 5 minute lease and counts an attempt.</li>
+ * <li>LLM consolidation jobs ({@link ConsolidationQuota#isLlmJob}) reserve daily token budget and a per-tenant
+ * concurrency slot before claim. Over budget postpones {@code available_at} to the next calendar day (DB
+ * timezone) without dropping the job or incrementing attempts. A concurrency miss leaves the job due for the
+ * next scan.</li>
  * <li>A handler failure puts the job back to PENDING with exponential backoff (30 s doubling, at most 30 min) and
  * stores only the error type, since messages can carry paths. Handlers are idempotent and keep their own progress,
  * so a retry repeats no committed work.</li>
@@ -43,18 +50,35 @@ public class MemoryJobWorker {
 
     private final DatabaseClient db;
     private final BooleanSupplier conflict;
+    private final ConsolidationQuota quota;
+    private final MemoryProperties props;
+    private final MemoryMetrics metrics;
     private final Map<JobType, Function<ClaimedJob, Mono<Void>>> handlers = new EnumMap<>(JobType.class);
     private final String instanceId = NonBlockingIds.uuid();
 
     @Autowired
+    public MemoryJobWorker(DatabaseClient db, InstanceGuard guard, ConsolidationQuota quota, MemoryProperties props,
+            MemoryMetrics metrics) {
+        this(db, guard::conflict, quota, props, metrics);
+    }
+
+    /** Test helper: no quota enforcement. */
     public MemoryJobWorker(DatabaseClient db, InstanceGuard guard) {
-        this(db, guard::conflict);
+        this(db, guard::conflict, null, null, null);
     }
 
     /** {@code conflict} answers whether claiming must pause (another live instance in the namespace). */
     public MemoryJobWorker(DatabaseClient db, BooleanSupplier conflict) {
+        this(db, conflict, null, null, null);
+    }
+
+    public MemoryJobWorker(DatabaseClient db, BooleanSupplier conflict, ConsolidationQuota quota,
+            MemoryProperties props, MemoryMetrics metrics) {
         this.db = db;
         this.conflict = conflict;
+        this.quota = quota;
+        this.props = props;
+        this.metrics = metrics;
     }
 
     /** Registers the handler of one job type; a type has at most one handler. */
@@ -89,9 +113,55 @@ public class MemoryJobWorker {
                             ((Number) row.get("attempts")).intValue() + 1))
                     .all()
                     .concatMap(job -> conflict.getAsBoolean() ? Mono.just(0)
-                            : claim(job).flatMap(claimed -> claimed ? run(job, current.get(job.type())) : Mono.just(0)))
+                            : dispatch(job, current.get(job.type())))
                     .reduce(0, Integer::sum);
         });
+    }
+
+    private Mono<Integer> dispatch(ClaimedJob job, Function<ClaimedJob, Mono<Void>> handler) {
+        if (quota == null || !ConsolidationQuota.isLlmJob(job.type())) {
+            return claim(job).flatMap(claimed -> claimed ? run(job, handler) : Mono.just(0));
+        }
+        if (!quota.tryAcquire(job.scope().tenantId())) {
+            return Mono.just(0);
+        }
+        long estimate = props.getConsolidation().getReserveTokens();
+        return quota.reserve(job.scope().tenantId(), estimate)
+                .flatMap(reserved -> {
+                    if (!reserved) {
+                        quota.release(job.scope().tenantId());
+                        return postponeToNextDay(job).thenReturn(0);
+                    }
+                    return claim(job).flatMap(claimed -> {
+                        if (!claimed) {
+                            return refundReserve(job.scope().tenantId(), estimate)
+                                    .doFinally(s -> quota.release(job.scope().tenantId()))
+                                    .thenReturn(0);
+                        }
+                        return runLlm(job, handler, estimate)
+                                .doFinally(s -> quota.release(job.scope().tenantId()));
+                    });
+                });
+    }
+
+    /**
+     * On success keeps the up-front reservation (handler may already have replaced it with observed usage).
+     * On failure refunds the reservation before backoff so a retry can reserve again.
+     */
+    private Mono<Integer> runLlm(ClaimedJob job, Function<ClaimedJob, Mono<Void>> handler, long estimate) {
+        return Mono.defer(() -> handler.apply(job))
+                .then(Mono.defer(() -> finish(job)))
+                .flatMap(n -> quota.settle(job.scope().tenantId(), estimate, TokenUsage.notObserved()).thenReturn(n))
+                .onErrorResume(e -> {
+                    log.warn("memory.job failed jobId={} type={} attempt={} errorType={}", job.id(), job.type(),
+                            job.attempts(), e.getClass().getSimpleName());
+                    return refundReserve(job.scope().tenantId(), estimate)
+                            .then(retryLater(job, e)).thenReturn(0);
+                });
+    }
+
+    private Mono<Void> refundReserve(String tenantId, long reserved) {
+        return quota.settle(tenantId, reserved, new TokenUsage(true, 0, 0, 0));
     }
 
     private Mono<Boolean> claim(ClaimedJob job) {
@@ -100,6 +170,28 @@ public class MemoryJobWorker {
                         + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND " + DUE)
                 .bind("owner", instanceId).bind("leaseMicros", JOB_LEASE.toNanos() / 1_000).bind("id", job.id())
                 .fetch().rowsUpdated().map(n -> n == 1);
+    }
+
+    /**
+     * Over-quota: push {@code available_at} to the start of the next calendar day (database timezone), clear any
+     * expired lease, keep PENDING, do not touch attempts.
+     */
+    private Mono<Void> postponeToNextDay(ClaimedJob job) {
+        if (quota != null) {
+            quota.postponed();
+        }
+        if (metrics != null && props != null && props.getConsolidation().isEnabled()) {
+            metrics.consolidationBacklogDelta(1);
+        }
+        log.info("memory.consolidation postponed jobId={} type={} tenantId={}", job.id(), job.type(),
+                job.scope().tenantId());
+        return db.sql("UPDATE memory_jobs SET status = 'PENDING', lease_owner = NULL, lease_expires_at = NULL,"
+                        + " available_at = TIMESTAMPADD(DAY, 1, CAST(CURRENT_DATE AS DATETIME(6))),"
+                        + " updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND " + DUE)
+                .bind("id", job.id())
+                .fetch().rowsUpdated()
+                .then();
     }
 
     private Mono<Integer> run(ClaimedJob job, Function<ClaimedJob, Mono<Void>> handler) {

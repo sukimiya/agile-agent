@@ -106,7 +106,7 @@ class MemorySchemaTest {
     @Test
     void deletedSessionsAreNotReadByScopedQueries() {
         sessions.createOwned("c1", ALICE_T1, "will be deleted").block();
-        fixture.jdbc().update("UPDATE sessions SET deleted_at = ? WHERE id = ?", LocalDateTime.now(), "c1");
+        fixture.jdbc().update("UPDATE sessions SET deleted_at = ?, is_valid = 0 WHERE id = ?", LocalDateTime.now(), "c1");
 
         assertThat(sessions.findOwned("c1", ALICE_T1).blockOptional()).isEmpty();
         assertThat(sessions.listForUser(ALICE_T1).collectList().block()).isEmpty();

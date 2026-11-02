@@ -38,7 +38,7 @@ import io.micrometer.core.instrument.Timer;
  * of the same call, for tuning {@code app.memory.context.estimate-factor}.</li>
  * </ul>
  * Not implemented in M1, so never reported as a number: Recall ({@code memory.recall.*}: not applicable, never
- * 0 ms or 0 items) and consolidation ({@code memory.consolidation.backlog}: feature disabled, never a backlog of 0).
+ * 0 ms or 0 items) and consolidation ({@code memory.consolidation.backlog}: disabled until enabled, never a backlog of 0 while off).
  * {@code memory.feature.enabled{feature}} states that explicitly (0 = not enabled).
  */
 @Component
@@ -73,6 +73,9 @@ public class MemoryMetrics {
     private final DistributionSummary injectedTokens;
     private final java.util.concurrent.atomic.AtomicLong summaryBacklog = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicInteger recallFeature = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger consolidationFeature = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicLong consolidationBacklog = new java.util.concurrent.atomic.AtomicLong();
+    private volatile boolean consolidationBacklogRegistered;
     private volatile Timer recallLatency;
     private volatile DistributionSummary recallItems;
     private volatile Counter recallCoverageLimited;
@@ -106,8 +109,9 @@ public class MemoryMetrics {
         Gauge.builder("memory.feature.enabled", recallFeature, java.util.concurrent.atomic.AtomicInteger::get)
                 .tag("feature", "recall")
                 .description("1 when the memory feature is implemented and enabled").register(meters);
-        Gauge.builder("memory.feature.enabled", () -> 0).tag("feature", "consolidation")
-                .description("1 when the memory feature is implemented and enabled; consolidation comes in M2b")
+        Gauge.builder("memory.feature.enabled", consolidationFeature, java.util.concurrent.atomic.AtomicInteger::get)
+                .tag("feature", "consolidation")
+                .description("1 when consolidation (quota / judgement backlog) is enabled")
                 .register(meters);
     }
 
@@ -151,6 +155,78 @@ public class MemoryMetrics {
     public void historyTruncated(String purpose) {
         Counter.builder("memory.context.history.truncated").tag("purpose", purpose)
                 .description("Model calls whose budgeted context left out older completed turns")
+                .register(meters).increment();
+    }
+
+
+    /**
+     * Per-turn recall explanation writes ({@code memory.recall.explain}, {@code outcome}: {@code written},
+     * {@code failed} or {@code dropped} when the bounded queue is full). Never fails the turn.
+     */
+    public void recallExplain(String outcome) {
+        Counter.builder("memory.recall.explain").tag("outcome", outcome)
+                .description("Per-turn recall explanation writes").register(meters).increment();
+    }
+
+    /** Derived index rows physically purged after their retention ({@code kind}: ITEM, CHUNK or SUMMARY). */
+    /**
+     * In-chat forget / restore classification calls ({@code memory.command.classified}, {@code outcome}: FORGET,
+     * RESTORE, NONE or FAILED). Only inputs that pass the keyword prefilter are classified.
+     */
+    public void commandClassified(String outcome) {
+        Counter.builder("memory.command.classified").tag("outcome", outcome == null ? "UNKNOWN" : outcome)
+                .description("Forget / restore intent classification calls").register(meters).increment();
+    }
+
+    /** Items made INACTIVE by the periodic decay pass ({@code memory.decay.inactivated}; never deleted). */
+    /** One old item handled by a Rules replay (M2b Task 7): SUPERSEDED, INACTIVATED or SKIPPED. */
+    public void replayItem(String outcome) {
+        Counter.builder("memory.replay.items").tag("outcome", outcome)
+                .description("Old-Rules memory items handled by an explicit Rules replay")
+                .register(meters).increment();
+    }
+
+    public void decayInactivated(long count) {
+        if (count > 0) {
+            Counter.builder("memory.decay.inactivated")
+                    .description("Non-user memory items made INACTIVE after long without recall")
+                    .register(meters).increment(count);
+        }
+    }
+
+    /** Recall records marked expired by the periodic purge job (never deleted). */
+    public void recallRecordsExpired(long count) {
+        if (count > 0) {
+            Counter.builder("memory.recall.records.expired")
+                    .description("Recall records marked expired; they no longer count as references")
+                    .register(meters).increment(count);
+        }
+    }
+
+    public void purged(String kind, long count) {
+        if (count > 0) {
+            Counter.builder("memory.purge.purged").tag("kind", kind)
+                    .description("Derived memory index rows purged after retention").register(meters).increment(count);
+        }
+    }
+
+    /** A long-term memory item was written by judgement (M2b Task 3). */
+    public void judgementWritten() {
+        Counter.builder("memory.judgement.written").description("Long-term memory items written by judgement")
+                .register(meters).increment();
+    }
+
+    /** A judgement action was rejected by the validator; {@code reason} is a short code. */
+    public void judgementRejected(String reason) {
+        Counter.builder("memory.judgement.rejected").tag("reason", reason == null ? "UNKNOWN" : reason)
+                .description("Judgement actions discarded by provenance / anti-poison checks")
+                .register(meters).increment();
+    }
+
+    /** A judgement attempt failed (model / timeout / invalid JSON). */
+    public void judgementFailed(String reason) {
+        Counter.builder("memory.judgement.failures").tag("reason", reason == null ? "UNKNOWN" : reason)
+                .description("Judgement attempts that failed")
                 .register(meters).increment();
     }
 
@@ -248,9 +324,53 @@ public class MemoryMetrics {
         return new Reading("memory.recall.items", Availability.REPORTED, items.totalAmount(), null);
     }
 
-    /** No consolidation jobs exist in M1 (deletion jobs are maintenance, not consolidation): disabled, not 0. */
+    /**
+     * Turns on consolidation feature gauge and allows {@link #consolidationBacklog(long)} to register the backlog
+     * meter. Call when {@code app.memory.consolidation.enabled=true} (M2b Task 2).
+     */
+    public synchronized void enableConsolidation(boolean enabled) {
+        consolidationFeature.set(enabled ? 1 : 0);
+        if (enabled && !consolidationBacklogRegistered) {
+            Gauge.builder("memory.consolidation.backlog", consolidationBacklog,
+                            java.util.concurrent.atomic.AtomicLong::get)
+                    .description("LLM consolidation jobs waiting (including quota-postponed)")
+                    .register(meters);
+            consolidationBacklogRegistered = true;
+        }
+    }
+
+    /** Sets the consolidation backlog gauge (only has effect after {@link #enableConsolidation(true)}). */
+    public void consolidationBacklog(long jobs) {
+        consolidationBacklog.set(jobs);
+        if (consolidationFeature.get() == 1 && !consolidationBacklogRegistered) {
+            enableConsolidation(true);
+        }
+    }
+
+    /** Increments the backlog gauge by {@code delta} when consolidation is enabled. */
+    public void consolidationBacklogDelta(long delta) {
+        if (consolidationFeature.get() == 1) {
+            consolidationBacklog(consolidationBacklog.addAndGet(delta));
+        }
+    }
+
+    /** A due LLM job was postponed to the next day because the tenant was over its daily token budget. */
+    public void consolidationQuotaPostponed() {
+        Counter.builder("memory.consolidation.quota.postponed")
+                .description("LLM consolidation jobs postponed to the next day for daily token quota")
+                .register(meters).increment();
+    }
+
+    /**
+     * Pending / postponed LLM consolidation jobs when the feature is enabled; otherwise disabled (never a backlog
+     * of 0 while off).
+     */
     public Reading consolidationBacklog() {
-        return new Reading("memory.consolidation.backlog", Availability.DISABLED, null, "M2 才启用整理任务");
+        if (consolidationFeature.get() == 0) {
+            return new Reading("memory.consolidation.backlog", Availability.DISABLED, null, "整理未启用");
+        }
+        return new Reading("memory.consolidation.backlog", Availability.REPORTED,
+                (double) consolidationBacklog.get(), null);
     }
 
     /** All basic metrics as report readings, in a stable order. */

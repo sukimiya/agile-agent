@@ -20,6 +20,7 @@ import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.Entity;
 import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.KeyFact;
 import io.github.sukimiya.agileagent.memory.summary.MemoryRecord.MemoryType;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -34,7 +35,8 @@ public class SummaryRepository {
 
     /** Live session of the owner; appended to reads that must not see deleted conversations. */
     private static final String LIVE_SESSION = " JOIN sessions se ON se.id = %s.conversation_id"
-            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.deleted_at IS NULL";
+            + " AND se.tenant_id = %<s.tenant_id AND se.user_id = %<s.subject AND se.is_valid = 1"
+            + " AND %<s.is_valid = 1";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** A search hit: the turn whose record matched, and its relevance (higher is better). */
@@ -68,13 +70,14 @@ public class SummaryRepository {
 
     /** The original messages of one completed turn, in order: what a record hit expands to. */
     public Flux<LlmClient.Message> originalTurn(MemoryScope scope, String conversationId, String turnId) {
-        return db.sql("SELECT m.payload FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
-                        + LIVE_SESSION.formatted("m")
+        return db.sql("SELECT " + MessagePayloadCodec.messageColumns("m")
+                        + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
+                        + LIVE_SESSION.formatted("m") + MessagePayloadCodec.messageJoin("m")
                         + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
                         + " AND m.turn_id = :turn AND t.status = 'COMPLETED' ORDER BY m.sequence")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .bind("turn", turnId)
-                .map(row -> conversations.deserialize(row.get("payload", String.class)))
+                .map(row -> conversations.deserialize(MessagePayloadCodec.messageText(row)))
                 .all();
     }
 
@@ -119,7 +122,7 @@ public class SummaryRepository {
     /** Whether the owner's conversation exists and is not deleted. */
     public Mono<Boolean> isLive(MemoryScope scope, String conversationId) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :c AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NULL")
+                        + " AND user_id = :subject AND is_valid = 1")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> number(row.get("n")) == 1)
                 .one();
@@ -170,7 +173,7 @@ public class SummaryRepository {
 
     private Mono<Boolean> lockLiveSession(MemoryScope scope, String conversationId) {
         return db.sql("SELECT id FROM sessions WHERE id = :c AND tenant_id = :tenantId AND user_id = :subject"
-                        + " AND deleted_at IS NULL FOR UPDATE")
+                        + " AND is_valid = 1 FOR UPDATE")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> row.get("id", String.class))
                 .all().hasElements();

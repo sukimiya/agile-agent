@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,6 +24,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.memory.TurnRecorder;
+import io.github.sukimiya.agileagent.memory.command.MemoryCommandService;
 import io.github.sukimiya.agileagent.memory.context.AssembledContext;
 import io.github.sukimiya.agileagent.memory.context.ContextAssembler;
 import io.github.sukimiya.agileagent.memory.context.ContextBudget;
@@ -91,6 +93,7 @@ public class Orchestrator {
     private final ConversationHistory history;
     private final ContextAssembler assembler;
     private final ContextBudget budget;
+    private final MemoryCommandService commands;
 
     /** Without a context budget: every call gets the full history (M1 behaviour). */
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
@@ -98,9 +101,21 @@ public class Orchestrator {
         this(dispatcher, capabilities, lifecycle, history, ContextAssembler.unbudgeted(history));
     }
 
-    @Autowired
     public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
                         ConversationHistory history, ContextAssembler assembler) {
+        this(dispatcher, capabilities, lifecycle, history, assembler, null);
+    }
+
+    /**
+     * With in-chat memory commands ("忘记…" / "记起来…", M2b T5 follow-up): the user's input is offered to
+     * {@code commands} first (keyword prefilter, then one classification call on the turn's model); a handled
+     * command is answered with its fixed text and no routing or answer model call.
+     */
+    @Autowired
+    public Orchestrator(TaskDispatcher dispatcher, CapabilityRegistry capabilities, TurnLifecycle lifecycle,
+                        ConversationHistory history, ContextAssembler assembler,
+                        @Nullable MemoryCommandService commands) {
+        this.commands = commands;
         this.dispatcher = dispatcher;
         this.capabilities = capabilities;
         this.lifecycle = lifecycle;
@@ -171,15 +186,20 @@ public class Orchestrator {
         var usage = new UsageAccumulator();
         var finalText = new AtomicReference<String>();
         Flux<String> body = history.userInput(ticket)
-                .flatMapMany(userMessage -> {
+                .flatMapMany(userMessage -> memoryCommand(ticket, userMessage, llm, usage).flatMapMany(command -> {
+                    var answer = new FinalAnswer(recorder, finalText, command.notice());
+                    if (command.handled()) {
+                        var text = command.answer();
+                        return streamFinalAnswer(answer, Flux.just(new LlmClient.LlmEvent.ContentDelta(text),
+                                new LlmClient.LlmEvent.Completed(text)));
+                    }
                     var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
-                    var answer = new FinalAnswer(recorder, finalText);
                     return route(call, userMessage)
                             .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
                                     ? answerDirectly(call, answer, userMessage)
                                     : answerViaCapabilities(call, answer, userMessage, capabilityCodes,
                                             accessToken, identity));
-                });
+                }));
         return Flux.concat(
                 body.timeout(TOTAL_BUDGET),
                 // Stage the final text with every usage observed so far, including usage after Completed.
@@ -188,6 +208,13 @@ public class Orchestrator {
                 Flux.defer(() -> usage.observed()
                         ? Flux.just(usageLine(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()))
                         : Flux.empty()));
+    }
+
+    /** The in-chat memory command outcome (no commands: always answer normally, no notice). */
+    private Mono<MemoryCommandService.Outcome> memoryCommand(TurnTicket ticket, String userMessage, LlmClient llm,
+            UsageAccumulator usage) {
+        return commands == null ? Mono.just(new MemoryCommandService.Outcome(null, ""))
+                : commands.handle(ticket, userMessage, llm, usage::add);
     }
 
     private Flux<String> replay(AcceptedTurn accepted) {
@@ -212,8 +239,11 @@ public class Orchestrator {
         return "TURN_FAILED";
     }
 
-    /** Where the final model answer's deltas are checkpointed and its full text staged. */
-    private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text) {}
+    /**
+     * Where the final model answer's deltas are checkpointed and its full text staged; {@code prefix} (a cancelled
+     * memory pick notice, usually empty) is streamed before the answer and is part of the stored text.
+     */
+    private record FinalAnswer(TurnRecorder recorder, AtomicReference<String> text, String prefix) {}
 
     /**
      * What every model call of one turn shares: the turn, the model, its window, the usage total and the turn's
@@ -397,13 +427,16 @@ public class Orchestrator {
 
     /** Streams the final answer: each delta is checkpointed before it is emitted; Completed stages the text. */
     private Flux<String> streamFinalAnswer(FinalAnswer answer, Flux<LlmClient.LlmEvent> events) {
-        return events
+        var prefix = answer.prefix() == null ? "" : answer.prefix();
+        Flux<LlmClient.LlmEvent> all = prefix.isEmpty() ? events
+                : Flux.concat(Flux.just(new LlmClient.LlmEvent.ContentDelta(prefix)), events);
+        return all
                 .concatMap(event -> switch (event) {
                     case LlmClient.LlmEvent.ContentDelta d ->
                             answer.recorder().delta(d.text()).thenReturn(controlLine("delta", d.text())).flux();
                     case LlmClient.LlmEvent.Completed c -> {
-                        answer.text().set(c.fullText());
-                        yield Flux.just(c.fullText() + "\n");
+                        answer.text().set(prefix + c.fullText());
+                        yield Flux.just(prefix + c.fullText() + "\n");
                     }
                     case LlmClient.LlmEvent.ToolCallsReady tc -> Flux.<String>empty();
                     case LlmClient.LlmEvent.Usage ignored -> Flux.<String>empty();

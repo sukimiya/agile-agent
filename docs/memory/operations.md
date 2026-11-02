@@ -9,15 +9,87 @@
 - 清理任务只处理名称符合会话 ID 规则的目录。其他目录（例如 M1 之前按 sanitize 规则创建的 `conv-1`、`a_b` 等）不会被自动删除，需要运维确认后手动清理。M1 之前的这类旧目录也无法再通过下载接口访问。
 - 附件不在 M1 的数据库备份与恢复范围内（RPO/RTO 只覆盖会话、消息与执行记录）。归档与 MinIO 存储见 spec 14.1。
 
-## 会话删除清理
+## 会话删除清理（M2b 起全部为软删除）
 
-- `DELETE /api/conversations/{id}` 只写删除标记、使执行权失效，并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`；V10 之前叫 `DELETE_CONVERSATION`，升级时未完成的任务由迁移改名后继续执行）。物理清理由 `MemoryMaintenance` 注册给 `MemoryJobWorker` 的处理器执行，它在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
-- 删除事务内同时删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务；正在执行的切块任务会发现会话已删除，不写入任何片段。
-- 清理内容：`chat_messages`、`chat_tool_events`、M2a 的 `memory_chunks`、`memory_summaries` 与 `memory_index_progress`、Redis 中该会话的缓存条目（替换为删除标记），以及 `${app.upload.dir}/{conversationId}/`。清理前会再次确认该会话已标记删除，不会清理仍在使用的会话。
+- **软删除原则（2026-10-27 用户确定）：** 会话、执行、消息等数据删除后仍保留在数据库中、可以查询；删除只把 `is_valid` 置 0（V13 迁移为相关表增加该列），所有正常读取、Recall、提示词和用户 API 都排除 `is_valid = 0` 的数据，所以已删除的内容不会再到达模型或用户接口。
+- `DELETE /api/conversations/{id}` 在一个事务内：`sessions.is_valid = 0` 并写 `deleted_at`（标题保留）、使执行权失效、删除该会话尚未执行（PENDING）的 `INDEX_CHUNKS` 任务（任务记录不是会话数据）、把来自该会话的条目来源置为无效、把失去全部有效来源的条目和该会话的会话级条目置为 INACTIVE 并写 `source_deleted_at`（不再被召回，成为清除候选），并在 `memory_jobs` 登记 `CONVERSATION_CLEANUP` 任务（`dedupe_key` 为 `cleanup:<conversationId>`）。后台处理器由 `MemoryMaintenance` 注册给 `MemoryJobWorker`，在启动时以及此后每隔 `app.memory.cleanup-scan-interval`（默认 30 秒）扫描一次；`app.memory.recovery-enabled=false` 时与恢复扫描一起关闭。
+- 清理任务内容（全部是 `UPDATE ... SET is_valid = 0`，不删除行）：`chat_messages`、`chat_tool_events`、`chat_turns`、`memory_chunks`、`memory_summaries`、`memory_recall_events`；Redis 中该会话的缓存条目替换为删除标记；已有的用户概要快照按剩余条目重写。`memory_index_progress` 保持不变；附件目录 `${app.upload.dir}/{conversationId}/` **不随会话删除而删除**（用户 2026-10-27 确认保持该行为；下载按会话归属判定，已删除会话一律 404；附件仍受 `app.upload.ttl-hours` 的临时清理约束）。清理前会再次确认该会话已标记删除。
 - 失败重试：失败的任务回到 PENDING，退避时间从 30 秒开始指数增长，上限 30 分钟，不限次数。`last_error` 只记录异常类型，不保存消息或路径，原始异常只写服务端日志（`memory.job failed ... type=CONVERSATION_CLEANUP`）。进程在清理中途退出时，任务停留在 RUNNING，5 分钟租约到期后会被重新领取。
-- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是附件目录权限或 Redis 不可用。
+- 排查：`SELECT status, attempts, last_error, available_at FROM memory_jobs WHERE job_type = 'CONVERSATION_CLEANUP' AND status <> 'DONE'`。长期 PENDING 且 attempts 持续增长，通常是数据库或 Redis 不可用。
 - 实例冲突（`memory.instance.conflict` = 1）期间不领取任何后台任务（包括清理），冲突解除后继续；任务和尝试次数不受影响。
-- 删除标记（`sessions.deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+- 删除标记（`sessions.is_valid = 0` 与 `deleted_at`）与已完成的任务记录永久保留，不要手动清除，否则同一会话 ID 可能被重新创建，或无法确认清理已完成。
+
+### 派生索引清除（M2b 起，`app.memory.purge.*`）
+
+- `MemoryIndexPurger` 每 `app.memory.purge.interval`（默认 1 小时）扫描一次（`app.memory.purge.enabled` 与 `app.memory.recovery-enabled` 同时开启时）。候选：① 有 `source_deleted_at` 且状态不是 ACTIVE、DELETED（用户删除）或 FORGOTTEN（用户遗忘）的记忆条目——用户删除和遗忘的条目永久保留；② 已删除会话中 `is_valid = 0` 的原文片段（`memory_chunks`）与轮次记录（`memory_summaries`）。
+- **“清除”的含义：** 物理删除上述**派生索引行**（条目连同其来源与关系、片段、轮次记录）。原始会话数据（会话、执行、消息、工具记录）和召回记录（`memory_recall_events`）从不物理删除，只保持 `is_valid = 0`。这样数据库与 MySQL ngram 全文索引里不会长期残留已删除会话的副本，原始数据仍可按软删除原则查询。
+- 保留期按**召回引用数**分档，从来源被删除的时间算起（条目用 `source_deleted_at`，片段与轮次记录用会话的 `deleted_at`，数据库时间）。引用数 = 召回记录中指向该对象的不同轮次数（条目 `kind=ITEM`，片段 `CHUNK`，轮次记录 `SUMMARY` 按轮次 id），含已软删除的召回记录；条目再减去手动减少的数量（`recall_ref_offset`），最低为 0。
+- 分档在 `application.yml` 中配置，档数只靠配置即可改变（例如 5 档或 9 档），由 `RetentionTiers.retentionFor(count)` 统一解析：
+
+  ```yaml
+  app:
+    memory:
+      purge:
+        enabled: true
+        interval: 1h
+        batch: 200          # 每页候选数（键集分页，一次扫描处理全部候选）
+        recall-record-ttl: 30d   # 召回记录过期时间（只标记、不删除；过期后不再计入引用数）
+        tiers:              # 从 from-count 起（含）保留 keep；升序、首档从 0 开始、不重叠
+          - from-count: 0
+            keep: 1d
+          - from-count: 2
+            keep: 7d
+          - from-count: 5
+            keep: 30d
+  ```
+
+  配置不合法（为空、首档不从 0 开始、`from-count` 不严格递增、`keep` 不为正）时服务启动失败并给出具体档位。
+- **召回记录过期**（用户 2026-10-27 决定）：同一周期任务每次先把创建时间早于 `app.memory.purge.recall-record-ttl`（默认 `30d`）的召回记录标记为过期（写 `memory_recall_events.expired_at`，**从不删除**）。过期记录不再计入引用数，因此保留档位会随时间下降；同时把条目的手动减少量（`recall_ref_offset`）截到剩余有效引用数，之后的新召回从 0 起重新计数。每轮记忆解释接口仍返回过期记录（它们只是不再计数）。
+- 指标：`memory.purge.purged{kind=ITEM|CHUNK|SUMMARY}`、`memory.recall.records.expired`；有清除或过期时写一行 `memory.purge items=… chunks=… summaries=… expiredRecallRecords=…` INFO 日志（不含内容）。
+- 恢复后的行为：从备份恢复出的已清除行仍是无效或 INACTIVE 状态，下一次扫描会按同样规则再次清除，不需要单独的清除清单。
+
+## 按最近召回时间衰减（M2b Task 6，`app.memory.decay.*`）
+
+- 配置：
+
+  ```yaml
+  app:
+    memory:
+      decay:
+        enabled: true         # 周期性转为不激活（排序衰减始终生效）
+        interval: 1h
+        half-life: 30d        # 条目召回排序分 × 0.5^(距最近召回 / half-life)
+        inactive-after: 180d  # 非用户断言（INFERRED）条目超过该时长未被召回 → INACTIVE
+        batch: 200
+  ```
+
+- 年龄按数据库时间 `COALESCE(last_recalled_at, created_at)` 计算。`last_recalled_at` 在每轮记忆解释写入时为 `ITEM` 记录刷新（解释队列满被丢弃时不刷新），恢复和记忆判断的再次确认也刷新（记忆判断对已有条目的 REMEMBER 只刷新、不新建重复条目）；概要注入不刷新。
+- 周期任务与清除任务一样只在 `app.memory.recovery-enabled` 为 true 的单实例上运行；只改状态为 `INACTIVE`（版本号加 1），不删除，写 `memory_audit_log`（`DECAY_INACTIVATE`，操作者 `system:decay`），并重写受影响用户已有的概要快照。`USER_STATED`/`USER_CONFIRMED` 条目永不因此转为不激活。
+- 指标：`memory.decay.inactivated`。
+
+## 对话中遗忘与恢复（M2b，`app.memory.forget.*`）
+
+- 在路由前处理用户本人的当前输入：关键词预筛（≤ 500 字，含“忘/记起/想起/恢复/别记/不要记/不用记/别再记/不再记/删掉/删除/删了/删去/抹掉/抹去/抹除/forget/restore/delete/erase”）命中后，用当前轮的模型做一次 JSON 模式分类（最多 200 输出 Token，只发送这条输入）；识别为指令时直接回答，不再路由和调用回答模型。分类失败、超时或输出无法解析一律按普通消息处理。边界见 `docs/memory/api.md`。
+- 成本：只有预筛命中的输入才多一次小调用。其 Token 计入该轮 usage，并通过 `ConsolidationQuota.settle` 记入租户当天的 `memory_token_usage`（`app.memory.consolidation.daily-token-limit` 同一额度）；额度只计量、不阻止分类（超额时仍分类，后台记忆任务会因额度用尽而顺延）。
+- 指标：`memory.command.classified{outcome=FORGET|RESTORE|NONE|FAILED}`；`FAILED` 持续升高说明模型不可用或超时设置过短，此时遗忘指令会被当作普通消息回答。
+- 上下文窗口：遗忘后，记忆指令轮和 FORGOTTEN 条目的来源轮次不再进入发给模型的近期对话窗口（与 Recall 排除同一条件 `RecallExclusions.excludedTurn`，每轮按数据库当前状态判断，恢复条目后来源轮次重新进入）；历史接口和 Redis 热窗口缓存不受影响（缓存只服务历史接口）。
+- 待选编号被无关消息取消时，回答前加“已取消上一次的记忆选择。”（已过期时为“…（已超时）。”），该提示也写入保存的回答。
+- 配置：
+
+  ```yaml
+  app:
+    memory:
+      forget:
+        pending-ttl: 5m       # 多条匹配时编号选择的有效期（数据库时间）
+        max-candidates: 5     # 最多列出的候选数
+        min-score: 0.5        # 条目至少包含话题切分词的比例
+        scan-limit: 500       # 每次扫描该范围内最近更新的条目数
+        classify-timeout: 10s # 意图分类调用的超时，超时按普通消息处理
+  ```
+
+- 数据：遗忘只把条目状态改为 `FORGOTTEN`（版本号加 1，不置无效、不删除），写 `memory_audit_log`（`FORGET_IN_CHAT` / `RESTORE_IN_CHAT` / `RESTORE`，不含正文）和 `memory.audit` 日志；待选编号存于 `memory_command_pending`（每会话一条，下一轮即消费，过期行在该会话下一轮时删除）；被识别为指令的轮次在 `chat_turns.memory_command` 标记，记忆判断跳过这些轮次。
+- 原文召回排除：`RecallExclusions` 在每次 Recall 排序前排除 `memory_command` 非空的轮次（永久）和 FORGOTTEN 条目来源消息所在的轮次（动态，恢复后自动解除），不改动片段或轮次记录本身。
+- 日志：`memory.command kind=FORGET|RESTORE candidates=n`（不含话题和正文）。
 
 ### 后台任务（M2a 起）
 
@@ -38,7 +110,16 @@
 - 字段只有：`event`、`tenantId`、`subject`、`conversationId`、`deletedAt`、`revision`。`deletedAt` 和 `revision` 是同一事务写入 `sessions` 的值；`deletedAt` 是数据库时间，与 `sessions.deleted_at` 同一时区，不带时区偏移。日志中不包含消息内容、标题、附件路径或密钥。值经过 JSON 转义，所以每次删除只占一行。
 - `tenantId` 与 `subject` 记录原始 ID，与 `sessions.tenant_id`/`user_id` 一致，恢复时可以直接按行核对归属。代价是日志存储中包含用户标识，需要按个人数据控制访问权限和保留期限。
 - 只有第一次实际删除会写日志；对已删除会话的重复删除、他人或不存在的会话（404）以及回滚的事务都不会写。
+- **软删除后是否仍需要（2026-10-27 评估）：** 仍需要，格式不变。软删除让删除标记留在数据库里，但从删除之前的备份恢复时，该会话会回到 `is_valid = 1`；只有独立于数据库故障域的这条日志能把恢复点之后的删除复放回去。复放步骤改为置 `is_valid = 0`（见恢复手册第 4 步），不再清空标题，也不删除任何内容。
+- 手动调整记忆（例如减少召回引用数）写入数据库表 `memory_audit_log`（操作者、动作、目标、数量、前后值、数据库时间，不含内容），同时在 logger `memory.audit` 写一行 JSON。
 - **运维要求：** 将这一行投递到与数据库**不同故障域**的日志存储，投递延迟和 binlog 一样要为 15 分钟 RPO 留出余量。保留期不短于“最早可恢复的全量备份”到现在的时间跨度（本地 `logs/` 只保留 7 天，不能替代日志存储）。另外需要能够查到每个实例最后一条日志的接收时间，用来判断日志覆盖到哪个时间点。
+
+## 运行环境（2026-10-30 起 JDK 25）
+
+- 构建与运行使用 JDK 25 LTS（原为 JDK 21），Spring Boot 3.5.16。镜像 `docker/Dockerfile` 基于 `eclipse-temurin:25-jdk-alpine-3.22`，启动参数含 `-XX:+UseCompactObjectHeaders`（紧凑对象头，JDK 25 为正式特性但默认关闭；粗测约减少 5–20% 的存活对象占用和约 25% 的 GC 次数）。堆仍固定为 `-Xms1024m -Xmx1024m`，因此进程 RSS 不会因此下降，收益是堆内余量和更少的 GC；是否调小堆另行评估。
+- 回退：如紧凑对象头出现问题，可去掉该参数重建镜像（不需要改代码）；回退到 JDK 21 需要同时回退 `pom.xml` 的 `java.version`（字节码为 Java 25 版本，JDK 21 无法加载）。
+- **待办（部署前确认）：** Jenkins 构建机上是否已安装 JDK 25 并作为 `mvn` 使用的 JDK，在仓库里无法确认；第一次发布前需在 Jenkins 上确认 `mvn -v` 显示 Java 25，否则 `build-jar` 阶段会因 `release 25` 无效而编译失败。
+- Spring Boot 3.5 的开源免费支持已于 2026-06-30 结束（3.5.16 为最后一个免费补丁），升级到 Boot 4.x 另行规划。
 
 ## 单实例保护
 
@@ -60,12 +141,25 @@
 - 指标：`memory.context.history.truncated{purpose}` 是丢掉了旧轮次的模型调用次数；`memory.context.estimate.ratio{purpose}` 是服务商返回的 `prompt_tokens` 除以同一次调用的原始估算（未乘系数）。比值持续高于 `estimate-factor` 说明系数偏小，调用可能超出窗口。
 - `memory.history.injected.*` 从 M2a 起只统计最终回答调用（直接回答或汇总）实际带上的历史，每轮一次。
 
+## 用户记忆概要（M2b Task 4）
+
+配置前缀 `app.memory.profile.*`：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `max-tokens` | `800` | 重建概要的估算 Token 上限（D14） |
+| `cache-ttl` | `1h` | Redis 概要快照 TTL；命中时刷新；版本变化立即失效 |
+| `max-relations` | `10` | 召回时注入的一跳关系上限 |
+
+跨会话开关关闭时不读不写用户级概要；开启后由 `REBUILD_PROFILE` 任务从 ACTIVE 用户级条目增量重建（不自动扫描既往会话）。
+
 ## 轮次记忆记录（M2a Task 4，默认关闭）
 
 轮次记忆记录是长期记忆的**检索索引**，不是上下文压缩：会话结束（闲置）后，为每个尚未建立记录的已完成轮次生成一条结构化记录，存入 `memory_summaries`。记录**不进入提示词**；检索命中后交给模型的是该轮原文（见下文“基础 Recall”）。决定见计划 D18–D25（用户已确认 2026-10-26）。
 
-- 配置 `app.memory.summary.*`：`enabled`（默认 `false`，D4）、`idle-timeout`（默认 30m：最后一条消息之后这么久没有新消息、且没有进行中的轮次，就算会话结束）、`idle-scan-interval`（默认 5m）、`idle-scan-batch`（默认 100：每次扫描最多登记的会话数）、`max-source-tokens`（默认 12000：一轮送给模型的对话记录上限，按估算 Token 计）、`max-output-tokens`（默认 800，作为 `max_tokens` 发送）、`job-timeout`（默认 120 秒：单次模型调用上限）、`max-invalid-attempts`（默认 3）。
-- 闲置扫描：每 `idle-scan-interval` 按数据库时间查找结束的会话（未删除；没有进行中的轮次；没有在 `idle-timeout` 内创建或结束的轮次，失败或取消的新轮次也算新消息；有记录位置之后的已完成消息），每个会话登记一个 `SUMMARIZE` 任务，去重键 `summarize:<会话 ID>:<最后一条已完成消息的序号>`：同一次闲置只登记一次，之后有新消息、再次闲置时才会登记新任务。关闭时不扫描、不注册处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。另有实例冲突时暂停。全局并发为 1：单实例的任务处理器逐个执行任务。
+- 配置 `app.memory.summary.*`（闲置口径 **D19，2026-10-26 修订**，与 M2b 记忆判断共用）：`enabled`（默认 `false`，D4）、`idle-timeout`（默认 **1m**：无新消息且无进行中的轮次达到此时长即视为闲置并登记生成）、`idle-deadline`（默认 **30m**：最迟兜底，到点仍有待建记录的会话必须被扫到并执行）、`idle-scan-interval`（默认 **30s**，可配 30–60s；原 5m 在 1m 闲置下过粗）、`idle-scan-batch`（默认 100：每次扫描最多登记的会话数）、`max-source-tokens`（默认 12000：一轮送给模型的对话记录上限，按估算 Token 计）、`max-output-tokens`（默认 800，作为 `max_tokens` 发送）、`job-timeout`（默认 120 秒：单次模型调用上限）、`max-invalid-attempts`（默认 3）。
+  - **实现现状（M2b Task 1）：** 产品默认已落地为 `idle-timeout=1m`、`idle-deadline=30m`、`idle-scan-interval=30s`；扫描实际使用 `min(idle-timeout, idle-deadline)` 作为截止时间。
+- 闲置扫描：每 `idle-scan-interval` 按数据库时间查找闲置会话（未删除；没有进行中的轮次；没有在 `idle-timeout` 内创建或结束的轮次，失败或取消的新轮次也算新消息；或已满 `idle-deadline` 的兜底队列；有记录位置之后的已完成消息），每个会话登记一个 `SUMMARIZE` 任务（M2b 起同一次扫描还可登记 `JUDGE_MEMORY`），去重键 `summarize:<会话 ID>:<最后一条已完成消息的序号>`：同一次闲置只登记一次，之后有新消息、再次闲置时才会登记新任务。**不**按“累计 4 轮”提前触发。关闭时不扫描、不注册处理器，已有的 `SUMMARIZE` 任务保持 PENDING、不消耗尝试次数。另有实例冲突时暂停。全局并发为 1：单实例的任务处理器逐个执行任务。
 - 生成：用租户自己的模型，每轮一次调用（JSON 模式，`response_format: json_object`），只读已完成（COMPLETED）的轮次；一轮超过输入上限时截断后生成，这一轮仍算已记录；租户窗口较小时上限再收紧到窗口能容纳的大小。
 - 记录格式 `memory-record-v1`（`record_json`）：`summary`（≤ 80 字）、`entities`（专名，逐字）、`key_facts`（编号、数字、版本、名称、日期、金额，逐字）、`decision`、`keywords`（≤ 10）、`memory_type`（`FACT` / `EVENT`）、`source`（轮次 ID 与序号范围，由服务端填写）。`search_text` 由概括、专名、要点和关键词拼成，MySQL 上建 ngram FULLTEXT 索引，H2 用 LIKE。
 - 校验：模型返回空内容、不是 JSON 对象、缺字段或类型不对都视为不合规；`entities[].name` 与 `key_facts[].text` 必须能在该轮原文中逐字找到（区分大小写和空格），找不到的条目丢弃；`summary` 与 `keywords` 不做原文核对，只截断长度和条数。所有文本写入前经过与工具记录相同的脱敏（密码、密钥、令牌）；含密钥的专名或要点保留，密钥部分替换为 `[REDACTED]`。
@@ -94,6 +188,85 @@
 - 跨会话开关存于 `user_memory_settings`（按租户 + subject），每次检索时读取，不缓存，因此修改无需清理任何缓存。
 - 指标（仅在启用时注册，同时 `memory.feature.enabled{feature=recall}` 为 1）：`memory.recall.latency`（每个问题的检索耗时）、`memory.recall.items`（每个问题采用的候选轮次数，注入前；最终注入多少还受预算限制）、`memory.recall.coverage.limited`（存在未切块且未被扫描的轮次的检索次数）。
 - 排查：`SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'INDEX_CHUNKS' GROUP BY status`；长期 PENDING 的积压会让 `memory.recall.coverage.limited` 上升。检索失败时日志为 `memory.recall failed, answering without recall errorType=…`（不含内容），该轮不带召回资料继续回答。
+
+
+
+## 记忆判断（M2b Task 3，D10，默认关闭）
+
+闲置后对未判断轮次调用租户模型 + classpath Rules，写入 `memory_items` / `memory_item_sources`。
+
+- 配置 `app.memory.judgement.*`：`enabled`（默认 `false`）、`max-source-tokens`（默认 12000）、`max-output-tokens`（默认 1200）、`job-timeout`（默认 120s）。
+- 已有条目（2026-10-30）：每轮判断前重新读取相关已有条目一并发给模型，使更正能以 UPDATE / SUPERSEDE 取代旧条目。相关 = 本会话最近写入的有效条目（不看字面是否匹配；跨会话开关打开时为来源消息在本会话中的用户级条目）与按本轮编号、关键词匹配到的条目的并集，范围与召回相同（开关开：用户级；关：本会话的会话级），只含 ACTIVE（未过期）、CANDIDATE、CONFLICT；按衰减后的分数排序、去重；字段为 id、revision、itemType、content、assertion、status。配置（`application.yml`）：`existing-max-items`（总条数，默认 10，0 表示不带）、`existing-recent-items`（其中本会话最近条目，默认 5）、`existing-max-tokens`（估算 Token 上限，默认 1500，超出时先去掉排名靠后的条目；不占用 `max-source-tokens`，实际用量照常计入租户每日额度）。三者只接受非负数，且 `existing-recent-items` 不得大于 `existing-max-items`，否则启动失败。
+- 触发：与轮次记录共用 `IdleConversationScanner`（D19）；启用 judgement 或 summary 任一即可扫描；去重键 `judge:<conversationId>:<lastSeq>`。
+- 进度：`memory_index_progress.judged_through_sequence`（V12）。
+- 跨会话开关关闭时只写 `conversation_id` 非空的会话级条目。
+- 删除会话：事务内移除该会话来源；无剩余来源的条目标为 `INACTIVE`；物理清理删除会话级条目。
+- 指标：`memory.judgement.written`、`memory.judgement.rejected{reason}`、`memory.judgement.failures{reason}`。
+
+## 整理 Token 额度（M2b Task 2，D11=A）
+
+后台 LLM 整理任务（`SUMMARIZE`、`JUDGE_MEMORY`、`REBUILD_PROFILE`、`REPLAY_RULES`）受每租户每日 Token 上限约束。
+
+- 配置 `app.memory.consolidation.*`：`enabled`（默认 `false`：只控制 `memory.consolidation.backlog` 与 `memory.feature.enabled{feature=consolidation}` 是否注册；**额度强制始终生效**）、`daily-token-limit`（默认 `200000`）、`max-concurrent-per-tenant`（默认 `1`，本实例进程内）、`reserve-tokens`（默认 `12800`：领取任务时的预留估算，结束后按实际用量结算）。
+- 租户覆盖：表 `memory_tenant_quotas(tenant_id, daily_token_limit, updated_at)`，缺行则用全局默认；仅管理员写入（本任务不提供 API）。
+- 日期边界：用量记在 `memory_token_usage.usage_date = CURRENT_DATE`，以**数据库会话时区**为准（MySQL IT 使用 UTC）。跨日以库钟为准，不按应用 JVM 时区切日。
+- 超限：任务保持 `PENDING`，`available_at` 推到次日 0 点（`TIMESTAMPADD(DAY, 1, CAST(CURRENT_DATE AS DATETIME(6)))`），**不丢弃、不增加 attempts**；指标 `memory.consolidation.quota.postponed`。
+- 结算：工人预留 `reserve-tokens`；handler 若观察到用量则 `settle(reserved, actual)` 替换为实际值；成功结束时工人再 `settle(reserved, notObserved)`（若已替换则净变为 0）。失败则退还预留以便重试。未观察到用量时保留预留（偏保守）。
+- 指标：`memory.consolidation.backlog`（仅 `enabled=true` 时注册）、`memory.consolidation.quota.postponed`、`memory.feature.enabled{feature=consolidation}`。
+
+## Rules 回放（M2b Task 7）
+
+- 由平台管理员通过 `POST /api/admin/memory/replays` 显式发起（见 `api.md`），从不自动执行；Rules 版本升级本身不改写任何条目。
+- 后台任务 `REPLAY_RULES`（主体 `system:replay`）逐条处理：每条一次模型调用（租户模型 + 当前 classpath Rules，输入为该条目的来源轮次和条目本身），每条前续租。
+- 额度：每条调用前预留 `reserve-tokens`，调用后按实际用量结算；任务领取时的预留在结束时退还。预留失败时回放转 `POSTPONED`，并入队次日 0 点（数据库时区）的续跑任务。
+- 可续：每条处理结果写入 `memory_replay_items`（主键 `(replay_id, item_id)`），续跑和失败重试只取尚未记录的条目。模型错误或非 JSON 输出按常规退避重试，状态保持 `RUNNING`。
+- 表：`memory_replays`（进度与计数）、`memory_replay_items`（新旧条目对应关系、结果 `SUPERSEDED` / `INACTIVATED` / `SKIPPED` 与原因）、`memory_items.inherited_recall_count`（替代条目继承的召回计数，计入有效召回计数和分档保留）。
+- 指标：`memory.replay.items{outcome}`，以及 `memory.judgement.rejected{reason}`、`memory.judgement.failures{reason}`、`memory.consolidation.quota.postponed`。
+
+## 原始消息分层压缩（M2b Task 9，默认关闭）
+
+原文仍是唯一事实源，压缩只改变存放方式，读取透明。配置在 `app.memory.storage.*`，启动时校验（不合法时启动失败）：
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `false` | 总开关。关闭时不扫描、不压缩；已压缩的行照常解压读取 |
+| `decompress` | `false` | 回滚模式：后台任务把压缩数据写回明文（见下文“回滚与降级”）。需要 `enabled=true` |
+| `compress-after` | `7d` | 已结束轮次的原文，从消息创建（工具调用开始）起超过此时长后以温层级别压缩 |
+| `recompress-after` | `90d` | 超过此时长后以冷层级别重压；不得小于 `compress-after`。已超过此时长的明文直接以冷层级别压缩 |
+| `warm-level` / `cold-level` | `3` / `19` | zstd 级别，须在 zstd 合法范围内（启用时校验） |
+| `dedupe-min-bytes` | `4096` | 不小于此字节数（UTF-8）的相同内容在同一租户内只存一份（`message_blobs`），行内只留 SHA-256；从不跨租户 |
+| `batch` | `200` | 每次扫描最多入队的会话数，以及每个任务最多处理的行数 |
+| `interval` | `10m` | 扫描间隔 |
+| `recall-cache-ttl` | `1h` | 召回展开的已压缩原文解压后在 Redis 中的保留时间 |
+
+- **范围：** `chat_messages.payload` 与 `chat_tool_events` 的 `arguments` / `result`；只压已结束（任一终态）的轮次；已软删除、已遗忘、对应条目被删除的轮次到期照样压缩（召回排除照常生效）。轮次记录、片段与全文索引永不压缩。
+- **任务：** 扫描器每 `interval` 找出有待处理行、且没有 PENDING/RUNNING 压缩任务的会话，每个会话入队一个 `COMPRESS_MESSAGES`；任务按会话、分批执行，沿用持久任务的租约（每 10 行续约）、退避与实例冲突暂停；剩余的由下次扫描继续。每行按编码列与 `updated_at` 比较后写入，可重复执行、可中断续跑，期间被改写的行留到下次。压缩在 bounded-elastic 线程上进行；解压是小块内存计算，在调用线程上进行（BlockHound 覆盖）。
+- **完整性：** 每条压缩数据保存明文 SHA-256，并开启 zstd 帧校验；读取时都校验，不一致时报错（`CorruptStoredPayloadException`）并计 `memory.storage.integrity.failures{field}`，从不返回损坏内容。压缩任务遇到损坏数据只记日志并跳过，不改写。
+- **软删除：** 压缩数据与明文一样只做软删除，从不物理删除；共享块不做无引用回收。
+- **指标：** `memory.storage.compressed{tier}`（行数）、`memory.storage.compressed.bytes{tier}`（写入的压缩字节）、`memory.storage.compression.ratio`（每条明文/压缩字节）、`memory.storage.dedupe.hits`、`memory.storage.decompressed{field}`（回滚写回的行）、`memory.storage.integrity.failures{field}`。
+- **召回缓存：** Redis 键 `memory:<namespace>:recall:<tenant>:<subject>:<conversationId>`（哈希，字段为轮次 ID），只放召回展开时读到的已压缩轮次；删除会话、遗忘条目、删除条目时主动清除对应会话。缓存命中前仍查数据库确认轮次属于本人、会话未删除且已完成，因此缓存只省解压，不绕过删除与排除。Redis 不可用时按未命中处理。
+
+### 容量估算
+
+- 存储量约为 明文字节 ÷ 压缩比；压缩比随内容变化，以生产上 `memory.storage.compression.ratio` 的实际值为准（尚无生产数据；评测只验证透明读取，见 `eval-baseline.md` 第 5.8 节）。短消息（几十到几百字节的 JSON）压缩比低，长工具结果与重复内容收益最大。
+- 新增列与 `message_blobs` 表本身很小；压缩是逐行替换，表空间不会立即缩小（InnoDB 需要 `OPTIMIZE TABLE` 才会回收，按 DBA 窗口执行）。
+- CPU：19 级压缩明显慢于 3 级，只在冷层重压时发生，每个任务最多 `batch` 行；首次开启时积压较多，可先调小 `batch` 或调大 `interval`。
+
+### 排查
+
+- 读取报 `CorruptStoredPayloadException` / `integrity.failures` 增长：该行数据损坏，服务不会返回错误内容；从备份恢复该行（`<列>_blob` 或 `message_blobs.data` 与 `<列>_sha256`）。
+- 积压不下降：查 `memory_jobs` 中 `job_type = 'COMPRESS_MESSAGES'` 的 `status`、`attempts`、`last_error`；实例冲突时整个任务框架暂停（见“单实例保护”）。
+- 启用后启动失败并提示 zstd 本地库：当前平台不能加载 zstd-jni 自带的本地库。镜像基于 Alpine（musl）：2026-11-01 在 Alpine 3.22 + Temurin 25 JRE（musl）上实测 zstd-jni 1.5.7-25 的 x86_64 库可以加载并正确压缩/解压，无需 gcompat；其他平台首次启用前同样先验证。
+- JDK 25 对 JNI 加载会打印“restricted method”警告；镜像的启动参数已加 `--enable-native-access=ALL-UNNAMED`，本地运行时如需消除警告请自行添加。
+
+### 回滚与降级（降级前必须先执行）
+
+旧版本不认识压缩列，降级到不含 Task 9 的版本之前必须先把数据写回明文：
+
+1. 设置 `app.memory.storage.enabled=true` 与 `app.memory.storage.decompress=true`，重启。扫描器会为所有含压缩数据的会话入队任务，任务把压缩数据解压、校验后写回明文列，并清空 `<列>_codec/_tier/_blob/_sha256`。共享块保留（软删除）。
+2. 等待完成：`SELECT COUNT(*) FROM chat_messages WHERE payload_codec IS NOT NULL` 与 `chat_tool_events` 的 `arguments_codec`、`result_codec` 同样为 0；`memory.storage.decompressed` 不再增长。若有行因损坏无法写回（日志 `cannot restore damaged`），先从备份修复。
+3. 再部署旧版本。V17 迁移保留在库中即可（Flyway 默认忽略库中较新的已执行迁移）；旧版本写入 `payload` 时不受新列影响。注意 V17 把 `chat_messages.payload` 改为可空，旧版本不依赖其非空约束。
+4. 只想停用压缩而不降级时，设 `enabled=false` 即可，已压缩的数据照常读取。
 
 ## 基础指标与评测
 
@@ -129,7 +302,7 @@
 - 全量备份与连续 binlog 归档（`binlog_format=ROW`，建议开启 GTID）存放在**与数据库不同的故障域**（不同主机、可用区或账号）。只放在数据库同一台机器或同一磁盘上的备份不算数。
 - 日志交付延迟必须给 15 分钟 RPO 留出余量：binlog 至少每 5 分钟轮转或流式上传一次，并对“最新已归档 binlog 的时间距现在超过 10 分钟”告警。全量备份周期由 RTO 决定：全量恢复加 binlog 回放的实测时间必须远小于 4 小时。
 - `LLM_CONFIG_SECRET` 保存在密钥管理系统中，与数据库备份分属不同故障域，并保留历史版本；记录每个版本的生效时间段，以便确定恢复点对应哪个版本。
-- 删除清单：删除标记（`sessions.deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
+- 删除清单：删除标记（`sessions.is_valid = 0` 与 `deleted_at`）和 `CONVERSATION_CLEANUP` 任务与删除请求在同一事务内写入数据库，随备份恢复。独立于数据库的副本是删除审计日志流（`memory.deletion-audit`，见“删除审计日志”），它必须已经投递到不同故障域的日志存储，并且保留期覆盖最早可恢复的全量备份。
 
 ### 2. 准备隔离环境
 
@@ -146,26 +319,26 @@
 
 ### 4. 核对删除记录（开放访问前）
 
-- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行物理清理。核对：`SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
+- 恢复点之前提交的删除都已包含在数据库中：删除标记的会话返回 404，未完成的 `CONVERSATION_CLEANUP` 任务在服务启动后继续执行软删除清理。核对：`SELECT COUNT(*) FROM sessions WHERE is_valid = 0` 与 `SELECT status, COUNT(*) FROM memory_jobs WHERE job_type = 'DELETE_CONVERSATION' GROUP BY status`。
 - 如果 binlog 一直回放到故障时刻（Tlast 等于故障时间），就没有遗漏的删除。
 - 如果 Tlast 早于故障时间，(Tlast, 故障时间] 之间的删除不在数据库中，需要在**服务启动前**（服务停止、隔离环境、不开放访问）按删除审计日志人工复放：
   1. **确认日志覆盖范围。** 在日志存储中确认这个部署所有实例的日志都已经接收到故障时间。删除并不频繁，没有删除日志不能证明期间没有删除，所以只能以日志管道的接收时间为准。如果覆盖范围早于故障时间，那么从覆盖终点到故障时间这段无法核实，按第 4 条处理。
   2. **导出删除行。** 导出 `"event":"CONVERSATION_DELETED"` 且 `deletedAt` 不早于所用全量备份开始时间的全部行。复放是幂等的，范围取宽一些比只取 Tlast 之后更安全，可以避免日志时间与 binlog 时间之间的误差。
   3. **逐行核对并复放。** 对每一行按 `conversationId` 查询 `SELECT tenant_id, user_id, deleted_at FROM sessions WHERE id = ?`：
      - 没有这一行：会话创建于恢复点之后，已不存在，记录下来即可。
-     - `deleted_at` 已经有值：已包含在恢复的数据中，跳过。
+     - `is_valid` 已经是 0：已包含在恢复的数据中，跳过。
      - `tenant_id`、`user_id` 与日志不一致：停止复放并调查，不开放访问。
-     - `deleted_at` 为空：在一个事务中执行：
+     - `is_valid` 为 1：在一个事务中执行：
 
        ```sql
-       UPDATE sessions SET deleted_at = '<deletedAt>', title = '', revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
-        WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND deleted_at IS NULL;
+       UPDATE sessions SET deleted_at = '<deletedAt>', is_valid = 0, revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)
+        WHERE id = '<conversationId>' AND tenant_id = '<tenantId>' AND user_id = '<subject>' AND is_valid = 1;
        INSERT INTO memory_jobs (id, tenant_id, subject, conversation_id, job_type, status, attempts, dedupe_key, available_at, created_at, updated_at)
        VALUES (UUID(), '<tenantId>', '<subject>', '<conversationId>', 'CONVERSATION_CLEANUP', 'PENDING', 0,
                CONCAT('cleanup:', '<conversationId>'), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6));
        ```
 
-       服务启动后，清理任务会删除消息、工具记录、缓存和附件目录。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。
+       服务启动后，清理任务会把消息、工具记录、执行、片段、轮次记录和召回记录置为无效并写缓存删除标记（不删除行或附件）。复放不会使派生条目失效；如需一致，另行执行 `UPDATE memory_item_sources SET is_valid = 0 WHERE conversation_id = '<conversationId>'`，并把只剩无效来源或属于该会话的条目置为 INACTIVE、写 `source_deleted_at`。这些会话中仍处于活跃状态的执行，在租约过期后由恢复扫描标记为 INTERRUPTED。
   4. **无法核实的时间段。** 如果日志覆盖不到故障时间，或者有行无法核对，这些数据保持不可访问（spec 第 12 节）：不启动服务，或者不开放访问，由负责人决定后续处理。
   5. **记录结果。** 记录复放行数、各类结果的数量，以及日志覆盖终点。
 - 以上 SQL 只在隔离环境中人工执行；仓库不提供修改生产数据的脚本。

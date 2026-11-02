@@ -51,7 +51,7 @@ public final class OAuth2Controller {
 
     @PostMapping(path = "/oauth2/authorize", consumes = "application/x-www-form-urlencoded")
     public Mono<ResponseEntity<?>> authorize(ServerWebExchange exchange) {
-        return exchange.getFormData().map(this::authorizeForm)
+        return exchange.getFormData().<ResponseEntity<?>>map(this::authorizeForm)
                 .defaultIfEmpty(oauthError(HttpStatus.BAD_REQUEST, "invalid_request", "Authorization request is invalid."));
     }
 
@@ -75,7 +75,7 @@ public final class OAuth2Controller {
 
     @PostMapping(path = "/oauth2/token", consumes = "application/x-www-form-urlencoded", produces = "application/json")
     public Mono<ResponseEntity<?>> token(ServerWebExchange exchange) {
-        return exchange.getFormData().map(this::exchange).defaultIfEmpty(
+        return exchange.getFormData().<ResponseEntity<?>>map(this::exchange).defaultIfEmpty(
                 oauthError(HttpStatus.BAD_REQUEST, "invalid_request", "Token request is invalid."));
     }
 

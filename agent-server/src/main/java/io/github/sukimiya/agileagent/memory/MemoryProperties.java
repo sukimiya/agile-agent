@@ -50,6 +50,408 @@ public class MemoryProperties {
 
     public Recall getRecall() { return recall; }
 
+    private final Consolidation consolidation = new Consolidation();
+
+    public Consolidation getConsolidation() { return consolidation; }
+
+    private final Judgement judgement = new Judgement();
+
+    public Judgement getJudgement() { return judgement; }
+
+    private final Purge purge = new Purge();
+
+    public Purge getPurge() { return purge; }
+
+    private final Forget forget = new Forget();
+
+    public Forget getForget() { return forget; }
+
+    private final Storage storage = new Storage();
+
+    public Storage getStorage() { return storage; }
+
+    /**
+     * Tiered compression of stored original messages (M2b Task 9, {@code app.memory.storage.*}, user decisions
+     * 2026-10-30): plain text of finished turns older than {@code compress-after} (by message creation) is stored
+     * zstd-compressed at {@code warm-level}, and recompressed at {@code cold-level} after {@code recompress-after};
+     * identical texts of at least {@code dedupe-min-bytes} are stored once per tenant. The background job works in
+     * batches of {@code batch} rows every {@code interval}. {@code decompress} turns the job around (rollback: write
+     * everything back as plain text). Recalled compressed text is kept in Redis for {@code recall-cache-ttl}. Off by
+     * default; checked by {@link #validate()} at startup.
+     */
+    public static class Storage {
+
+        private boolean enabled;
+        private boolean decompress;
+        private Duration compressAfter = Duration.ofDays(7);
+        private Duration recompressAfter = Duration.ofDays(90);
+        private int warmLevel = 3;
+        private int coldLevel = 19;
+        private int dedupeMinBytes = 4096;
+        private int batch = 200;
+        private Duration interval = Duration.ofMinutes(10);
+        private Duration recallCacheTtl = Duration.ofHours(1);
+
+        private static Duration notNegative(Duration value, String name) {
+            if (value == null || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be >= 0");
+            }
+            return value;
+        }
+
+        private static Duration positive(Duration value, String name) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be positive");
+            }
+            return value;
+        }
+
+        private static int atLeastOne(int value, String name) {
+            if (value < 1) {
+                throw new IllegalArgumentException("app.memory.storage." + name + " must be >= 1");
+            }
+            return value;
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public boolean isDecompress() { return decompress; }
+        public void setDecompress(boolean decompress) { this.decompress = decompress; }
+        public Duration getCompressAfter() { return compressAfter; }
+        public void setCompressAfter(Duration v) { this.compressAfter = notNegative(v, "compress-after"); }
+        public Duration getRecompressAfter() { return recompressAfter; }
+        public void setRecompressAfter(Duration v) { this.recompressAfter = notNegative(v, "recompress-after"); }
+        public int getWarmLevel() { return warmLevel; }
+        public void setWarmLevel(int warmLevel) { this.warmLevel = warmLevel; }
+        public int getColdLevel() { return coldLevel; }
+        public void setColdLevel(int coldLevel) { this.coldLevel = coldLevel; }
+        public int getDedupeMinBytes() { return dedupeMinBytes; }
+        public void setDedupeMinBytes(int v) { this.dedupeMinBytes = atLeastOne(v, "dedupe-min-bytes"); }
+        public int getBatch() { return batch; }
+        public void setBatch(int v) { this.batch = atLeastOne(v, "batch"); }
+        public Duration getInterval() { return interval; }
+        public void setInterval(Duration v) { this.interval = positive(v, "interval"); }
+        public Duration getRecallCacheTtl() { return recallCacheTtl; }
+        public void setRecallCacheTtl(Duration v) { this.recallCacheTtl = positive(v, "recall-cache-ttl"); }
+
+        /**
+         * Cross-field checks, run once the properties are bound (at startup, by the compression job).
+         * Compression levels are checked against the zstd library only when the feature is on, so the native
+         * library is never loaded while it is off.
+         */
+        public void validate() {
+            if (recompressAfter.compareTo(compressAfter) < 0) {
+                throw new IllegalArgumentException("app.memory.storage.recompress-after (" + recompressAfter
+                        + ") must not be shorter than compress-after (" + compressAfter + ")");
+            }
+            if (decompress && !enabled) {
+                throw new IllegalArgumentException(
+                        "app.memory.storage.decompress needs app.memory.storage.enabled=true to run");
+            }
+            if (enabled) {
+                int min = com.github.luben.zstd.Zstd.minCompressionLevel();
+                int max = com.github.luben.zstd.Zstd.maxCompressionLevel();
+                if (warmLevel < min || warmLevel > max) {
+                    throw new IllegalArgumentException("app.memory.storage.warm-level must be a zstd level in ["
+                            + min + ", " + max + "], was " + warmLevel);
+                }
+                if (coldLevel < min || coldLevel > max) {
+                    throw new IllegalArgumentException("app.memory.storage.cold-level must be a zstd level in ["
+                            + min + ", " + max + "], was " + coldLevel);
+                }
+            }
+        }
+    }
+
+    private final Decay decay = new Decay();
+
+    public Decay getDecay() { return decay; }
+
+    /**
+     * Decay by last recall (M2b Task 6, D12 revised 2026-10-27, {@code app.memory.decay.*}): item recall scores
+     * halve every {@code half-life} since {@code COALESCE(last_recalled_at, created_at)}; non-user (INFERRED)
+     * items unrecalled for {@code inactive-after} become INACTIVE in a periodic pass every {@code interval}.
+     */
+    public static class Decay {
+
+        private boolean enabled = true;
+        private Duration interval = Duration.ofHours(1);
+        private Duration halfLife = Duration.ofDays(30);
+        private Duration inactiveAfter = Duration.ofDays(180);
+        private int batch = 200;
+
+        private static Duration positive(Duration value, String name) {
+            if (value == null || value.isZero() || value.isNegative()) {
+                throw new IllegalArgumentException("app.memory.decay." + name + " must be positive");
+            }
+            return value;
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Duration getInterval() { return interval; }
+        public void setInterval(Duration interval) { this.interval = positive(interval, "interval"); }
+        public Duration getHalfLife() { return halfLife; }
+        public void setHalfLife(Duration halfLife) { this.halfLife = positive(halfLife, "half-life"); }
+        public Duration getInactiveAfter() { return inactiveAfter; }
+        public void setInactiveAfter(Duration inactiveAfter) {
+            this.inactiveAfter = positive(inactiveAfter, "inactive-after");
+        }
+        public int getBatch() { return batch; }
+        public void setBatch(int batch) { this.batch = batch; }
+    }
+
+    /**
+     * In-chat forget / restore ("忘记…" / "记起来…", {@code app.memory.forget.*}): how long a numbered pick stays
+     * open, how many candidates are listed at most, the minimum share of the topic's terms an item must contain,
+     * and how many recent items of the scope are scanned.
+     */
+    public static class Forget {
+
+        private Duration pendingTtl = Duration.ofMinutes(5);
+        private int maxCandidates = 5;
+        private double minScore = 0.5;
+        private int scanLimit = 500;
+        private Duration classifyTimeout = Duration.ofSeconds(10);
+
+        /** Upper bound of the forget / restore intent classification call; on timeout it is not a command. */
+        public Duration getClassifyTimeout() { return classifyTimeout; }
+        public void setClassifyTimeout(Duration classifyTimeout) {
+            if (classifyTimeout == null || classifyTimeout.isZero() || classifyTimeout.isNegative()) {
+                throw new IllegalArgumentException("app.memory.forget.classify-timeout must be positive");
+            }
+            this.classifyTimeout = classifyTimeout;
+        }
+        public Duration getPendingTtl() { return pendingTtl; }
+        public void setPendingTtl(Duration pendingTtl) { this.pendingTtl = pendingTtl; }
+        public int getMaxCandidates() { return maxCandidates; }
+        public void setMaxCandidates(int maxCandidates) { this.maxCandidates = maxCandidates; }
+        public double getMinScore() { return minScore; }
+        public void setMinScore(double minScore) { this.minScore = minScore; }
+        public int getScanLimit() { return scanLimit; }
+        public void setScanLimit(int scanLimit) { this.scanLimit = scanLimit; }
+    }
+
+    /**
+     * Periodic purge of derived index rows of deleted sources (M2b Q4 redesign, {@code app.memory.purge.*}).
+     * {@code tiers}: "from this recall reference count on, keep for this long", ascending, first from 0; the
+     * number of tiers is free. Validated by {@code RetentionTiers.of}.
+     */
+    public static class Purge {
+
+        private boolean enabled = true;
+        private Duration interval = Duration.ofHours(1);
+        private int batch = 200;
+        private Duration recallRecordTtl = Duration.ofDays(30);
+
+        /** Age after which a recall record is marked expired (never deleted) and stops counting as a reference. */
+        public Duration getRecallRecordTtl() { return recallRecordTtl; }
+        public void setRecallRecordTtl(Duration recallRecordTtl) {
+            if (recallRecordTtl == null || recallRecordTtl.isZero() || recallRecordTtl.isNegative()) {
+                throw new IllegalArgumentException("app.memory.purge.recall-record-ttl must be positive");
+            }
+            this.recallRecordTtl = recallRecordTtl;
+        }
+        private java.util.List<Tier> tiers = new java.util.ArrayList<>(java.util.List.of(
+                Tier.of(0, Duration.ofDays(1)), Tier.of(2, Duration.ofDays(7)), Tier.of(5, Duration.ofDays(30))));
+
+        public boolean isEnabled() { return enabled; }
+
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public Duration getInterval() { return interval; }
+
+        public void setInterval(Duration interval) { this.interval = interval; }
+
+        public int getBatch() { return batch; }
+
+        public void setBatch(int batch) { this.batch = batch; }
+
+        public java.util.List<Tier> getTiers() { return tiers; }
+
+        public void setTiers(java.util.List<Tier> tiers) { this.tiers = tiers; }
+
+        /** One retention tier: reference count from {@code fromCount} (inclusive) on, keep for {@code keep}. */
+        public static class Tier {
+
+            private long fromCount;
+            private Duration keep;
+
+            public static Tier of(long fromCount, Duration keep) {
+                var tier = new Tier();
+                tier.setFromCount(fromCount);
+                tier.setKeep(keep);
+                return tier;
+            }
+
+            public long getFromCount() { return fromCount; }
+
+            public void setFromCount(long fromCount) { this.fromCount = fromCount; }
+
+            public Duration getKeep() { return keep; }
+
+            public void setKeep(Duration keep) { this.keep = keep; }
+        }
+    }
+
+    private final Profile profile = new Profile();
+
+    public Profile getProfile() { return profile; }
+
+    /** {@code app.memory.profile.*}: user memory profile snapshot (M2b Task 4, D14). */
+    public static class Profile {
+        /** Max estimated tokens of the rebuilt profile text (D14). */
+        private int maxTokens = 800;
+        /** Redis snapshot TTL (idle refresh on hit). */
+        private java.time.Duration cacheTtl = java.time.Duration.ofHours(1);
+        /** Max one-hop relations injected with a recall. */
+        private int maxRelations = 10;
+
+        public int getMaxTokens() { return maxTokens; }
+        public void setMaxTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.profile.max-tokens must be > 0");
+            }
+            this.maxTokens = v;
+        }
+        public java.time.Duration getCacheTtl() { return cacheTtl; }
+        public void setCacheTtl(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.profile.cache-ttl must be positive");
+            }
+            this.cacheTtl = v;
+        }
+        public int getMaxRelations() { return maxRelations; }
+        public void setMaxRelations(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.profile.max-relations must be > 0");
+            }
+            this.maxRelations = v;
+        }
+    }
+
+    /**
+     * {@code app.memory.judgement.*}: idle-triggered LLM memory judgement (M2b Task 3, D10).
+     * Shares idle detection with {@link Summary} (D19).
+     */
+    public static class Judgement {
+        /** Off by default (cost control); without a handler JUDGE_MEMORY jobs wait unclaimed. */
+        private boolean enabled;
+        /** {@code max_tokens} of the judgement call. */
+        private int maxOutputTokens = 1_200;
+        /** Upper bound of one judgement model call. */
+        private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
+        /** Largest transcript (estimated tokens) one judgement call sends. */
+        private int maxSourceTokens = 12_000;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public int getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.judgement.max-output-tokens must be > 0");
+            }
+            this.maxOutputTokens = v;
+        }
+        public java.time.Duration getJobTimeout() { return jobTimeout; }
+        public void setJobTimeout(java.time.Duration v) {
+            if (v == null || v.isNegative() || v.isZero()) {
+                throw new IllegalArgumentException("app.memory.judgement.job-timeout must be positive");
+            }
+            this.jobTimeout = v;
+        }
+        public int getMaxSourceTokens() { return maxSourceTokens; }
+        public void setMaxSourceTokens(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.judgement.max-source-tokens must be > 0");
+            }
+            this.maxSourceTokens = v;
+        }
+
+        /**
+         * Existing items sent with each turn's judgement (user decision 2026-10-30): at most this many in total
+         * (0 = none), of which up to {@link #existingRecentItems} are the newest of this conversation regardless of
+         * a literal match; the rest are items matching the turn's codes and keywords.
+         */
+        private int existingMaxItems = 10;
+        private int existingRecentItems = 5;
+        /** Estimated-token cap of the existing-items JSON; separate from {@link #maxSourceTokens}. */
+        private int existingMaxTokens = 1_500;
+
+        public int getExistingMaxItems() { return existingMaxItems; }
+        public void setExistingMaxItems(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-max-items must be >= 0");
+            }
+            this.existingMaxItems = v;
+        }
+        public int getExistingRecentItems() { return existingRecentItems; }
+        public void setExistingRecentItems(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-recent-items must be >= 0");
+            }
+            this.existingRecentItems = v;
+        }
+        public int getExistingMaxTokens() { return existingMaxTokens; }
+        public void setExistingMaxTokens(int v) {
+            if (v < 0) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-max-tokens must be >= 0");
+            }
+            this.existingMaxTokens = v;
+        }
+
+        /** Cross-field check, run once the properties are bound (at startup, by the judgement handler). */
+        public void validate() {
+            if (existingRecentItems > existingMaxItems) {
+                throw new IllegalArgumentException("app.memory.judgement.existing-recent-items (" + existingRecentItems
+                        + ") must not exceed existing-max-items (" + existingMaxItems + ")");
+            }
+        }
+    }
+
+    /**
+     * {@code app.memory.consolidation.*}: per-tenant daily token budget and concurrency for background LLM
+     * jobs (SUMMARIZE / JUDGE_MEMORY / REBUILD_PROFILE / REPLAY_RULES). D11=A.
+     */
+    public static class Consolidation {
+        /**
+         * When true, registers {@code memory.consolidation.backlog} and sets
+         * {@code memory.feature.enabled{feature=consolidation}}=1. Quota enforcement for LLM jobs is always on
+         * once the bean is wired (cost control from day one); this flag only gates the backlog gauge.
+         */
+        private boolean enabled;
+        /** Global default daily token limit; overridden per tenant by {@code memory_tenant_quotas}. */
+        private long dailyTokenLimit = 200_000L;
+        /** Max concurrent LLM consolidation jobs per tenant on this instance. */
+        private int maxConcurrentPerTenant = 1;
+        /** Tokens reserved up-front when claiming one LLM job (settled to actual usage afterwards). */
+        private long reserveTokens = 12_800L;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+        public long getDailyTokenLimit() { return dailyTokenLimit; }
+        public void setDailyTokenLimit(long v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.daily-token-limit must be > 0");
+            }
+            this.dailyTokenLimit = v;
+        }
+        public int getMaxConcurrentPerTenant() { return maxConcurrentPerTenant; }
+        public void setMaxConcurrentPerTenant(int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.max-concurrent-per-tenant must be > 0");
+            }
+            this.maxConcurrentPerTenant = v;
+        }
+        public long getReserveTokens() { return reserveTokens; }
+        public void setReserveTokens(long v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.consolidation.reserve-tokens must be > 0");
+            }
+            this.reserveTokens = v;
+        }
+    }
+
     /** {@code app.memory.recall.*}: basic recall over turn records and original-text chunks (M2a Task 5, D22/D24). */
     public static class Recall {
         /** Off: no retrieval and no reference message, prompts as before Task 5 (chunks are still indexed). */
@@ -113,10 +515,19 @@ public class MemoryProperties {
         private int maxOutputTokens = 800;
         /** Upper bound of one summary call. */
         private java.time.Duration jobTimeout = java.time.Duration.ofSeconds(120);
-        /** No new message for this long (and no active turn) means the conversation is done (D19). */
-        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(30);
-        /** How often the idle scan looks for done conversations (D19). */
-        private java.time.Duration idleScanInterval = java.time.Duration.ofMinutes(5);
+        /**
+         * No new message for this long (and no active turn) means the conversation is idle and may be
+         * enqueued (D19, 2026-10-26): default 1 minute. Shared with judgement enqueue (D10).
+         */
+        private java.time.Duration idleTimeout = java.time.Duration.ofMinutes(1);
+        /**
+         * Latest fallback (D19): by this age since the last message, pending record/judgement work must still
+         * be picked up. Effective cutoff is {@code min(idleTimeout, idleDeadline)} so a mis-set long timeout
+         * cannot delay past the deadline. Default 30 minutes.
+         */
+        private java.time.Duration idleDeadline = java.time.Duration.ofMinutes(30);
+        /** How often the idle scan looks for idle conversations (D19): default 30 seconds. */
+        private java.time.Duration idleScanInterval = java.time.Duration.ofSeconds(30);
         /** Conversations enqueued per idle scan at most. */
         private int idleScanBatch = 100;
         /** Invalid model outputs for one turn before the turn is skipped (D23). */
@@ -140,18 +551,37 @@ public class MemoryProperties {
         }
         public java.time.Duration getJobTimeout() { return jobTimeout; }
         public java.time.Duration getIdleTimeout() { return idleTimeout; }
-        public void setIdleTimeout(java.time.Duration v) { this.idleTimeout = v; }
+        public void setIdleTimeout(java.time.Duration v) {
+            this.idleTimeout = requirePositive("idle-timeout", v);
+        }
+        public java.time.Duration getIdleDeadline() { return idleDeadline; }
+        public void setIdleDeadline(java.time.Duration v) {
+            this.idleDeadline = requirePositive("idle-deadline", v);
+        }
+        /**
+         * Cutoff used by the idle scan: the sooner of {@link #getIdleTimeout()} and {@link #getIdleDeadline()},
+         * so the 30-minute deadline remains a hard upper bound if timeout is misconfigured longer.
+         */
+        public java.time.Duration effectiveIdleCutoff() {
+            return idleTimeout.compareTo(idleDeadline) <= 0 ? idleTimeout : idleDeadline;
+        }
         public java.time.Duration getIdleScanInterval() { return idleScanInterval; }
-        public void setIdleScanInterval(java.time.Duration v) { this.idleScanInterval = v; }
+        public void setIdleScanInterval(java.time.Duration v) {
+            this.idleScanInterval = requirePositive("idle-scan-interval", v);
+        }
         public int getIdleScanBatch() { return idleScanBatch; }
         public void setIdleScanBatch(int v) { this.idleScanBatch = v; }
         public int getMaxInvalidAttempts() { return maxInvalidAttempts; }
         public void setMaxInvalidAttempts(int v) { this.maxInvalidAttempts = v; }
         public void setJobTimeout(java.time.Duration v) {
+            this.jobTimeout = requirePositive("job-timeout", v);
+        }
+
+        private static java.time.Duration requirePositive(String name, java.time.Duration v) {
             if (v == null || v.isNegative() || v.isZero()) {
-                throw new IllegalArgumentException("app.memory.summary.job-timeout must be positive");
+                throw new IllegalArgumentException("app.memory.summary." + name + " must be positive");
             }
-            this.jobTimeout = v;
+            return v;
         }
     }
 

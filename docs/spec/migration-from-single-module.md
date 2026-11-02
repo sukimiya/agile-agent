@@ -4,7 +4,7 @@ This guide covers moving an existing Agile Agent deployment to the open-source M
 
 ## Build and run
 
-Use JDK 21 for builds and runtime. Run reactor commands from the repository root so Maven can build module dependencies together:
+Use JDK 25 for builds and runtime. Run reactor commands from the repository root so Maven can build module dependencies together:
 
 ```sh
 mvn -pl agent-spi -am test

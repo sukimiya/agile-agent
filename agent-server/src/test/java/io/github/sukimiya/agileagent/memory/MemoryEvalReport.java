@@ -67,9 +67,10 @@ final class MemoryEvalReport {
         json.put("metrics", readings);
 
         var md = new StringBuilder();
-        md.append("# Memory 评测：组件状态（M2a）\n\n");
-        md.append("> 工程测试结果：fake LLM 驱动，验证 M1 与 M2a 已实现组件（上下文预算、轮次记录、基础 Recall、能力背景）；"
-                + "M2b 组件记为“不适用”，不计为失败。\n\n");
+        md.append("# Memory 评测：组件状态（M2b）\n\n");
+        md.append("> 工程测试结果：fake LLM 驱动，验证 M1、M2a 与 M2b 已实现组件（上下文预算、轮次记录、基础 Recall、能力背景；"
+                + "记忆判断、概要、关系、解释、衰减、整理额度）。记忆判断由对抗性的 fake 判断器驱动（把引用、粘贴、假设、"
+                + "角色设定和助手回答都声称为用户原话），验证校验能否拦下；真实模型的判断质量只能由 memory-eval-live 给出。\n\n");
         md.append("- 提交：`").append(baseline.commit()).append("`\n");
         md.append("- 环境：").append(baseline.environment()).append('\n');
         md.append("- 运行时间：").append(baseline.runAt()).append('\n');
@@ -196,20 +197,22 @@ final class MemoryEvalReport {
         json.put("firstTokenP95Ms", baseline.firstTokenP95Ms());
         json.put("probePromptTokens", baseline.probePromptTokens());
         json.put("settings", baseline.settings());
+        json.put("memory", baseline.memory());
 
         var md = new StringBuilder();
         md.append("# Memory 评测：端到端回答结果\n\n");
         if (!run.live()) {
             md.append("> 本结果由 fake LLM 生成，仅用于验证评测框架，不能作为端到端基线。\n\n");
         } else {
-            md.append("> 真实模型在 M2a 路径（上下文预算与基础 Recall）上的回答；判定为关键词规则，记录时需人工复核。\n\n");
+            md.append("> 真实模型在 M2b 路径（上下文预算、基础 Recall、记忆判断与概要）上的回答；判定为关键词规则，记录时需人工复核。\n\n");
         }
         md.append("- 模型：").append(run.model()).append('\n');
         md.append("- 模型版本：").append(run.modelVersion()).append('\n');
         md.append("- 接口主机：").append(run.endpointHost()).append('\n');
         md.append("- 温度等采样参数：").append(run.temperature()).append('\n');
-        md.append("- 上下文输入方式：上下文预算与基础 Recall（").append(run.contextInput())
-                .append("）：按模型窗口保留近期完整轮次，窗口外命中的原始轮次作为参考资料注入\n");
+        md.append("- 上下文输入方式：上下文预算、基础 Recall 与长期记忆（").append(run.contextInput())
+                .append("）：按模型窗口保留近期完整轮次，窗口外命中的原始轮次、记忆条目、概要与关系作为参考资料注入；"
+                        + "每个用例的对话发完后模拟闲置，先完成记忆判断与概要重建再提问\n");
         md.append("- 参数：").append(baseline.settings()).append('\n');
         md.append("- 提交：`").append(run.commit()).append("`\n");
         md.append("- 开始时间：").append(run.startedAt()).append('\n');
@@ -224,7 +227,15 @@ final class MemoryEvalReport {
         var cost = baseline.cost();
         md.append("- 模型成本：用例轮次 ").append(cost(cost.turns())).append("；探针 ").append(cost(cost.probes()))
                 .append("；轮次记录生成 ").append(cost(cost.records())).append("（").append(cost.recordTurns())
-                .append(" 个轮次，写入 ").append(cost.recordsWritten()).append(" 条记录）\n");
+                .append(" 个轮次，写入 ").append(cost.recordsWritten()).append(" 条记录）；记忆判断 ")
+                .append(cost(cost.judgements())).append('\n');
+        var memory = baseline.memory();
+        if (memory != null) {
+            md.append("- 记忆条目：保留 ").append(memory.items()).append(" 条，其中用户断言 ").append(memory.confirmed())
+                    .append(" 条；错误记忆 ").append(memory.falseMemories()).append(" 条（只统计，不作门槛）；投毒用例中投毒内容成为用户断言 ")
+                    .append(memory.confirmedPoisoned()).append(" 条（门槛 0）；提及旧值待人工复核 ")
+                    .append(memory.reviewMentions()).append(" 条\n");
+        }
         md.append("\n| 用例 | 类别 | 所需阶段 | 判定 | 回答 | 期望 | 注入消息数 | 估算 Token | 实际 prompt_tokens | 召回 | 首字 ms | 耗时 ms |\n");
         md.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         for (var r : baseline.results()) {
@@ -242,6 +253,21 @@ final class MemoryEvalReport {
         md.append("\n“实际 prompt_tokens”为探针执行中全部模型调用的合计（服务商上报）；“估算 Token”为注入近期历史的启发式估算；"
                 + "“召回”为探针的召回条数与原因（*表示原始轮次已作为参考资料注入）。\n");
         retrieval(md, baseline.retrieval(), "## 检索质量（本次回答运行）");
+        var outcomes = baseline.results().stream().filter(r -> r.memory() != null).toList();
+        if (!outcomes.isEmpty()) {
+            md.append("\n## 记忆条目与错误记忆（每个用例对话闲置后）\n\n");
+            md.append("错误记忆 = 当前有效条目（ACTIVE / CANDIDATE / CONFLICT）含该用例的禁记词，或断言为用户陈述/确认但来源不是用户本人输入；"
+                    + "已替代、停用等非当前条目不计。当前条目同时含禁记词与期望答案（提及旧值作说明）时不计入，标为“待复核”，供人工复核。\n\n");
+            md.append("| 用例 | 判断调用 | 保留条目 | 用户断言 | 错误记忆 | 待复核 | 已删除 | 条目 |\n"
+                    + "| --- | --- | --- | --- | --- | --- | --- | --- |\n");
+            for (var r : outcomes) {
+                var m = r.memory();
+                md.append("| ").append(r.caseId()).append(" | ").append(m.attempts()).append(" | ").append(m.items())
+                        .append(" | ").append(m.confirmed()).append(" | ").append(m.falseMemories()).append(" | ")
+                        .append(m.reviewMentions()).append(" | ")
+                        .append(m.deleted()).append(" | ").append(cell(String.join("\n", m.details()))).append(" |\n");
+            }
+        }
         var records = baseline.results().stream().filter(r -> r.sourceRecord() != null).toList();
         if (!records.isEmpty()) {
             md.append("\n## 来源轮次的记录（由本次模型生成）\n\n| 用例 | 记录要点与关键词 |\n| --- | --- |\n");
@@ -295,6 +321,164 @@ final class MemoryEvalReport {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** Reviewed earlier real-model baselines; under docs/ because they name the provider's model and host. */
+    static final String BASELINES = "docs/memory/eval-baselines.json";
+    static final String COMPARISON_JSON = "baseline-comparison.json";
+    static final String COMPARISON_MD = "baseline-comparison.md";
+    /** Column label of this run in the comparison (the recorded baselines keep their own labels). */
+    static final String CURRENT_LABEL = "本次";
+
+    /** A recorded earlier real-model baseline (M1, M2a, M2b) with its reviewed per-case verdicts. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record Baseline(String label, String runAt, String commit, String model, String endpointHost,
+            String contextInput, Double firstTokenP50Ms, Double firstTokenP95Ms, Double retrievalP50Ms,
+            Double retrievalP95Ms, Double recallAtK, Double sourceAccuracy, Integer falseMemories,
+            Map<String, BaselineCase> cases) {}
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record BaselineCase(String verdict, Long promptTokens) {}
+
+    /** One case across the recorded baselines and this run (last); null where the case did not run. */
+    record ComparisonRow(String caseId, List<String> verdicts, List<Long> promptTokens) {}
+
+    /**
+     * The recorded baselines (M1 / M2a / M2b) and this run (labelled {@link #CURRENT_LABEL}) on the same model and
+     * cases. {@code comparable} is false (with {@code reason}) when this run used another model or endpoint.
+     * {@code regressions}: cases answered correctly in any recorded baseline and not now.
+     */
+    record Comparison(boolean comparable, String reason, List<String> labels, List<ComparisonRow> rows,
+            List<String> regressions, List<Baseline> previous, AnswerBaseline current, QualityGate gate) {}
+
+    /**
+     * The M2b quality gate (user decision 2026-10-29): no case answered correctly in a recorded baseline (M1, M2a
+     * and, since 2026-10-30, the reviewed M2b JDK 25 run) regresses, poisoned
+     * content yields 0 user-asserted items, and Recall@5 is at least 0.9. {@code failures} name each unmet part.
+     */
+    record QualityGate(boolean passed, List<String> failures) {
+        static final double MIN_RECALL_AT_K = 0.9;
+    }
+
+    static QualityGate gate(List<String> regressions, long confirmedPoisoned, Double recallAtK) {
+        var failures = new ArrayList<String>();
+        if (!regressions.isEmpty()) {
+            failures.add("有回退：" + String.join("、", regressions));
+        }
+        if (confirmedPoisoned > 0) {
+            failures.add("投毒内容产生了 " + confirmedPoisoned + " 条用户断言条目（门槛 0）");
+        }
+        if (recallAtK == null) {
+            failures.add("Recall@5 无样本（门槛 ≥ " + QualityGate.MIN_RECALL_AT_K + "）");
+        } else if (recallAtK < QualityGate.MIN_RECALL_AT_K) {
+            failures.add("Recall@5 为 " + ratio(recallAtK) + "（门槛 ≥ " + QualityGate.MIN_RECALL_AT_K + "）");
+        }
+        return new QualityGate(failures.isEmpty(), List.copyOf(failures));
+    }
+
+    static List<Baseline> loadBaselines() {
+        var dir = Path.of("").toAbsolutePath();
+        while (dir != null && !Files.exists(dir.resolve(BASELINES))) {
+            dir = dir.getParent();
+        }
+        if (dir == null) {
+            throw new IllegalStateException("missing " + BASELINES);
+        }
+        try (var in = Files.newInputStream(dir.resolve(BASELINES))) {
+            var node = JSON.readTree(in);
+            var out = new ArrayList<Baseline>();
+            for (var b : node.path("baselines")) {
+                out.add(JSON.treeToValue(b, Baseline.class));
+            }
+            return List.copyOf(out);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    static Comparison compare(List<Baseline> previous, AnswerBaseline current) {
+        var run = current.run();
+        String reason = null;
+        for (var b : previous) {
+            if (!b.model().equals(run.model())) {
+                reason = "模型不同：" + b.label() + " 为 " + b.model() + "，本次为 " + run.model();
+            } else if (!b.endpointHost().equals(run.endpointHost())) {
+                reason = "接口不同：" + b.label() + " 为 " + b.endpointHost() + "，本次为 " + run.endpointHost();
+            }
+        }
+        if (!run.live() && reason == null) {
+            reason = "本次不是真实模型运行";
+        }
+        var labels = new ArrayList<String>();
+        previous.forEach(b -> labels.add(b.label()));
+        labels.add(CURRENT_LABEL);
+        var rows = new ArrayList<ComparisonRow>();
+        var regressions = new ArrayList<String>();
+        for (var r : current.results()) {
+            var verdicts = new ArrayList<String>();
+            var tokens = new ArrayList<Long>();
+            boolean wasCorrect = false;
+            for (var b : previous) {
+                var bc = b.cases().get(r.caseId());
+                verdicts.add(bc == null ? null : bc.verdict());
+                tokens.add(bc == null ? null : bc.promptTokens());
+                wasCorrect |= bc != null && "CORRECT".equals(bc.verdict());
+            }
+            verdicts.add(r.verdict().name());
+            tokens.add(r.context() == null ? null : r.context().promptTokens());
+            rows.add(new ComparisonRow(r.caseId(), java.util.Collections.unmodifiableList(verdicts),
+                    java.util.Collections.unmodifiableList(tokens)));
+            if (wasCorrect && r.verdict() != Verdict.CORRECT) {
+                regressions.add(r.caseId());
+            }
+        }
+        // Same model on both sides (a fake run is never a baseline, but its rows are still listed for tests).
+        boolean sameModel = previous.stream().allMatch(b -> b.model().equals(run.model())
+                && b.endpointHost().equals(run.endpointHost()));
+        long poisoned = current.memory() == null ? 0 : current.memory().confirmedPoisoned();
+        var recallAtK = current.retrieval() == null ? null : current.retrieval().recallAtK();
+        return new Comparison(sameModel, sameModel ? (reason == null ? "同模型、同接口" : reason) : reason,
+                List.copyOf(labels), List.copyOf(rows), List.copyOf(regressions), previous, current,
+                gate(regressions, poisoned, recallAtK));
+    }
+
+    /** Writes baseline-comparison.json and .md (one column per recorded baseline, then this run). */
+    static Path writeComparison(Path dir, Comparison c) {
+        var json = new LinkedHashMap<String, Object>();
+        json.put("kind", "baseline-comparison");
+        json.put("comparable", c.comparable());
+        json.put("reason", c.reason());
+        json.put("labels", c.labels());
+        json.put("rows", c.rows());
+        json.put("regressions", c.regressions());
+        json.put("qualityGate", c.gate());
+        var md = new StringBuilder("# Memory 评测：" + String.join(" / ", c.labels()) + " 对比\n\n");
+        md.append("- 可比性：").append(c.comparable() ? "可比" : "不可比").append("（").append(c.reason()).append("）\n");
+        md.append("- 本次：").append(c.current().run().model()).append(" @ ").append(c.current().run().endpointHost())
+                .append("，提交 `").append(c.current().run().commit()).append("`\n");
+        for (var b : c.previous()) {
+            md.append("- ").append(b.label()).append("：").append(b.model()).append(" @ ").append(b.endpointHost())
+                    .append("，").append(b.runAt()).append("，提交 `").append(b.commit()).append("`\n");
+        }
+        var earlier = String.join(" / ", c.labels().subList(0, c.labels().size() - 1));
+        md.append("- 回退（").append(earlier).append(" 任一基线答对、本次未答对）：")
+                .append(c.regressions().isEmpty() ? "无" : String.join("、", c.regressions())).append('\n');
+        md.append("- 质量门槛：").append(c.gate().passed() ? "达到" : "未达到")
+                .append("（").append(earlier).append(" 已答对的不回退；投毒内容 0 条用户断言；Recall@5 ≥ ")
+                .append(QualityGate.MIN_RECALL_AT_K).append("）")
+                .append(c.gate().passed() ? "" : "：" + String.join("；", c.gate().failures())).append("\n\n");
+        md.append("| 用例 | ").append(String.join(" | ", c.labels())).append(" | prompt_tokens ")
+                .append(String.join(" / ", c.labels())).append(" |\n|")
+                .append(" --- |".repeat(c.labels().size() + 2)).append('\n');
+        for (var r : c.rows()) {
+            md.append("| ").append(r.caseId());
+            for (var v : r.verdicts()) {
+                md.append(" | ").append(v == null ? "—" : v);
+            }
+            md.append(" | ").append(String.join(" / ", r.promptTokens().stream()
+                    .map(t -> t == null ? "—" : String.valueOf(t)).toList())).append(" |\n");
+        }
+        return write(dir, COMPARISON_JSON, json, COMPARISON_MD, md.toString());
     }
 
     static List<String> files() {

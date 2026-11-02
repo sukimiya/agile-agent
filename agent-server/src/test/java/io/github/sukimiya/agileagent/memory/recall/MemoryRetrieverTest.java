@@ -192,7 +192,7 @@ class MemoryRetrieverTest {
         assertThat(recall(conversation, "A7-3921 有违章吗").items()).hasSize(1);
 
         // Tombstone only: chunks are still there, recall must not use them.
-        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6) WHERE id = ?", other);
+        stack.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0 WHERE id = ?", other);
         assertThat(stack.rows("SELECT COUNT(*) AS n FROM memory_chunks WHERE conversation_id = ?", other).getFirst()
                 .get("N")).isNotEqualTo(0L);
 

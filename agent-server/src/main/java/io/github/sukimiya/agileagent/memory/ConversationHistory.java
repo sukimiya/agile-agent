@@ -17,6 +17,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TurnTicket;
 import io.github.sukimiya.agileagent.repository.SessionRepository;
 import io.github.sukimiya.agileagent.repository.SessionRepository.SessionRow;
 import io.github.sukimiya.agileagent.service.LlmClient;
+import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
 import io.r2dbc.spi.Readable;
 import reactor.core.publisher.Mono;
 
@@ -31,9 +32,11 @@ public class ConversationHistory {
 
     public static final int MAX_PAGE = 200;
 
-    private static final String SELECT = "SELECT m.id, m.sequence, m.payload, m.source_type, m.created_at, t.status"
-            + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
-            + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject";
+    private static final String SELECT = "SELECT m.id, m.sequence, " + MessagePayloadCodec.messageColumns("m")
+            + ", m.source_type, m.created_at, t.status"
+            + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id" + MessagePayloadCodec.messageJoin("m")
+            + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
+            + " AND m.is_valid = 1 AND t.is_valid = 1";
 
     private final DatabaseClient db;
     private final SessionRepository sessions;
@@ -84,20 +87,28 @@ public class ConversationHistory {
 
     /**
      * The same history as {@link #contextBefore}, grouped by turn (oldest first), without recording metrics. The
-     * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND.
+     * session is checked first: deleted, foreign or legacy conversations fail with CONVERSATION_NOT_FOUND. Turns
+     * excluded after an in-chat forget ({@code RecallExclusions#excludedTurn}: memory command turns, and turns
+     * holding a source message of a FORGOTTEN or user-DELETED item) are left out; the history API ({@link #page}) still lists them.
      */
     public Mono<List<HistoryTurn>> completedTurnsBefore(TurnTicket ticket) {
         return ownedSession(ticket.scope(), ticket.conversationId())
-                .flatMap(session -> db.sql("SELECT m.id, m.turn_id, m.payload FROM chat_messages m"
-                                + " JOIN chat_turns t ON t.id = m.turn_id"
+                .flatMap(session -> db.sql("SELECT m.id, m.turn_id, " + MessagePayloadCodec.messageColumns("m")
+                                + " FROM chat_messages m JOIN chat_turns t ON t.id = m.turn_id"
+                                + MessagePayloadCodec.messageJoin("m")
                                 + " WHERE m.conversation_id = :c AND m.tenant_id = :tenantId AND m.subject = :subject"
-                                + " AND t.status = 'COMPLETED' AND m.turn_id <> :turnId ORDER BY m.sequence")
+                                + " AND t.status = 'COMPLETED' AND m.is_valid = 1 AND t.is_valid = 1"
+                                + " AND m.turn_id <> :turnId"
+                                // Forgotten raw text leaves the context window too (user decision 2026-10-27).
+                                + " AND NOT " + io.github.sukimiya.agileagent.memory.recall.RecallExclusions
+                                        .excludedTurn("t")
+                                + " ORDER BY m.sequence")
                         .bind("c", ticket.conversationId())
                         .bind("tenantId", ticket.scope().tenantId())
                         .bind("subject", ticket.scope().subject())
                         .bind("turnId", ticket.turnId())
                         .map(row -> new String[] {row.get("id", String.class), row.get("turn_id", String.class),
-                                row.get("payload", String.class)})
+                                MessagePayloadCodec.messageText(row)})
                         .all()
                         .collectList())
                 .map(this::groupByTurn);
@@ -125,12 +136,14 @@ public class ConversationHistory {
 
     /** The turn's own user message text (the current question), read from durable storage. */
     public Mono<String> userInput(TurnTicket ticket) {
-        return db.sql("SELECT payload FROM chat_messages WHERE turn_id = :turnId AND role = 'user'"
-                        + " AND tenant_id = :tenantId AND subject = :subject")
+        return db.sql("SELECT " + MessagePayloadCodec.messageColumns("m") + " FROM chat_messages m"
+                        + MessagePayloadCodec.messageJoin("m")
+                        + " WHERE m.turn_id = :turnId AND m.role = 'user' AND m.is_valid = 1"
+                        + " AND m.tenant_id = :tenantId AND m.subject = :subject")
                 .bind("turnId", ticket.turnId())
                 .bind("tenantId", ticket.scope().tenantId())
                 .bind("subject", ticket.scope().subject())
-                .map(row -> row.get("payload", String.class))
+                .map(MessagePayloadCodec::messageText)
                 .one()
                 .map(payload -> conversations.deserialize(payload).content())
                 .switchIfEmpty(Mono.error(() -> new IllegalStateException("accepted turn has no user message")));
@@ -208,7 +221,7 @@ public class ConversationHistory {
         return new StoredMessage(
                 row.get("id", String.class),
                 TurnRepository.number(row.get("sequence")),
-                conversations.deserialize(row.get("payload", String.class)),
+                conversations.deserialize(MessagePayloadCodec.messageText(row)),
                 SourceType.valueOf(row.get("source_type", String.class)),
                 status == null ? null : TurnStatus.valueOf(status),
                 created == null ? null : created.atZone(ZoneId.systemDefault()).toInstant());

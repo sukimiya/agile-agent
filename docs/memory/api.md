@@ -13,6 +13,9 @@
 | `INVALID_IDEMPOTENCY_KEY` | 400 | `Idempotency-Key` 不符合格式：长度 1–128，仅允许 ASCII 字母数字和 `._:-` |
 | `TENANT_REQUIRED` | 403 | 服务端身份无法解析租户，不能创建会话、读取记忆或访问附件 |
 | `CONVERSATION_NOT_FOUND` | 404 | 会话不存在、属于他人、已删除或为旧版本无租户数据；不区分具体原因 |
+| `MEMORY_ITEM_NOT_FOUND` | 404 | （M2b 起）记忆条目不存在、属于他人或已被用户删除；不区分具体原因 |
+| `MEMORY_REPLAY_NOT_FOUND` | 404 | （M2b 起）管理接口：Rules 回放不存在 |
+| `MEMORY_ITEM_CONFLICT` | 409 | （M2b 起）更正的条目已被替代，或请求中的 `expectedRevision` 与当前版本不符；重新读取后再试 |
 | `IDEMPOTENCY_CONFLICT` | 409 | 同一用户的同一 `Idempotency-Key`（保留期内）对应不同请求：入口、`conversationId`、消息内容或附件 ID 不同 |
 | `TURN_IN_PROGRESS` | 409 | 该会话已有活跃执行，或同一 key 的原请求仍在执行；响应体带活跃 `turnId` 及其 `conversationId`，前端显示“正在生成” |
 | `TURN_TERMINATED` | 409 | 同一 key 的执行已失败/取消/中断；新执行需使用新 key |
@@ -122,6 +125,71 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 `crossConversationEnabled`：是否允许基础 Recall 检索自己的其他会话（D1=A，默认关闭）。关闭后下一个问题起不再检索其他会话。
 
+## 用户记忆（`/api/memory/items`、`/api/memory/profile`，M2b 起，D15=A）
+
+只操作当前用户（租户 + subject）自己的长期记忆条目；范围始终取自服务端身份。所有接口：未登录 401，缺租户 403 `TENANT_REQUIRED`，数据库不可用 503 `STORAGE_UNAVAILABLE`。条目响应不含租户与 subject，字段：`id`、`conversationId`（null 表示用户级）、`itemType`、`content`、`status`、`assertion`（`USER_CONFIRMED` / `USER_STATED` / `INFERRED`）、`importance`、`confidence`、`validUntil`、`supersededBy`、`revision`、`createdAt`、`updatedAt`。
+
+| 接口 | 说明 | 成功 |
+| --- | --- | --- |
+| `GET /api/memory/items?status=&limit=&before=` | 按创建时间从新到旧；`status` 为 `ItemStatus` 之一（省略时返回除 DELETED 外全部），`limit` 1–100（默认 20），`before` 取上一页的 `nextBefore` | 200 `{"items": [...], "nextBefore": "…" 或 null}` |
+| `GET /api/memory/items/{id}` | 条目及来源：`sources[]` 含 `messageId`、`conversationId`、`sourceType`、`evidenceExcerpt` | 200 `{"item": {...}, "sources": [...]}` |
+| `POST /api/memory/items/{id}/corrections` | 请求体 `{"content": "…", "expectedRevision": 3}`（`expectedRevision` 可省略）。按 D16 新建一条 ACTIVE、`USER_CONFIRMED` 的条目（类型与所属会话同旧条目），旧条目变为 SUPERSEDED 并指向新条目，二者在同一事务内生效；旧条目正文保留以便查看历史 | 201 新条目 |
+| `DELETE /api/memory/items/{id}` | 软删除：条目标记 DELETED、`is_valid = 0`（正文保留在数据库中，但任何接口和提示词都不再返回），来源与由它派生的关系置为无效，引用它的每轮解释记录不再返回（仍计入引用数）；已有概要快照立即按剩余条目重写（即使跨会话开关已关闭，只删内容、不做新的汇总）。之后不会再被召回或用于重建。与对话中遗忘相同，该条目来源消息所在的轮次永久不再进入原文召回和近期对话窗口（历史接口仍完整列出，2026-10-29） | 204 |
+| `DELETE /api/memory/profile` | 软删除概要快照、全部实体与关系（`is_valid = 0`，以及引用它们的每轮解释记录）并清除缓存；条目保留，跨会话开关打开时之后的重建会复用该行、以更高版本重新生成概要，新写入的同名实体重新生效 | 204 |
+| `POST /api/memory/items/{id}/recall-count/decrement` | 手动减少条目的召回引用数。请求体可省略，或 `{"amount": n}`（正整数，默认 1）；最低减到 0，之后新的召回从 0 起重新计数。引用数只统计未过期的召回记录（超过 30 天的记录被标记过期，不删除）。写入审计（`memory_audit_log`：操作者为当前用户、动作 `RECALL_COUNT_DECREMENT`、请求数量、前后值、数据库时间）。返回减少后的状态，保留档位与清除时间随之重新计算 | 200 `{"itemId", "count", "retention": "PT24H", "purgeEligibleAt": "…"}`；`purgeEligibleAt` 只在来源已删除且条目不再 ACTIVE 时出现 |
+| `POST /api/memory/items/{id}/restore` | 撤销遗忘：FORGOTTEN 恢复为 ACTIVE（来源会话已被删除时恢复为 INACTIVE，之后按分档清除），重写已有概要快照，写审计（`memory_audit_log`，动作 `RESTORE`，操作者为当前用户）。无请求体 | 200 条目 |
+| `GET/PUT /api/memory/settings` | 见“记忆设置” | 200 |
+
+| 错误 | 响应 |
+| --- | --- |
+| `status` 不是合法状态、`limit` 不在 1–100、`before` 不是自己可见的条目 | 400 `INVALID_ARGUMENT` |
+| `amount` 不是正整数 | 400 `INVALID_ARGUMENT` |
+| 更正内容缺失或为空、`expectedRevision` 不是整数、内容含被拒绝的个人敏感信息（F3：手机号、身份证号、银行卡号、密钥等） | 400 `INVALID_ARGUMENT` |
+| 条目不存在、属于他人或已删除（含重复删除） | 404 `MEMORY_ITEM_NOT_FOUND` |
+| 更正已被替代的条目，或 `expectedRevision` 不符；减少引用数时与另一个并发调整冲突；恢复不是 FORGOTTEN 的条目 | 409 `MEMORY_ITEM_CONFLICT` |
+
+### 按最近召回时间衰减（M2b Task 6）
+
+- 条目参与 Recall 时的排序分乘以 0.5^(距最近一次召回的天数 / 30)，从未被召回的条目从创建时间算起；在截取条目数之前应用。原文片段和轮次记录不衰减。
+- 只有作为单独条目注入回答提示词才算“被召回”（每轮记忆解释中的 `ITEM`），概要和关系不算。恢复条目、以及记忆判断在新对话中再次得到用户陈述或确认的同一条目，也会刷新召回时间。
+- 推断得出（`INFERRED`）的条目 180 天未被召回会转为 `INACTIVE`：不删除，仍在 `GET /api/memory/items` 中可见（可用 `status=INACTIVE` 筛选），但不再参与 Recall 和概要。用户陈述（`USER_STATED`）或确认（`USER_CONFIRMED`）的条目只降低排序，不会转为 `INACTIVE`。
+
+### 对话中遗忘与恢复（M2b 起）
+
+在聊天中说“忘记我下周三去口腔医院复诊”即可让匹配的记忆条目不再被使用；说“记起来…”可以恢复。
+
+- **触发（2026-10-27 起由模型判断）：** 只看用户本人的当前输入。先做廉价预筛：输入不超过 500 字且包含“忘 / 记起 / 想起 / 恢复 / 别记 / 不要记 / 不用记 / 别再记 / 不再记 / 删掉 / 删除 / 删了 / 删去 / 抹掉 / 抹去 / 抹除 / forget / restore / delete / erase”之一；只有预筛命中时才用当前轮的模型做一次 JSON 模式分类（只发送这一条输入本身，不含历史、工具结果或文档），判断是遗忘、恢复还是都不是，并取出要匹配的话题。因此“那个复诊的事你就别记了”这类自由说法也能识别；陈述（“我忘了带钥匙”）、提问、引用文档或网页的句子由模型判为“不是指令”。模型调用失败、超时（默认 10 秒）或输出无法解析时一律按普通消息回答。工具结果、网页、文档和助手回答从不触发。
+- **匹配：** 与 Recall 相同的范围：跨会话开关关闭时只匹配当前会话的会话级条目，打开时匹配用户级条目。遗忘只匹配 ACTIVE 且仍有效的条目，恢复只匹配 FORGOTTEN 条目；条目内容至少包含话题一半的切分词才算匹配，最多 5 条，越相符越靠前。
+- **结果：** 恰好 1 条时立即执行，不需确认，回答写明是哪条；多条时编号列出，回复编号（如“2”“1、3”）或“全部”进行选择，5 分钟内有效；期间任何其他回复（或超时后的回复）都会取消选择：回答以“已取消上一次的记忆选择。”（超时后为“已取消上一次的记忆选择（已超时）。”）开头，空一行后是对这条消息的正常回答；如果这条消息本身是新的遗忘/恢复指令，提示后接新指令的结果；没有匹配时回答“没有找到”，不做任何修改。
+- **遗忘的含义：** 条目状态变为 `FORGOTTEN`，不是删除：仍出现在 `GET /api/memory/items`（可用 `status=FORGOTTEN` 筛选），不再参与 Recall、概要和关系召回，不会被分档清除，也不能被记忆判断修改；遗忘后原话也不再被召回（2026-10-27 起）：该条目来源消息所在的轮次（条目恢复后重新可召回）以及所有遗忘/恢复/编号选择的指令轮（永久）都不会再出现在片段、轮次记录、编号精确匹配等任何原文召回结果中；同样的轮次也从同一会话发给模型的近期对话窗口中去掉（2026-10-27 起），因此下一轮模型看不到原话；`GET /api/conversations/{id}/messages` 等历史接口仍完整列出这些消息。可通过 `POST /api/memory/items/{id}/restore` 或对话中“记起来…”恢复。
+- 指令轮的回答作为普通助手消息保存（含条目正文），没有路由和回答模型调用；分类调用的 Token 计入该轮 usage（流中照常输出 `usage` 事件），并计入租户当天的记忆 Token 额度。预筛命中但判为“不是指令”的轮次同样计入这次分类的 Token。
+
+## Rules 回放（管理接口，M2b Task 7）
+
+只有平台管理员可调用（其他人含租户管理员一律 403 `FORBIDDEN`），可指定任意租户。回放不会自动发生：Rules 版本升级后，旧版本判断出的条目保持原样，直到管理员显式发起回放。
+
+- `POST /api/admin/memory/replays`，请求体 `{"tenantId": "...", "fromRulesVersion": 1}`（`fromRulesVersion` 可选，正整数）→ `202`，返回回放对象。`tenantId` 缺失或为空、`fromRulesVersion` 不是正整数 → 400 `INVALID_ARGUMENT`。不提供 dry-run。
+- `GET /api/admin/memory/replays/{id}` → 回放对象；不存在 → 404 `MEMORY_REPLAY_NOT_FOUND`。
+- 回放对象：`replayId`、`tenantId`、`fromRulesVersion`、`toRulesVersion`（发起时的当前 Rules 版本）、`status`（`PENDING` / `RUNNING` / `POSTPONED`（当天额度用完，次日继续）/ `COMPLETED`）、`requestedBy`、`processed`、`superseded`、`inactivated`、`skipped`、`createdAt`、`updatedAt`、`finishedAt`。
+- 范围：该租户所有用户中，由更早 Rules 版本（且不低于 `fromRulesVersion`）判断、断言为 `INFERRED`、状态为 ACTIVE / CANDIDATE / CONFLICT、仍有效、且用户本人从未操作过（更正、恢复、减少召回计数、遗忘等审计记录）的条目。`USER_STATED`、`USER_CONFIRMED`、已遗忘条目不动。
+- 结果：新 Rules 保留或改写 → 新条目（当前 Rules 版本，继承最近召回时间和召回计数），旧条目 `SUPERSEDED` 并通过 `supersededBy` 指向新条目；新 Rules 不再支持 → 旧条目 `INACTIVE`（不删除）；来源会话已删除 → 跳过不动。每条旧条目的处理结果（新旧对应关系）记录在 `memory_replay_items` 供审计。
+
+## 每轮记忆解释（`GET /api/conversations/{id}/turns/{turnId}/memory`，M2b 起）
+
+返回这一轮回答所用提示词中**实际放进去**的记忆，按提示词中的顺序：
+
+```json
+{"conversationId": "…", "turnId": "…", "events": [
+  {"kind": "PROFILE", "refId": "7", "reason": "PROFILE", "score": null, "rank": 1, "sourceTypes": []},
+  {"kind": "ITEM", "refId": "<item id>", "reason": "ITEM", "score": 50.8, "rank": 2, "sourceTypes": ["USER_INPUT"]}
+]}
+```
+
+- `kind`：`PROFILE`（`refId` 为概要版本）、`RELATION`（关系 id，`reason` 为 `ONE_HOP`）、`ITEM`（记忆条目 id）、`CHUNK`（原文片段 id）、`SUMMARY`（没有对应片段的整轮命中，例如经轮次记录或 `RECENT_GAP` 命中，`refId` 为轮次 id）。`reason` 为召回原因（见“基础 Recall”），`score` 为排序分数，`rank` 从 1 开始。只记录 id 与依据，不记录正文。
+- 只记录直接回答或汇总调用实际注入的内容：被检索到但因预算放不下、或已在近期历史窗口内的候选不出现；路由与能力调用不记录。没有注入任何记忆的轮次返回空 `events`。
+- 解释在回答之外异步写入（受管的有界队列）：写入失败或队列满只计入 `memory.recall.explain{outcome=failed|dropped}`，从不影响回答，此时该轮的 `events` 可能为空。
+- 会话 ID 不合法 400 `INVALID_CONVERSATION_ID`；会话不存在、属于他人或已删除 404 `CONVERSATION_NOT_FOUND`；`turnId` 为空或超过 64 字符 400 `INVALID_ARGUMENT`；缺租户 403。删除会话时该会话的解释记录置为无效（保留在数据库中并计入引用数，不再返回）。
+
 ## 工具调用记录（`chat_tool_events`）
 
 不新增 HTTP 接口，也不改变 `tool_call` 事件格式（其参数摘要现在先经脱敏）。每次能力工具调用都按执行（turn）记录：能力、工具名、call id、脱敏后的参数、脱敏后的结果或错误类型、来源类型（`TOOL_RESULT`）以及开始、更新、结束时间。
@@ -172,9 +240,10 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 返回 204 时，以下内容已在同一事务中生效：
 
-- 会话写入删除标记，标题清空，revision 递增。会话列表、历史消息、两个聊天入口、附件上传和下载都立即把它当作不存在，返回 404 `CONVERSATION_NOT_FOUND`。
+- 会话软删除：`is_valid = 0`、写入 `deleted_at`，revision 递增（标题保留在数据库中，但任何接口都不再返回）。会话列表、历史消息、两个聊天入口、附件上传和下载都立即把它当作不存在，返回 404 `CONVERSATION_NOT_FOUND`。
 - 正在执行的回答立即失去执行权：fence 递增，执行记为 INTERRUPTED，`error_code=CONVERSATION_DELETED`。流式响应在下一次续期或检查点时收到 `TURN_INTERRUPTED` 错误事件，已发出但未返回的工具调用标记为 UNCERTAIN。
 - 该会话尚未执行的切块任务（`INDEX_CHUNKS`）被删除；会话的原文片段与轮次记录立即不能再被检索到。
+- 来自该会话的记忆条目来源置为无效；只剩这些来源的条目和该会话的会话级条目变为 INACTIVE 并标记来源已删除（`source_deleted_at`），不再被召回；仍有其他有效来源的用户级条目保持 ACTIVE。
 - 登记一个持久清理任务。
 
-物理清理在后台进行，失败会重试：删除消息、工具调用记录和该会话的本地附件目录，并把缓存条目替换为不含内容的删除标记，之后的缓存回填一律被拒绝。附件目录名就是会话 ID，所以不会删到其他会话或其他用户的文件。删除标记（会话 ID、归属、删除时间，不含正文）永久保留，同一 ID 不能再被聊天或上传重新创建，任何后台任务或缓存重建都不会使已删除内容复活。执行记录 `chat_turns` 只含状态、用量与请求 ID，不含正文，作为删除标记的一部分保留。
+后台清理任务失败会重试：把消息、工具调用记录、执行记录、原文片段、轮次记录和该会话的每轮记忆解释记录置为无效（`is_valid = 0`，**不删除行**），并把缓存条目替换为不含内容的删除标记，之后的缓存回填一律被拒绝。附件原件不随会话删除而删除（用户 2026-10-27 确认），只受 24 小时临时清理约束；下载按会话归属判定，已删除会话一律 404。同一 ID 不能再被聊天或上传重新创建，任何后台任务或缓存重建都不会使已删除内容复活。由该会话派生的条目、片段和轮次记录按召回引用数分档保留后才被物理清除（默认引用 0–1 次保留 1 天、2–4 次 1 周、5 次及以上 1 个月），原始会话数据从不物理删除，见运维说明“派生索引清除”。

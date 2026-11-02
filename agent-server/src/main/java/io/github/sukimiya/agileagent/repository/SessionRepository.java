@@ -60,7 +60,7 @@ public class SessionRepository {
     /** Live (not deleted) session owned by exactly this tenant and subject; legacy rows without tenant never match. */
     public Mono<SessionRow> findScoped(String id, MemoryScope scope) {
         return db.sql("SELECT " + COLUMNS + " FROM sessions WHERE id = :id AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NULL")
+                        + " AND user_id = :subject AND is_valid = 1")
                 .bind("id", id).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(SessionRepository::mapRow)
                 .one();
@@ -69,7 +69,7 @@ public class SessionRepository {
     /** Live sessions of exactly this tenant and subject, most recently updated first. */
     public Flux<SessionRow> findByScope(MemoryScope scope) {
         return db.sql("SELECT " + COLUMNS + " FROM sessions WHERE tenant_id = :tenantId AND user_id = :subject"
-                        + " AND deleted_at IS NULL ORDER BY updated_at DESC")
+                        + " AND is_valid = 1 ORDER BY updated_at DESC")
                 .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(SessionRepository::mapRow)
                 .all();

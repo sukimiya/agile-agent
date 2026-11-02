@@ -16,6 +16,9 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import io.github.sukimiya.agileagent.memory.MemoryException.ErrorCode;
 import io.github.sukimiya.agileagent.memory.jobs.JobType;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobQueue;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.ProfileCache;
+import io.github.sukimiya.agileagent.memory.items.MemoryItemSourceRepository;
 import io.github.sukimiya.agileagent.memory.jobs.MemoryJobWorker;
 import io.github.sukimiya.agileagent.service.FileStorageService;
 import io.r2dbc.spi.ConnectionFactory;
@@ -25,21 +28,26 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 /**
- * Conversation deletion in two phases.
+ * Conversation deletion in two phases. All deletes are soft ({@code is_valid = 0}): the rows stay queryable in the
+ * database but no normal read, recall, prompt or user API sees them.
  * <ol>
- * <li>{@link #deleteConversation}: one transaction tombstones the session (clears its title, bumps its revision),
- * interrupts any active turn with an incremented fence (error code {@code CONVERSATION_DELETED}; its open tool
- * calls become UNCERTAIN), drops the conversation's pending chunk-index jobs and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
+ * <li>{@link #deleteConversation}: one transaction tombstones the session ({@code is_valid = 0}, deletion time,
+ * bumped revision; the title is kept), interrupts any active turn with an incremented fence (error code
+ * {@code CONVERSATION_DELETED}; its open tool calls become UNCERTAIN), drops the conversation's pending chunk-index
+ * jobs, invalidates the conversation's memory sources, deactivates items left without a valid source (marked with
+ * {@code source_deleted_at}) and registers a durable cleanup job. From commit on, every read, renewal, checkpoint,
  * upload and download sees the tombstone or the stale fence. The session row is locked first, the same order as
  * turn acceptance, so a concurrent accept either fails with 404 or is interrupted by the delete.</li>
  * <li>The {@link JobType#CONVERSATION_CLEANUP} handler, run by {@link MemoryJobWorker} from {@link #runPending}:
- * retryable physical cleanup of messages, tool records, recall chunks, turn records, the cached window (replaced by a cache tombstone that
- * refuses later refills) and the conversation's local attachment directory. Failed jobs are retried with
- * backoff; jobs left RUNNING by a dead process are reclaimed after their lease.</li>
+ * retryable invalidation of messages, tool records, turns, recall chunks, turn records and recall events, then the
+ * cached window is replaced by a cache tombstone that refuses later refills and the user profile snapshot is
+ * re-rendered. Nothing is physically deleted here; attachment files stay subject to the upload TTL. Derived index
+ * rows are physically purged later by {@code MemoryIndexPurger} according to their recall references. Failed jobs
+ * are retried with backoff; jobs left RUNNING by a dead process are reclaimed after their lease.</li>
  * </ol>
- * The tombstone row (id, owner, deletion time; no content) is kept permanently so neither background work nor a
- * cache rebuild nor a reused id can bring the conversation back. Runs at startup and every
- * {@code app.memory.cleanup-scan-interval} when {@code app.memory.recovery-enabled} is set.
+ * The tombstone row is kept permanently so neither background work nor a cache rebuild nor a reused id can bring
+ * the conversation back. Runs at startup and every {@code app.memory.cleanup-scan-interval} when
+ * {@code app.memory.recovery-enabled} is set.
  */
 @Component
 public class MemoryMaintenance implements SmartLifecycle {
@@ -71,18 +79,39 @@ public class MemoryMaintenance implements SmartLifecycle {
     private final TransactionalOperator transactions;
     private final MemoryJobQueue jobs;
     private final MemoryJobWorker worker;
+    private final MemoryItemSourceRepository itemSources;
+    private final MemoryItemRepository memoryItems;
+    private final ProfileCache profileCache;
+    private final io.github.sukimiya.agileagent.memory.items.ProfileService profiles;
     private volatile Disposable schedule;
+    private volatile io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts;
+
+    /** Recalled original text cache (M2b Task 9), evicted with the conversation. */
+    @Autowired(required = false)
+    public void setRecallTextCache(io.github.sukimiya.agileagent.memory.recall.RecallTextCache recallTexts) {
+        this.recallTexts = recallTexts;
+    }
+
+    private Mono<Void> evictRecallTexts(MemoryScope scope, String conversationId) {
+        var current = recallTexts;
+        return current == null ? Mono.empty() : current.evict(scope, java.util.List.of(conversationId));
+    }
 
     /** Standalone wiring (tests): its own worker, which never pauses for an instance conflict. */
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
             FileStorageService files, MemoryProperties props, MemoryMetrics metrics) {
-        this(connectionFactory, db, cache, files, props, metrics, new MemoryJobWorker(db, () -> false));
+        this(connectionFactory, db, cache, files, props, metrics, new MemoryJobWorker(db, () -> false),
+                (ProfileCache) null, null);
     }
 
     /** Registers the {@link JobType#CONVERSATION_CLEANUP} handler on the shared worker. */
     @Autowired
     public MemoryMaintenance(ConnectionFactory connectionFactory, DatabaseClient db, HotMemoryCache cache,
-            FileStorageService files, MemoryProperties props, MemoryMetrics metrics, MemoryJobWorker worker) {
+            FileStorageService files, MemoryProperties props, MemoryMetrics metrics, MemoryJobWorker worker,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) ProfileCache profileCache,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            io.github.sukimiya.agileagent.memory.items.ProfileService profiles) {
+        this.profiles = profiles;
         this.metrics = metrics;
         this.db = db;
         this.cache = cache;
@@ -91,6 +120,9 @@ public class MemoryMaintenance implements SmartLifecycle {
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.jobs = new MemoryJobQueue(db);
         this.worker = worker;
+        this.itemSources = new MemoryItemSourceRepository(db);
+        this.memoryItems = new MemoryItemRepository(db);
+        this.profileCache = profileCache;
         worker.register(JobType.CONVERSATION_CLEANUP, job -> cleanup(job.scope(), job.conversationId()));
     }
 
@@ -133,7 +165,8 @@ public class MemoryMaintenance implements SmartLifecycle {
                                 log.warn("memory.delete cache tombstone deferred to cleanup: {}",
                                         NestedExceptionUtils.getMostSpecificCause(e).toString());
                                 return Mono.empty();
-                            })
+                            }).then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope))
+                                    .then(Mono.defer(() -> evictRecallTexts(scope, conversationId)))
                             : Mono.empty());
         });
     }
@@ -157,14 +190,16 @@ public class MemoryMaintenance implements SmartLifecycle {
     /** The committed tombstone of this call, or {@link Tombstone#REPEAT} when the owner had already deleted it. */
     private Mono<Tombstone> tombstone(MemoryScope scope, String conversationId,
             java.util.concurrent.atomic.AtomicLong interrupted) {
-        return db.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), title = '', revision = revision + 1,"
+        return db.sql("UPDATE sessions SET deleted_at = CURRENT_TIMESTAMP(6), is_valid = 0, revision = revision + 1,"
                         + " updated_at = CURRENT_TIMESTAMP(6) WHERE id = :id AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NULL")
+                        + " AND user_id = :subject AND is_valid = 1")
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated()
                 .flatMap(n -> n == 1
                         ? revokeTurns(scope, conversationId, interrupted)
                                 .then(dropPendingIndexJobs(scope, conversationId))
+                                .then(detachMemorySources(scope, conversationId))
+                                .then(deactivateSessionItems(scope, conversationId))
                                 .then(enqueue(scope, conversationId))
                                 .then(readTombstone(conversationId))
                         : alreadyDeletedByOwner(scope, conversationId));
@@ -181,7 +216,7 @@ public class MemoryMaintenance implements SmartLifecycle {
 
     private Mono<Tombstone> alreadyDeletedByOwner(MemoryScope scope, String conversationId) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :id AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NOT NULL")
+                        + " AND user_id = :subject AND is_valid = 0")
                 .bind("id", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> TurnRepository.number(row.get("n")))
                 .one()
@@ -251,24 +286,61 @@ public class MemoryMaintenance implements SmartLifecycle {
     /** Idempotent physical cleanup; refuses to touch a conversation that is not tombstoned. */
     private Mono<Void> cleanup(MemoryScope scope, String c) {
         return db.sql("SELECT COUNT(*) AS n FROM sessions WHERE id = :c AND tenant_id = :tenantId"
-                        + " AND user_id = :subject AND deleted_at IS NOT NULL")
+                        + " AND user_id = :subject AND is_valid = 0")
                 .bind("c", c).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .map(row -> TurnRepository.number(row.get("n")))
                 .one()
                 .flatMap(n -> n == 1 ? Mono.empty()
                         : Mono.error(new IllegalStateException("cleanup target is not a deleted conversation")))
-                .then(scopedDelete("chat_messages", scope, c))
-                .then(scopedDelete("chat_tool_events", scope, c))
-                .then(scopedDelete("memory_chunks", scope, c))
-                .then(scopedDelete("memory_summaries", scope, c))
-                .then(scopedDelete("memory_index_progress", scope, c))
+                .then(invalidate("chat_messages", scope, c))
+                .then(invalidate("chat_tool_events", scope, c))
+                .then(invalidate("chat_turns", scope, c))
+                .then(invalidate("memory_chunks", scope, c))
+                .then(invalidate("memory_summaries", scope, c))
+                .then(invalidate("memory_recall_events", scope, c))
                 .then(Mono.defer(() -> cache.tombstone(scope, c)))
-                .then(Mono.defer(() -> files.deleteConversationFiles(c)));
+                .then(Mono.defer(() -> evictRecallTexts(scope, c)))
+                .then(Mono.defer(() -> profiles == null ? Mono.<Void>empty() : profiles.refreshSnapshot(scope)));
     }
 
-    private Mono<Long> scopedDelete(String table, MemoryScope scope, String conversationId) {
-        return Mono.defer(() -> db.sql("DELETE FROM " + table + " WHERE conversation_id = :c"
-                        + " AND tenant_id = :tenantId AND subject = :subject")
+
+    /**
+     * Soft-deletes the item sources that came from this conversation; items left with no valid source are
+     * deactivated and marked source-deleted (no longer recalled, purge candidates). Multi-source user-level
+     * items keep their remaining sources and stay ACTIVE.
+     */
+    private Mono<Void> detachMemorySources(MemoryScope scope, String conversationId) {
+        return itemSources.invalidateByConversation(scope, conversationId)
+                .concatMap(itemId -> itemSources.countForItem(itemId)
+                        .flatMap(n -> n > 0 ? Mono.<Void>empty() : markSourceDeleted(scope, itemId)))
+                .then(profileCache == null ? Mono.empty() : profileCache.invalidate(scope));
+    }
+
+    private Mono<Void> markSourceDeleted(MemoryScope scope, String itemId) {
+        return db.sql("UPDATE memory_items SET status = CASE WHEN status IN ('ACTIVE', 'CANDIDATE', 'CONFLICT')"
+                        + " THEN 'INACTIVE' ELSE status END,"
+                        + " source_deleted_at = COALESCE(source_deleted_at, CURRENT_TIMESTAMP(6)),"
+                        + " revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE id = :id AND tenant_id = :tenantId AND subject = :subject")
+                .bind("id", itemId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated().then();
+    }
+
+    /** Session-scoped items of the conversation: deactivated and marked source-deleted, never removed here. */
+    private Mono<Void> deactivateSessionItems(MemoryScope scope, String conversationId) {
+        return db.sql("UPDATE memory_items SET status = CASE WHEN status IN ('ACTIVE', 'CANDIDATE', 'CONFLICT')"
+                        + " THEN 'INACTIVE' ELSE status END,"
+                        + " source_deleted_at = COALESCE(source_deleted_at, CURRENT_TIMESTAMP(6)),"
+                        + " revision = revision + 1, updated_at = CURRENT_TIMESTAMP(6)"
+                        + " WHERE conversation_id = :c AND tenant_id = :tenantId AND subject = :subject")
+                .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .fetch().rowsUpdated().then();
+    }
+
+    /** Soft delete: {@code is_valid = 0} on the conversation's rows; nothing is removed. */
+    private Mono<Long> invalidate(String table, MemoryScope scope, String conversationId) {
+        return Mono.defer(() -> db.sql("UPDATE " + table + " SET is_valid = 0 WHERE conversation_id = :c"
+                        + " AND tenant_id = :tenantId AND subject = :subject AND is_valid = 1")
                 .bind("c", conversationId).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
                 .fetch().rowsUpdated());
     }
