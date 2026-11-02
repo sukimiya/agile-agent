@@ -527,9 +527,31 @@ class MemoryEvalBaselineTest {
     }
 
     @Test
+    void m2bForcedCompressionLiveRunIsRecordedAsABaseline() {
+        // Transcribed from docs/memory/eval-baseline.md 5.8 (Task 9 forced-compression live run, added 2026-11-02).
+        var t9 = MemoryEvalReport.loadBaselines().stream().filter(b -> b.label().equals("M2b-T9")).findFirst()
+                .orElseThrow();
+        assertThat(t9.commit()).isEqualTo("9b4f116");
+        assertThat(t9.runAt()).startsWith("2026-11-01T19:5");
+        assertThat(t9.contextInput()).isEqualTo(MemoryEvalRunner.M2B_CONTEXT);
+        assertThat(t9.recallAtK()).isEqualTo(1.0);
+        assertThat(t9.sourceAccuracy()).isEqualTo(1.0);
+        assertThat(t9.falseMemories()).isEqualTo(1);
+        assertThat(t9.firstTokenP50Ms()).isEqualTo(3125.0);
+        assertThat(t9.firstTokenP95Ms()).isEqualTo(4942.0);
+        assertThat(t9.retrievalP50Ms()).isEqualTo(5.84);
+        assertThat(t9.retrievalP95Ms()).isEqualTo(19.6);
+        assertThat(t9.cases()).hasSize(24).allSatisfy((id, c) -> assertThat(c.verdict()).isEqualTo("CORRECT"));
+        assertThat(t9.cases().values().stream().mapToLong(MemoryEvalReport.BaselineCase::promptTokens).sum())
+                .isEqualTo(36274);
+        assertThat(t9.cases().get("long-01").promptTokens()).isEqualTo(14069);
+    }
+
+    @Test
     void m1BaselineComparisonUsesSameModelAndCases() throws Exception {
         var previous = MemoryEvalReport.loadBaselines();
-        assertThat(previous).extracting(MemoryEvalReport.Baseline::label).containsExactly("M1", "M2a", "M2b");
+        assertThat(previous).extracting(MemoryEvalReport.Baseline::label)
+                .containsExactly("M1", "M2a", "M2b", "M2b-T9");
         // The recorded baselines name one model and endpoint (kept under docs/, outside the product roots).
         var model = previous.get(0).model();
         var host = previous.get(0).endpointHost();
@@ -544,15 +566,16 @@ class MemoryEvalBaselineTest {
         assertThat(comparison.comparable()).as(comparison.reason()).isTrue();
         var rows = comparison.rows().stream().collect(Collectors.toMap(MemoryEvalReport.ComparisonRow::caseId,
                 Function.identity()));
-        assertThat(comparison.labels()).containsExactly("M1", "M2a", "M2b", "本次");
-        assertThat(rows.get("coref-01").verdicts()).containsExactly("CORRECT", "CORRECT", "CORRECT", "CORRECT");
-        assertThat(rows.get("fact-01").verdicts()).containsExactly(null, null, "CORRECT", "WRONG");
-        // recall-01 (correct in M2a and M2b) and fact-01 (correct in M2b) are wrong now: regressions against any
-        // recorded baseline, reported, never hidden.
+        assertThat(comparison.labels()).containsExactly("M1", "M2a", "M2b", "M2b-T9", "本次");
+        assertThat(rows.get("coref-01").verdicts())
+                .containsExactly("CORRECT", "CORRECT", "CORRECT", "CORRECT", "CORRECT");
+        assertThat(rows.get("fact-01").verdicts()).containsExactly(null, null, "CORRECT", "CORRECT", "WRONG");
+        // recall-01 (correct in M2a, M2b and M2b-T9) and fact-01 (correct in M2b and M2b-T9) are wrong now:
+        // regressions against any recorded baseline, reported, never hidden.
         assertThat(comparison.regressions()).containsExactly("recall-01", "fact-01");
         var md = Files.readString(MemoryEvalReport.writeComparison(out, comparison));
-        assertThat(md).contains("| 用例 | M1 | M2a | M2b | 本次 | prompt_tokens M1 / M2a / M2b / 本次 |")
-                .contains("| --- | --- | --- | --- | --- | --- |").contains("recall-01").contains("回退");
+        assertThat(md).contains("| 用例 | M1 | M2a | M2b | M2b-T9 | 本次 | prompt_tokens M1 / M2a / M2b / M2b-T9 / 本次 |")
+                .contains("| --- | --- | --- | --- | --- | --- | --- |").contains("recall-01").contains("回退");
         assertThat(comparison.gate().passed()).isFalse();
         assertThat(comparison.gate().failures()).anySatisfy(f -> assertThat(f).contains("回退").contains("recall-01"));
         assertThat(md).contains("质量门槛").contains("未达到");
