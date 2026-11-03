@@ -186,6 +186,10 @@ class OpenSourceBoundaryTest {
                 .contains("mvn -pl agent-server -am -DskipTests package",
                         "agile-agent-server-0.0.1-SNAPSHOT.jar");
         assertThat(jenkinsfile).contains("mvn -pl agent-server,mock-oauth2 -am clean package");
+        // CI builds the image locally only (user decision 2026-11-03): no registry login, push or credentials.
+        assertThat(jenkinsfile).contains("-DskipTests=true", "docker build", "-f docker/Dockerfile")
+                .doesNotContain("docker login", "docker push", "docker logout", "withCredentials",
+                        "docker_registry_credentials");
 
         String productionServer = composeServiceSection(compose, "agile-agent-server");
         String mockProvider = composeServiceSection(compose, "agile-agent-mock-oauth2");
