@@ -16,16 +16,13 @@ pipeline {
 
 		stage('build-docker-image') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'docker_registry_credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                        echo '<========= Current git branch $BRANCH_NAME =========>'
-                        echo '<============== Build docker image ==============>'
-                        echo $DOCKER_PASS | sudo docker login -u ${DOCKER_USER.replace('$', '\\$')} --password-stdin $DOCKER_REGISTRY_URL
-                        sudo docker build -t $DOCKER_REGISTRY_URL/agile-agent-server:$BRANCH_NAME-$BUILD_NUMBER -f docker/Dockerfile .
-                        sudo docker push $DOCKER_REGISTRY_URL/agile-agent-server:$BRANCH_NAME-$BUILD_NUMBER
-                        sudo docker logout $DOCKER_REGISTRY_URL
-                    """
-                }
+                // Build only: the image stays on the build machine; no registry login or push (2026-11-03).
+                // DOCKER_REGISTRY_URL is only the image name prefix; both values default when unset.
+                sh '''
+                    echo "<========= Current git branch ${BRANCH_NAME:-local} =========>"
+                    echo '<============== Build docker image (not pushed) ==============>'
+                    sudo docker build -t "${DOCKER_REGISTRY_URL:-agile-agent}/agile-agent-server:${BRANCH_NAME:-local}-${BUILD_NUMBER}" -f docker/Dockerfile .
+                '''
             }
         }
 

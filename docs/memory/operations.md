@@ -119,6 +119,7 @@
 - 构建与运行使用 JDK 25 LTS（原为 JDK 21），Spring Boot 3.5.16。镜像 `docker/Dockerfile` 基于 `eclipse-temurin:25-jdk-alpine-3.22`，启动参数含 `-XX:+UseCompactObjectHeaders`（紧凑对象头，JDK 25 为正式特性但默认关闭；粗测约减少 5–20% 的存活对象占用和约 25% 的 GC 次数）。堆仍固定为 `-Xms1024m -Xmx1024m`，因此进程 RSS 不会因此下降，收益是堆内余量和更少的 GC；是否调小堆另行评估。
 - 回退：如紧凑对象头出现问题，可去掉该参数重建镜像（不需要改代码）；回退到 JDK 21 需要同时回退 `pom.xml` 的 `java.version`（字节码为 Java 25 版本，JDK 21 无法加载）。
 - **待办（部署前确认）：** Jenkins 构建机上是否已安装 JDK 25 并作为 `mvn` 使用的 JDK，在仓库里无法确认；第一次发布前需在 Jenkins 上确认 `mvn -v` 显示 Java 25，否则 `build-jar` 阶段会因 `release 25` 无效而编译失败。
+- **CI（`Jenkinsfile`，2026-11-03 起只构建不推送）：** `build-jar` 打包服务端与本地 OAuth2 模拟服务（跳过测试），`build-docker-image` 在构建机本地执行 `docker build`，镜像名为 `${DOCKER_REGISTRY_URL:-agile-agent}/agile-agent-server:${BRANCH_NAME:-local}-<构建号>`；不登录、不推送镜像仓库，也不再需要 `docker_registry_credentials` 凭据。构建机需要 JDK 25 的 `mvn` 和可用的 `sudo docker`。
 - Spring Boot 3.5 的开源免费支持已于 2026-06-30 结束（3.5.16 为最后一个免费补丁），升级到 Boot 4.x 另行规划。
 
 ## 单实例保护
