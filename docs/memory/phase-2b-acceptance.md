@@ -76,7 +76,7 @@ H2 结果不代替 MySQL 迁移与中文全文检索的验收；fake LLM 结果�
 
 已决定（2026-11-02）：召回缓存设计（用户 2026-11-02 确认接受）：只缓存压缩过的轮次（明文轮次直接读库）；每次召回先查数据库确认会话与轮次仍有效，再用缓存（删除、遗忘后不会读到旧缓存，代价是每次召回多一次查询）；评测使用进程内缓存，Redis 实现由单元测试与 MySQL IT 验证。
 
-1. **关系写入**：`EntityGraphRepository.saveRelation` 只有测试调用，记为 M2b 之后的后续任务（用户决定 2026-10-29）；在此之前一跳关系召回只对已有关系生效。
+1. **关系写入**：`EntityGraphRepository.saveRelation` 只有测试调用，记为 M2b 之后的后续任务（用户决定 2026-10-29）；在此之前一跳关系召回只对已有关系生效。2026-11-04 设计已确认并开始实施，见 `relations-design.md`。
 2. 偶发失败的 `TurnStreamingIntegrationTest.concurrentFirstRequestsWithTheSameKeyExecuteOnceOnBothEndpoints`（第 3 节），继续观察。
 3. **Jenkins 上的 JDK 25（待办）**：2026-10-30 起构建与运行改为 JDK 25（见 `operations.md`“运行环境”）；Jenkins 构建机是否已有 JDK 25 无法在此确认，第一次发布前需确认。
 4. **corr-03 错误记忆（Task 9 补跑）**：旧卡号条目这次没有被替代（5.6 / 5.7 中被替代），不作门槛，继续观察是否重复出现。
