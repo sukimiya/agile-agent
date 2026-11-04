@@ -89,7 +89,7 @@ class SoftDeleteRetentionTest {
                 new FileStorageService(uploads), stack.props(), stack.metrics());
         items = new MemoryItemRepository(db);
         sources = new MemoryItemSourceRepository(db);
-        graph = new EntityGraphRepository(db);
+        graph = new EntityGraphRepository(db, stack.props());
         var cache = new ProfileCache(null, stack.props());
         var profiles = new ProfileService(db, items, new MemorySettingsService(db, cache), cache, stack.props());
         itemService = new MemoryItemService(db, stack.fixture().connectionFactory(), items, sources, graph, profiles,
@@ -283,7 +283,7 @@ class SoftDeleteRetentionTest {
         var many = item(conversation, "六次引用", conversation);
         var e1 = graph.upsertEntity(ALICE, "甲", "OTHER").block(WAIT);
         var e2 = graph.upsertEntity(ALICE, "乙", "OTHER").block(WAIT);
-        graph.saveRelation(ALICE, e1.id(), "LINKS", e2.id(), none.id(), "ACTIVE").block(WAIT);
+        graph.saveRelation(ALICE, none.id(), e1.id(), "合作", e2.id()).block(WAIT);
         // References recorded inside the deleted conversation still count.
         references("ITEM", few.id(), 3, conversation);
         references("ITEM", many.id(), 6, other);

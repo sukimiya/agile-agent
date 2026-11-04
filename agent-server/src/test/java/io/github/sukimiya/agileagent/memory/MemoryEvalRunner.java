@@ -236,7 +236,7 @@ final class MemoryEvalRunner {
         props.getJudgement().setEnabled(true);
         this.items = new MemoryItemRepository(db);
         var sources = new MemoryItemSourceRepository(db);
-        this.graph = new EntityGraphRepository(db);
+        this.graph = new EntityGraphRepository(db, props);
         this.profiles = new ProfileService(db, items, settings, new ProfileCache(null, props), props);
         this.itemService = new MemoryItemService(db, stack.fixture().connectionFactory(), items, sources, graph,
                 profiles, props);
@@ -795,11 +795,21 @@ final class MemoryEvalRunner {
         return detail;
     }
 
-    /** No production path writes relations yet: one is seeded to verify the read path into the prompt. */
+    /**
+     * No production path writes relations yet: one is seeded with its own item in the probe conversation (visible
+     * with the switch on or off) to verify the read path into the prompt.
+     */
     private String checkRelations(Scenario s) {
-        var from = graph.upsertEntity(s.scope(), "地铁", "PLACE").block(TURN_WAIT);
-        var to = graph.upsertEntity(s.scope(), "通勤", "ACTIVITY").block(TURN_WAIT);
-        graph.saveRelation(s.scope(), from.id(), "用于", to.id(), null, "ACTIVE").block(TURN_WAIT);
+        var cross = settings.crossConversationEnabled(s.scope()).block(TURN_WAIT);
+        var item = io.github.sukimiya.agileagent.memory.items.MemoryItem.newItem(s.scope(),
+                Boolean.TRUE.equals(cross) ? null : s.probeConversationId(), "FACT", "通勤使用地铁",
+                io.github.sukimiya.agileagent.memory.items.ItemStatus.ACTIVE,
+                io.github.sukimiya.agileagent.memory.items.MemoryItem.Assertion.USER_STATED, 0.5, 0.9, 1, "eval",
+                "seeded relation");
+        items.save(item).block(TURN_WAIT);
+        var from = graph.upsertEntity(s.scope(), "通勤", "TOPIC").block(TURN_WAIT);
+        var to = graph.upsertEntity(s.scope(), "地铁", "PLACE").block(TURN_WAIT);
+        graph.saveRelation(s.scope(), item.id(), from.id(), "使用", to.id()).block(TURN_WAIT);
         var ticket = stack.accept(s.scope(), s.probeConversationId(), NonBlockingIds.uuid(), "地铁 通勤").ticket();
         try {
             var result = retriever.recall(ticket, "地铁 通勤").block(TURN_WAIT);

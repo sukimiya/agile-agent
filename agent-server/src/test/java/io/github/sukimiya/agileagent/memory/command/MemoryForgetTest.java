@@ -142,7 +142,7 @@ class MemoryForgetTest {
         new ChunkIndexer(db, stack.fixture().connectionFactory(), chunks, worker, stack.props());
         items = new MemoryItemRepository(db);
         sources = new MemoryItemSourceRepository(db);
-        graph = new EntityGraphRepository(db);
+        graph = new EntityGraphRepository(db, stack.props());
         var cache = new ProfileCache(null, stack.props());
         settings = new MemorySettingsService(db, cache);
         profiles = new ProfileService(db, items, settings, cache, stack.props());
@@ -357,9 +357,9 @@ class MemoryForgetTest {
         settings.update(ALICE, true).block(WAIT);
         var clinic = item(null, CLINIC);
         var kept = item(null, "用户喜欢绿茶");
-        var e1 = graph.upsertEntity(ALICE, "用户", "PERSON").block(WAIT);
+        var e1 = graph.self(ALICE).block(WAIT);
         var e2 = graph.upsertEntity(ALICE, "口腔医院", "PLACE").block(WAIT);
-        graph.saveRelation(ALICE, e1.id(), "VISITS", e2.id(), clinic.id(), "ACTIVE").block(WAIT);
+        graph.saveRelation(ALICE, clinic.id(), e1.id(), "位于", e2.id()).block(WAIT);
         profiles.rebuild(ALICE).block(WAIT);
         assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("口腔医院");
 
@@ -367,7 +367,7 @@ class MemoryForgetTest {
 
         assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).doesNotContain("口腔医院")
                 .contains(kept.content());
-        assertThat(graph.oneHop(ALICE, List.of("口腔医院"), 10).collectList().block(WAIT)).isEmpty();
+        assertThat(graph.oneHop(ALICE, null, true, List.of("口腔医院"), 10).collectList().block(WAIT)).isEmpty();
     }
 
     // --- retention ----------------------------------------------------------------------------------------

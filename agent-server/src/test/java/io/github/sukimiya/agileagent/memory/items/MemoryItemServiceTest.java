@@ -52,7 +52,7 @@ class MemoryItemServiceTest {
         sources = new MemoryItemSourceRepository(db);
         cache = new ProfileCache(null, props);
         settings = new MemorySettingsService(db, cache);
-        graph = new EntityGraphRepository(db);
+        graph = new EntityGraphRepository(db, props);
         profiles = new ProfileService(db, items, settings, cache, props);
         service = new MemoryItemService(db, fixture.connectionFactory(), items, sources, graph, profiles, props);
     }
@@ -140,9 +140,9 @@ class MemoryItemServiceTest {
         settings.update(ALICE, true).block(WAIT);
         var keep = save(ALICE, "喜欢中文");
         var gone = save(ALICE, "喜欢绿茶");
-        var e1 = graph.upsertEntity(ALICE, "用户", "PERSON").block(WAIT);
-        var e2 = graph.upsertEntity(ALICE, "绿茶", "OTHER").block(WAIT);
-        graph.saveRelation(ALICE, e1.id(), "LIKES", e2.id(), gone.id(), "ACTIVE").block(WAIT);
+        var e1 = graph.self(ALICE).block(WAIT);
+        var e2 = graph.upsertEntity(ALICE, "绿茶", "PRODUCT").block(WAIT);
+        graph.saveRelation(ALICE, gone.id(), e1.id(), "偏好", e2.id()).block(WAIT);
         profiles.rebuild(ALICE).block(WAIT);
         assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("喜欢绿茶");
 
@@ -151,7 +151,7 @@ class MemoryItemServiceTest {
         assertThatThrownBy(() -> service.detail(ALICE, gone.id()).block(WAIT))
                 .satisfies(e -> assertThat(code(e)).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
         assertThat(items.searchActive(ALICE, null, List.of("绿茶"), 10).collectList().block(WAIT)).isEmpty();
-        assertThat(graph.oneHop(ALICE, List.of("用户"), 10).collectList().block(WAIT)).isEmpty();
+        assertThat(graph.oneHop(ALICE, null, true, List.of(EntityGraphRepository.SELF_KEY), 10).collectList().block(WAIT)).isEmpty();
         assertThat(profiles.current(ALICE).block(WAIT).orElseThrow().content()).contains("喜欢中文")
                 .doesNotContain("喜欢绿茶");
         assertThat(profiles.rebuild(ALICE).block(WAIT).content()).doesNotContain("喜欢绿茶");
@@ -175,9 +175,9 @@ class MemoryItemServiceTest {
     void deleteProfileRemovesSnapshotAndGraph() {
         settings.update(ALICE, true).block(WAIT);
         var item = save(ALICE, "喜欢中文");
-        var e1 = graph.upsertEntity(ALICE, "用户", "PERSON").block(WAIT);
-        var e2 = graph.upsertEntity(ALICE, "中文", "OTHER").block(WAIT);
-        graph.saveRelation(ALICE, e1.id(), "PREFERS", e2.id(), null, "ACTIVE").block(WAIT);
+        var e1 = graph.self(ALICE).block(WAIT);
+        var e2 = graph.upsertEntity(ALICE, "中文", "TOPIC").block(WAIT);
+        graph.saveRelation(ALICE, item.id(), e1.id(), "偏好", e2.id()).block(WAIT);
         var bobEntity = graph.upsertEntity(BOB, "鲍勃", "PERSON").block(WAIT);
         var built = profiles.rebuild(ALICE).block(WAIT);
         assertThat(cache.get(ALICE, built.version()).block(WAIT)).isNotNull();
@@ -194,7 +194,7 @@ class MemoryItemServiceTest {
                     .as(table).isPositive();
         }
         assertThat(graph.findById(ALICE, e1.id()).blockOptional()).isEmpty();
-        assertThat(graph.oneHop(ALICE, List.of("用户"), 10).collectList().block(WAIT)).isEmpty();
+        assertThat(graph.oneHop(ALICE, null, true, List.of(EntityGraphRepository.SELF_KEY), 10).collectList().block(WAIT)).isEmpty();
         assertThat(cache.get(ALICE, built.version()).block(WAIT)).isNull();
         assertThat(profiles.current(ALICE).block(WAIT)).isEmpty();
         // Items and other users' graphs stay.

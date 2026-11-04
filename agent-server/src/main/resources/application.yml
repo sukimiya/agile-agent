@@ -103,6 +103,17 @@ app:
       pending-ttl: 5m
       max-candidates: 5
       classify-timeout: 10s
+    # One-hop entity relations written with memory items (docs/memory/relations-design.md, decisions 2026-11-04).
+    relations:
+      enabled: true
+      types: [负责, 属于, 使用, 采用, 位于, 拥有, 合作, 偏好]
+      entity-types: [PERSON, PROJECT, ORG, PLACE, PRODUCT, TOPIC, OTHER]
+      max-per-item: 3
+      max-entity-name-chars: 64
+      entity-match-min-chars: 2
+      entity-scan-limit: 500
+      max-recalled: 10
+      first-person-words: [我, 我的, 本人]
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
   upload:
     dir: ${app.data-dir}/uploads

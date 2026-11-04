@@ -191,7 +191,7 @@ class RecallTextCacheTest {
         var profileCache = new ProfileCache(null, props);
         var settings = new MemorySettingsService(db, profileCache);
         var service = new MemoryItemService(db, fixture.connectionFactory(), items, sources,
-                new EntityGraphRepository(db), new ProfileService(db, items, settings, profileCache, props), props);
+                new EntityGraphRepository(db, props), new ProfileService(db, items, settings, profileCache, props), props);
         service.setRecallTextCache(cache);
         var tea = MemoryItem.newItem(ALICE, null, "PREFERENCE", "喜欢绿茶", ItemStatus.ACTIVE,
                 MemoryItem.Assertion.USER_STATED, 0.8, 0.9, 1, "m", "r");

@@ -294,6 +294,127 @@ public class MemoryProperties {
         }
     }
 
+    private final Relations relations = new Relations();
+
+    public Relations getRelations() { return relations; }
+
+    /**
+     * {@code app.memory.relations.*}: one-hop entity relations written with memory items (relation write path,
+     * user decisions 2026-11-04). Vocabularies are closed lists; every limit is configuration. Setters reject
+     * single bad values, {@link #validate()} checks the combination at startup.
+     */
+    public static class Relations {
+        /** Type of the reserved user-self entity; not usable as a configured entity type. */
+        public static final String SELF_TYPE = "SELF";
+        /** Width of {@code memory_relations.relation} and {@code memory_entities.entity_type}. */
+        static final int TYPE_COLUMN_CHARS = 64;
+        /** Width of {@code memory_entities.name}. */
+        static final int NAME_COLUMN_CHARS = 512;
+
+        /** Relations are written with judged items (effective only while judgement is enabled). */
+        private boolean enabled = true;
+        private java.util.List<String> types = java.util.List.of("负责", "属于", "使用", "采用", "位于", "拥有", "合作",
+                "偏好");
+        private java.util.List<String> entityTypes = java.util.List.of("PERSON", "PROJECT", "ORG", "PLACE", "PRODUCT",
+                "TOPIC", "OTHER");
+        /** Max relations written with one item. */
+        private int maxPerItem = 3;
+        /** Max characters of an entity name. */
+        private int maxEntityNameChars = 64;
+        /** Shortest entity name matched inside a question. */
+        private int entityMatchMinChars = 2;
+        /** Max entities of one user scanned when matching a question. */
+        private int entityScanLimit = 500;
+        /** Max one-hop relations injected with a recall. */
+        private int maxRecalled = 10;
+        /** Words in a question that refer to the user (match the user-self entity). */
+        private java.util.List<String> firstPersonWords = java.util.List.of("我", "我的", "本人");
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean v) { this.enabled = v; }
+
+        public java.util.List<String> getTypes() { return types; }
+        public void setTypes(java.util.List<String> v) {
+            this.types = vocabulary("types", v, TYPE_COLUMN_CHARS, false);
+        }
+
+        public java.util.List<String> getEntityTypes() { return entityTypes; }
+        public void setEntityTypes(java.util.List<String> v) {
+            var checked = vocabulary("entity-types", v, TYPE_COLUMN_CHARS, false);
+            if (checked.contains(SELF_TYPE)) {
+                throw new IllegalArgumentException("app.memory.relations.entity-types must not contain " + SELF_TYPE
+                        + " (reserved for the user-self entity)");
+            }
+            this.entityTypes = checked;
+        }
+
+        public int getMaxPerItem() { return maxPerItem; }
+        public void setMaxPerItem(int v) { this.maxPerItem = positive("max-per-item", v); }
+
+        public int getMaxEntityNameChars() { return maxEntityNameChars; }
+        public void setMaxEntityNameChars(int v) {
+            positive("max-entity-name-chars", v);
+            if (v > NAME_COLUMN_CHARS) {
+                throw new IllegalArgumentException("app.memory.relations.max-entity-name-chars must be <= "
+                        + NAME_COLUMN_CHARS + " (memory_entities.name)");
+            }
+            this.maxEntityNameChars = v;
+        }
+
+        public int getEntityMatchMinChars() { return entityMatchMinChars; }
+        public void setEntityMatchMinChars(int v) { this.entityMatchMinChars = positive("entity-match-min-chars", v); }
+
+        public int getEntityScanLimit() { return entityScanLimit; }
+        public void setEntityScanLimit(int v) { this.entityScanLimit = positive("entity-scan-limit", v); }
+
+        public int getMaxRecalled() { return maxRecalled; }
+        public void setMaxRecalled(int v) { this.maxRecalled = positive("max-recalled", v); }
+
+        public java.util.List<String> getFirstPersonWords() { return firstPersonWords; }
+        public void setFirstPersonWords(java.util.List<String> v) {
+            this.firstPersonWords = vocabulary("first-person-words", v, NAME_COLUMN_CHARS, true);
+        }
+
+        /** Startup check of the combination (single values are checked by the setters). */
+        public void validate() {
+            if (entityMatchMinChars > maxEntityNameChars) {
+                throw new IllegalArgumentException("app.memory.relations.entity-match-min-chars (" + entityMatchMinChars
+                        + ") must be <= app.memory.relations.max-entity-name-chars (" + maxEntityNameChars + ")");
+            }
+        }
+
+        private static int positive(String name, int v) {
+            if (v <= 0) {
+                throw new IllegalArgumentException("app.memory.relations." + name + " must be > 0");
+            }
+            return v;
+        }
+
+        /** Trimmed, non-blank, distinct entries no longer than {@code maxChars}; empty only when allowed. */
+        private static java.util.List<String> vocabulary(String name, java.util.List<String> v, int maxChars,
+                boolean mayBeEmpty) {
+            String key = "app.memory.relations." + name;
+            if (v == null || (v.isEmpty() && !mayBeEmpty)) {
+                throw new IllegalArgumentException(key + " must not be empty");
+            }
+            var out = new java.util.ArrayList<String>();
+            for (var entry : v) {
+                var t = entry == null ? "" : entry.strip();
+                if (t.isEmpty()) {
+                    throw new IllegalArgumentException(key + " must not contain blank entries");
+                }
+                if (t.length() > maxChars) {
+                    throw new IllegalArgumentException(key + " entries must be at most " + maxChars + " characters");
+                }
+                if (out.contains(t)) {
+                    throw new IllegalArgumentException(key + " must not contain duplicate entries: " + t);
+                }
+                out.add(t);
+            }
+            return java.util.List.copyOf(out);
+        }
+    }
+
     private final Profile profile = new Profile();
 
     public Profile getProfile() { return profile; }
@@ -304,8 +425,6 @@ public class MemoryProperties {
         private int maxTokens = 800;
         /** Redis snapshot TTL (idle refresh on hit). */
         private java.time.Duration cacheTtl = java.time.Duration.ofHours(1);
-        /** Max one-hop relations injected with a recall. */
-        private int maxRelations = 10;
 
         public int getMaxTokens() { return maxTokens; }
         public void setMaxTokens(int v) {
@@ -320,13 +439,6 @@ public class MemoryProperties {
                 throw new IllegalArgumentException("app.memory.profile.cache-ttl must be positive");
             }
             this.cacheTtl = v;
-        }
-        public int getMaxRelations() { return maxRelations; }
-        public void setMaxRelations(int v) {
-            if (v <= 0) {
-                throw new IllegalArgumentException("app.memory.profile.max-relations must be > 0");
-            }
-            this.maxRelations = v;
         }
     }
 

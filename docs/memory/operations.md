@@ -150,9 +150,26 @@
 | --- | --- | --- |
 | `max-tokens` | `800` | 重建概要的估算 Token 上限（D14） |
 | `cache-ttl` | `1h` | Redis 概要快照 TTL；命中时刷新；版本变化立即失效 |
-| `max-relations` | `10` | 召回时注入的一跳关系上限 |
 
 跨会话开关关闭时不读不写用户级概要；开启后由 `REBUILD_PROFILE` 任务从 ACTIVE 用户级条目增量重建（不自动扫描既往会话）。
+
+## 实体关系（关系写入路径 T1，用户决定 2026-11-04）
+
+配置前缀 `app.memory.relations.*`（原 `app.memory.profile.max-relations` 已改为 `max-recalled`，旧键不再识别）。启动时校验，非法值启动失败：
+
+| 键 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 写入条目时同时写关系（随判定开启生效） |
+| `types` | `负责, 属于, 使用, 采用, 位于, 拥有, 合作, 偏好` | 允许的关系类型（非空、去重、每项 ≤64 字） |
+| `entity-types` | `PERSON, PROJECT, ORG, PLACE, PRODUCT, TOPIC, OTHER` | 允许的实体类型；`SELF` 保留给“用户本人”实体 |
+| `max-per-item` | `3` | 每个条目最多写入的关系数 |
+| `max-entity-name-chars` | `64` | 实体名最大长度（≤512） |
+| `entity-match-min-chars` | `2` | 问题中匹配实体名的最短长度（≤ `max-entity-name-chars`） |
+| `entity-scan-limit` | `500` | 匹配问题时每个用户最多扫描的实体数 |
+| `max-recalled` | `10` | 召回时注入的一跳关系上限 |
+| `first-person-words` | `我, 我的, 本人` | 问题中指代用户本人的词（匹配 `@self` 实体） |
+
+每条关系必须属于一个条目（V18：`item_id` 非空，无归属的旧行已删除；同一条目内同一条边唯一）。关系的可见性完全跟随条目：条目 ACTIVE、有效、未过期，且符合召回范围（跨会话开关开：只看用户级条目；关：只看当前会话的条目）；两端实体也须有效。同一 (起点, 关系, 终点) 只注入一次（取最新）。
 
 ## 轮次记忆记录（M2a Task 4，默认关闭）
 

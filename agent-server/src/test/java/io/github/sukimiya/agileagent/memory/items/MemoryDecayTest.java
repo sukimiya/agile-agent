@@ -71,7 +71,7 @@ class MemoryDecayTest {
         new ChunkIndexer(db, stack.fixture().connectionFactory(), chunks, worker, stack.props());
         items = new MemoryItemRepository(db);
         sources = new MemoryItemSourceRepository(db);
-        var graph = new EntityGraphRepository(db);
+        var graph = new EntityGraphRepository(db, stack.props());
         var cache = new ProfileCache(null, stack.props());
         var settings = new MemorySettingsService(db, cache);
         var profiles = new ProfileService(db, items, settings, cache, stack.props());

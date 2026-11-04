@@ -272,7 +272,7 @@ public class MemoryRetriever {
         Mono<java.util.Optional<io.github.sukimiya.agileagent.memory.items.Profile>> profileMono = profiles == null
                 ? Mono.just(java.util.Optional.empty())
                 : profiles.current(scope);
-        Mono<List<RecallResult.RelationHit>> relMono = relationLines(scope, query);
+        Mono<List<RecallResult.RelationHit>> relMono = relationLines(scope, current, query);
         Mono<List<RecallCandidate>> itemMono = itemCandidates(scope, current, query);
         return Mono.zip(profileMono.defaultIfEmpty(java.util.Optional.empty()), relMono.defaultIfEmpty(List.of()),
                         itemMono.defaultIfEmpty(List.of()))
@@ -308,7 +308,7 @@ public class MemoryRetriever {
                 item.conversationId() == null, null, item.content(), null);
     }
 
-    private Mono<List<RecallResult.RelationHit>> relationLines(MemoryScope scope, String query) {
+    private Mono<List<RecallResult.RelationHit>> relationLines(MemoryScope scope, String current, String query) {
         if (entities == null) {
             return Mono.just(List.of());
         }
@@ -333,19 +333,13 @@ public class MemoryRetriever {
                 keys.add(run.toString());
             }
         }
-        int limit = props.getProfile().getMaxRelations();
-        return entities.oneHop(scope, keys, limit)
-                .concatMap(rel -> formatRelation(scope, rel))
-                .take(limit)
+        int limit = props.getRelations().getMaxRecalled();
+        // Visibility follows the owning item: same switch and conversation rule as item recall.
+        return settings.crossConversationEnabled(scope)
+                .flatMapMany(cross -> entities.oneHop(scope, current, cross, keys, limit))
+                .map(h -> new RecallResult.RelationHit(h.relation().id(),
+                        h.from().name() + " —" + h.relation().relation() + "→ " + h.to().name()))
                 .collectList();
-    }
-
-    private Mono<RecallResult.RelationHit> formatRelation(MemoryScope scope,
-            io.github.sukimiya.agileagent.memory.items.MemoryRelation rel) {
-        return entities.findById(scope, rel.fromEntityId())
-                .zipWith(entities.findById(scope, rel.toEntityId()))
-                .map(t -> new RecallResult.RelationHit(rel.id(),
-                        t.getT1().name() + " —" + rel.relation() + "→ " + t.getT2().name()));
     }
 
 }
