@@ -1,6 +1,6 @@
 # 实体关系写入路径设计（M2b 后续项）
 
-> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1 进行中（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
+> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1 已完成、T2 已完成（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
 
 ## 1. 现状（2026-11-04，main `9fa3d6e`）
 
@@ -40,6 +40,21 @@
 14. 给判断的已有条目附带其关系，计入 `existing-max-tokens`。
 15. `relations.enabled` 默认 true（判断开启时才生效）。
 16. 评测门槛不变（不回退、投毒 0 条、Recall@5 ≥ 0.9）；新用例首跑作为新基线，之后纳入“不回退”。
+
+### T1 实施后确认（2026-11-05，用户“可以”，全部按建议）
+
+1. 跨会话开关打开时只召回用户级条目的关系（与条目召回一致），当前会话的会话级关系此时不召回。
+2. “用户本人”实体在首次使用时按用户创建，V18 不预置。
+3. V18 加唯一约束前不做去重（生产上从未写过关系，只可能有测试数据）。
+
+### T2 实施细节（2026-11-05）
+
+- 输出结构：REMEMBER（新条目）/ UPDATE / MERGE / SUPERSEDE 可带 `relations`；用户本人写 `{"name":"用户","type":"SELF"}`。其他动作（含指向已有条目的 REMEMBER）带的关系丢弃，原因 `UNSUPPORTED_ACTION`。
+- 提示词 `memory-judgement-v2` 从配置列出关系类型、实体类型、每条目上限和实体名长度；`relations.enabled = false` 时不提及关系、不写入、不计拒绝。Rules 升为 rules-version 2（第 5 条增加关系两端的逐字要求与“用户本人”例外，新增第 7、8 条），不自动回放。
+- 逐条校验（失败只丢该关系，计 `memory.relations.rejected{reason}`）：`BAD_SHAPE`、`BAD_RELATION_TYPE`、`BAD_ENTITY_TYPE`、`BAD_NAME`、`PII_OR_CREDENTIAL`、`NAME_TOO_LONG`、`NAME_NOT_IN_SOURCE`（实体名须在某条来源消息全文中逐字出现）、`SELF_NOT_IN_SOURCE`（来源消息不含第一人称词）、`SELF_NOT_USER_ASSERTED`（条目断言不是 USER_STATED / USER_CONFIRMED、来源不全是用户输入或内容命中粘贴/引用/假设/角色设定判定）、`SAME_ENTITY`、`DUPLICATE`、`TOO_MANY`（超过 `max-per-item`）。
+- 写入（与条目同一事务）：新条目写入其关系；UPDATE / MERGE 带 `relations` 时整体替换（相同的边复用并重新激活，其余旧关系 SUPERSEDED，`[]` 清空），不带该字段时保持不变；SUPERSEDE 的新条目带新关系，旧条目被替代后其关系自然不可见。`memory.relations.written` 计写入（含复用）的关系数。
+- 给判断的已有条目附带其当前关系（`"relations":["名称(类型) —关系→ 名称(类型)"]`），计入 `existing-max-tokens`。
+- Rules 回放（管理员发起）暂不处理关系：回放提示词不要求关系，回放产生的新条目不带关系（旧条目被替代后其关系不再可见）。
 
 ## 4. 任务
 

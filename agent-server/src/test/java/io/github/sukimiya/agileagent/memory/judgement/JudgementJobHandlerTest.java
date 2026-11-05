@@ -75,7 +75,7 @@ class JudgementJobHandlerTest {
         items = new MemoryItemRepository(fixture.databaseClient());
         sources = new MemoryItemSourceRepository(fixture.databaseClient());
         progress = new JudgementProgress(fixture.databaseClient());
-        validator = new JudgementValidator(fixture.databaseClient(), items);
+        validator = new JudgementValidator(fixture.databaseClient(), items, props);
         settings = new MemorySettingsService(fixture.databaseClient());
         quota = new ConsolidationQuota(fixture.databaseClient(), props, metrics);
         queue = new MemoryJobQueue(fixture.databaseClient());
@@ -105,7 +105,7 @@ class JudgementJobHandlerTest {
         return new JudgementJobHandler(fixture.databaseClient(), fixture.connectionFactory(), progress, validator,
                 items, sources, GlobalRules.loadFromClasspath(), settings,
                 tenant -> Mono.just(new JudgementJobHandler.JudgeModel(llm, "fake-model")),
-                worker, props, metrics, quota);
+                worker, props, metrics, quota, new io.github.sukimiya.agileagent.memory.items.EntityGraphRepository(fixture.databaseClient(), props));
     }
 
     private String seed() throws Exception {
@@ -151,7 +151,7 @@ class JudgementJobHandlerTest {
         var row = fixture.jdbc().queryForMap(
                 "SELECT rules_version, judge_model, reason, content, status, assertion, conversation_id"
                         + " FROM memory_items WHERE tenant_id = ?", ALICE.tenantId());
-        assertThat(row.get("rules_version")).isEqualTo(1);
+        assertThat(row.get("rules_version")).isEqualTo(2);
         assertThat(row.get("judge_model")).isEqualTo("fake-model");
         assertThat(row.get("reason")).isEqualTo("test");
         assertThat(row.get("content").toString()).contains("A7-3921");

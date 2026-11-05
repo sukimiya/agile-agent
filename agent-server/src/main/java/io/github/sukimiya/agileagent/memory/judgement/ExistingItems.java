@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 
 import org.springframework.r2dbc.core.DatabaseClient;
@@ -15,6 +16,7 @@ import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.memory.items.DecayPolicy;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
 import io.github.sukimiya.agileagent.memory.recall.EntityTerms;
 import reactor.core.publisher.Mono;
 
@@ -28,7 +30,8 @@ import reactor.core.publisher.Mono;
  * items with a source message in this conversation), no literal match needed, and items whose content contains
  * one of the turn's codes or keywords, filling up to {@code existing-max-items}. Deduplicated, ranked by the
  * decayed score ({@link DecayPolicy#score}).</li>
- * <li>Fields as in Rules replay: id, revision, itemType, content, assertion, status. Over
+ * <li>Fields as in Rules replay: id, revision, itemType, content, assertion, status, and (relations enabled) the
+ * item's current relations in compact form ({@link #compact}). Over
  * {@code existing-max-tokens} (estimated) the lowest-ranked items are dropped first; this budget is separate from
  * {@code max-source-tokens}.</li>
  * </ul>
@@ -43,12 +46,16 @@ final class ExistingItems {
 
     private final DatabaseClient db;
     private final MemoryProperties.Judgement props;
+    private final MemoryProperties.Relations relations;
     private final DecayPolicy decay;
+    private final EntityGraphRepository graph;
 
-    ExistingItems(DatabaseClient db, MemoryProperties props) {
+    ExistingItems(DatabaseClient db, MemoryProperties props, EntityGraphRepository graph) {
         this.db = db;
         this.props = props.getJudgement();
+        this.relations = props.getRelations();
         this.decay = new DecayPolicy(props.getDecay());
+        this.graph = graph;
     }
 
     Mono<String> json(MemoryScope scope, String conversationId, boolean cross, String turnText) {
@@ -78,7 +85,11 @@ final class ExistingItems {
                 })
                 .all()
                 .collectList()
-                .map(rows -> render(select(rows, turnText, max)));
+                .map(rows -> select(rows, turnText, max))
+                .flatMap(ranked -> !relations.isEnabled() || ranked.isEmpty()
+                        ? Mono.just(render(ranked, Map.of()))
+                        : graph.relationsOfItems(scope, ranked.stream().map(Row::id).toList())
+                                .map(byItem -> render(ranked, byItem)));
     }
 
     private List<Row> select(List<Row> rows, String turnText, int max) {
@@ -111,7 +122,13 @@ final class ExistingItems {
         return ranked;
     }
 
-    private String render(List<Row> ranked) {
+    /** Compact relation line given to judgement: {@code 名称(类型) —关系→ 名称(类型)}. */
+    static String compact(EntityGraphRepository.RelationHop h) {
+        return h.from().name() + "(" + h.from().entityType() + ") —" + h.relation().relation() + "→ "
+                + h.to().name() + "(" + h.to().entityType() + ")";
+    }
+
+    private String render(List<Row> ranked, Map<String, List<EntityGraphRepository.RelationHop>> byItem) {
         var list = new ArrayList<>(ranked);
         while (true) {
             var arr = JSON.createArrayNode();
@@ -123,6 +140,11 @@ final class ExistingItems {
                 o.put("content", r.content());
                 o.put("assertion", r.assertion());
                 o.put("status", r.status());
+                var rels = byItem.get(r.id());
+                if (rels != null && !rels.isEmpty()) {
+                    var arr2 = o.putArray("relations");
+                    rels.forEach(h -> arr2.add(compact(h)));
+                }
             }
             var text = arr.toString();
             if (list.isEmpty() || TokenEstimator.estimate(text) <= props.getExistingMaxTokens()) {

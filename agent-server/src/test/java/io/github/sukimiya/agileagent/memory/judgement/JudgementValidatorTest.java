@@ -40,7 +40,8 @@ class JudgementValidatorTest {
     void setUp() throws Exception {
         fixture = MemoryTestFixture.h2();
         items = new MemoryItemRepository(fixture.databaseClient());
-        validator = new JudgementValidator(fixture.databaseClient(), items);
+        validator = new JudgementValidator(fixture.databaseClient(), items,
+                new io.github.sukimiya.agileagent.memory.MemoryProperties());
         rules = GlobalRules.loadFromClasspath().current();
         conversation = seedConversation();
     }
@@ -100,7 +101,7 @@ class JudgementValidatorTest {
 
     private JudgementAction remember(String assertion, List<String> sources, List<String> evidence, String content) {
         return new JudgementAction("REMEMBER", "FACT", content, assertion, sources, evidence, "reason", 0.8, 0.9,
-                null, null, null);
+                null, null, null, null);
     }
 
     @Test
@@ -143,7 +144,7 @@ class JudgementValidatorTest {
     void eventRememberRejectedAsNotLongTerm() {
         assertRejected(() -> validator.validate(ALICE,
                 new JudgementAction("REMEMBER", "EVENT", "查询了违章", "INFERRED", List.of(userMsgId),
-                        List.of("违章"), "情节", 0.5, 0.7, null, null, null), rules).block(WAIT));
+                        List.of("违章"), "情节", 0.5, 0.7, null, null, null, null), rules).block(WAIT));
     }
 
     @Test
@@ -156,7 +157,7 @@ class JudgementValidatorTest {
     @Test
     void inferredConfidenceCappedAtPointEight() {
         var v = validator.validate(ALICE, new JudgementAction("REMEMBER", "FACT", "可能住在杭州附近", "INFERRED",
-                List.of(userMsgId), List.of("A7-3921"), "推断", 0.5, 0.95, null, null, null), rules)
+                List.of(userMsgId), List.of("A7-3921"), "推断", 0.5, 0.95, null, null, null, null), rules)
                 .block(WAIT);
         assertThat(v.confidence()).isEqualTo(0.8);
     }
@@ -205,7 +206,7 @@ class JudgementValidatorTest {
     @Test
     void ambiguousBecomesCandidateNotRecalledAsFact() {
         var v = validator.validate(ALICE, new JudgementAction("REMEMBER", "FACT", "可能喜欢茶", "INFERRED",
-                List.of(userMsgId), List.of("A7-3921"), "不确定", 0.2, 0.2, null, null, null), rules)
+                List.of(userMsgId), List.of("A7-3921"), "不确定", 0.2, 0.2, null, null, null, null), rules)
                 .block(WAIT);
         assertThat(v.status()).isEqualTo(ItemStatus.CANDIDATE);
     }
@@ -217,7 +218,7 @@ class JudgementValidatorTest {
         items.save(item).block(WAIT);
         assertRejected(() -> validator.validate(ALICE,
                 new JudgementAction("UPDATE", "FACT", "new", "USER_STATED", List.of(userMsgId),
-                        List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), 99L), rules).block(WAIT));
+                        List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), 99L, null), rules).block(WAIT));
     }
 
     @Test
@@ -228,7 +229,7 @@ class JudgementValidatorTest {
             items.save(item).block(WAIT);
             assertRejected(() -> validator.validate(ALICE,
                     new JudgementAction("UPDATE", "FACT", "new", "USER_STATED", List.of(userMsgId),
-                            List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), item.revision()), rules).block(WAIT));
+                            List.of("A7-3921"), "fix", 0.5, 0.9, null, item.id(), item.revision(), null), rules).block(WAIT));
         }
     }
 }

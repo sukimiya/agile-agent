@@ -304,7 +304,7 @@ public class RulesReplayHandler {
         }
         var usage = new long[3];
         var options = new LlmClient.CallOptions(props.getJudgement().getMaxOutputTokens(), true);
-        var messages = MemoryJudgementPrompt.messages(rules.current().text(), text, existing(c));
+        var messages = MemoryJudgementPrompt.messages(rules.current().text(), text, existing(c), null);
         return model.client().chatStream(messages, List.of(), options)
                 .collectList()
                 .map(events -> {

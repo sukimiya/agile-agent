@@ -242,10 +242,10 @@ final class MemoryEvalRunner {
                 profiles, props);
         new RebuildProfileJobHandler(profiles, worker, null, props);
         this.judgement = new JudgementJobHandler(db, stack.fixture().connectionFactory(), new JudgementProgress(db),
-                new JudgementValidator(db, items), items, sources, GlobalRules.loadFromClasspath(), settings,
+                new JudgementValidator(db, items, props), items, sources, GlobalRules.loadFromClasspath(), settings,
                 tenant -> Mono.justOrEmpty(judgeModel.get())
                         .map(llm -> new JudgementJobHandler.JudgeModel(llm, "eval-judge-model")),
-                worker, props, stack.metrics(), null);
+                worker, props, stack.metrics(), null, graph);
         this.recallEvents = new RecallEventRecorder(db, stack.metrics());
         this.retriever = new RecordingRetriever(db, props, settings, chunks, summaries,
                 FullTextSearch.forDatabase(db), stack.metrics(), items, graph, profiles);

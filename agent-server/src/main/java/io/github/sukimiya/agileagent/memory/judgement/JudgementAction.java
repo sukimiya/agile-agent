@@ -18,7 +18,14 @@ public record JudgementAction(
         Double confidence,
         String suggestedValidUntil,
         String targetItemId,
-        Long expectedRevision) {
+        Long expectedRevision,
+        List<Relation> relations) {
+
+    /** One proposed relation (optional on REMEMBER / UPDATE / MERGE / SUPERSEDE; relation write path T2). */
+    public record Relation(Entity from, String relation, Entity to) {}
+
+    /** A relation endpoint; type {@code SELF} is the user. */
+    public record Entity(String name, String type) {}
 
     public enum Kind {
         REMEMBER, UPDATE, MERGE, SUPERSEDE, DEPRIORITIZE, HOLD, IGNORE, CONFLICT

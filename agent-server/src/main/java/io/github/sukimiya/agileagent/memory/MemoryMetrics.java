@@ -223,6 +223,20 @@ public class MemoryMetrics {
                 .register(meters).increment();
     }
 
+    /** Relations written with judged memory items (relation write path T2). */
+    public void relationsWritten(int count) {
+        if (count > 0) {
+            Counter.builder("memory.relations.written").description("Entity relations written with memory items")
+                    .register(meters).increment(count);
+        }
+    }
+
+    /** A relation proposed by judgement was dropped (the item itself is unaffected); {@code reason} is a code. */
+    public void relationRejected(String reason) {
+        Counter.builder("memory.relations.rejected").tag("reason", reason == null ? "UNKNOWN" : reason)
+                .description("Judgement relations dropped by validation").register(meters).increment();
+    }
+
     /** A judgement attempt failed (model / timeout / invalid JSON). */
     public void judgementFailed(String reason) {
         Counter.builder("memory.judgement.failures").tag("reason", reason == null ? "UNKNOWN" : reason)

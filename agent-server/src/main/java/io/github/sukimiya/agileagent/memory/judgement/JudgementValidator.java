@@ -11,12 +11,15 @@ import java.util.regex.Pattern;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Component;
 
+import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.SourceType;
 import io.github.sukimiya.agileagent.memory.ToolRecordSanitizer;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
 import io.github.sukimiya.agileagent.memory.items.ItemStatus;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
+import io.github.sukimiya.agileagent.memory.items.RelationSpec;
 import io.github.sukimiya.agileagent.memory.judgement.GlobalRules.RulesVersion;
 import io.github.sukimiya.agileagent.memory.judgement.ValidatedAction.SourceRef;
 import io.github.sukimiya.agileagent.memory.storage.MessagePayloadCodec;
@@ -55,11 +58,17 @@ public class JudgementValidator {
 
     private final DatabaseClient db;
     private final MemoryItemRepository items;
+    private final MemoryProperties props;
 
-    public JudgementValidator(DatabaseClient db, MemoryItemRepository items) {
+    public JudgementValidator(DatabaseClient db, MemoryItemRepository items, MemoryProperties props) {
+        props.getRelations().validate();
         this.db = db;
         this.items = items;
+        this.props = props;
     }
+
+    /** A loaded source message: its reference and full text (for verbatim checks). */
+    private record Loaded(SourceRef ref, String body) {}
 
     public Mono<ValidatedAction> validate(MemoryScope scope, JudgementAction action, RulesVersion rules) {
         return Mono.defer(() -> {
@@ -98,7 +107,8 @@ public class JudgementValidator {
         if (kind == JudgementAction.Kind.HOLD) {
             return Mono.just(new ValidatedAction(kind, safeType(action.itemType()), scrub(action.content()),
                     MemoryItem.Assertion.INFERRED, ItemStatus.CANDIDATE, List.of(), scrub(action.reason()),
-                    action.importance(), action.confidence(), null, null, null));
+                    action.importance(), action.confidence(), null, null, null, null,
+                    unsupportedRelations(action)));
         }
         if (kind == JudgementAction.Kind.DEPRIORITIZE || kind == JudgementAction.Kind.CONFLICT
                 || kind == JudgementAction.Kind.UPDATE || kind == JudgementAction.Kind.MERGE
@@ -160,7 +170,8 @@ public class JudgementValidator {
         MemoryItem.Assertion finalAssertion = assertion;
         ItemStatus finalStatus = status;
 
-        return loadSources(scope, ids, excerpts).flatMap(sources -> {
+        return loadSources(scope, ids, excerpts).flatMap(loaded -> {
+            var sources = loaded.stream().map(Loaded::ref).toList();
             if (sources.size() != ids.size()) {
                 return Mono.error(new RejectedException("SOURCE_MISSING_OR_FOREIGN"));
             }
@@ -194,14 +205,125 @@ public class JudgementValidator {
                 });
             }
             Double confidence = WriteGovernance.capConfidence(finalAssertion, action.confidence());
+            var rejects = new ArrayList<String>();
+            List<RelationSpec> relations;
+            boolean carriesRelations = finalKind == JudgementAction.Kind.REMEMBER
+                    && (action.targetItemId() == null || action.targetItemId().isBlank())
+                    || finalKind == JudgementAction.Kind.UPDATE || finalKind == JudgementAction.Kind.MERGE
+                    || finalKind == JudgementAction.Kind.SUPERSEDE;
+            if (!props.getRelations().isEnabled()) {
+                relations = null;
+            } else if (!carriesRelations) {
+                relations = null;
+                rejects.addAll(unsupportedRelations(action));
+            } else {
+                boolean userAsserted = !poisonShape && allUser
+                        && (finalAssertion == MemoryItem.Assertion.USER_STATED
+                                || finalAssertion == MemoryItem.Assertion.USER_CONFIRMED);
+                relations = relations(action.relations(), loaded.stream().map(Loaded::body).toList(),
+                        userAsserted, rejects);
+            }
             ValidatedAction validated = new ValidatedAction(finalKind, safeType(action.itemType()), content,
                     finalAssertion, finalStatus, sources, scrub(action.reason()), action.importance(),
-                    confidence, validUntil, action.targetItemId(), action.expectedRevision());
+                    confidence, validUntil, action.targetItemId(), action.expectedRevision(), relations,
+                    List.copyOf(rejects));
             return targetCheck.thenReturn(validated);
         });
     }
 
-    private Mono<List<SourceRef>> loadSources(MemoryScope scope, List<String> ids, List<String> excerpts) {
+    /** One reason code per proposed relation on an action that cannot carry relations. */
+    private List<String> unsupportedRelations(JudgementAction action) {
+        if (!props.getRelations().isEnabled() || action.relations() == null) {
+            return List.of();
+        }
+        return action.relations().stream().map(r -> "UNSUPPORTED_ACTION").toList();
+    }
+
+    /**
+     * Checks each proposed relation on its own (relation write path T2); a failing one is dropped with a reason code,
+     * the item is unaffected. {@code null} when the action has no {@code relations} field.
+     */
+    private List<RelationSpec> relations(List<JudgementAction.Relation> proposed, List<String> bodies,
+            boolean userAsserted, List<String> rejects) {
+        if (proposed == null) {
+            return null;
+        }
+        var cfg = props.getRelations();
+        var accepted = new ArrayList<RelationSpec>();
+        var edges = new java.util.HashSet<String>();
+        for (var r : proposed) {
+            String reason;
+            RelationSpec spec = null;
+            if (r == null || r.from() == null || r.to() == null) {
+                reason = "BAD_SHAPE";
+            } else {
+                var from = endpoint(r.from());
+                var to = endpoint(r.to());
+                String relation = r.relation() == null ? "" : r.relation().strip();
+                reason = !cfg.getTypes().contains(relation) ? "BAD_RELATION_TYPE"
+                        : endpointProblem(from, bodies, userAsserted);
+                if (reason == null) {
+                    reason = endpointProblem(to, bodies, userAsserted);
+                }
+                if (reason == null) {
+                    spec = new RelationSpec(from, relation, to);
+                    if (from.key().equals(to.key())) {
+                        reason = "SAME_ENTITY";
+                    } else if (edges.contains(spec.edgeKey())) {
+                        reason = "DUPLICATE";
+                    } else if (accepted.size() >= cfg.getMaxPerItem()) {
+                        reason = "TOO_MANY";
+                    }
+                }
+            }
+            if (reason == null) {
+                edges.add(spec.edgeKey());
+                accepted.add(spec);
+            } else {
+                rejects.add(reason);
+            }
+        }
+        return List.copyOf(accepted);
+    }
+
+    private static RelationSpec.Endpoint endpoint(JudgementAction.Entity e) {
+        String type = e.type() == null ? "" : e.type().strip().toUpperCase(Locale.ROOT);
+        String name = e.name() == null ? "" : e.name().strip();
+        return new RelationSpec.Endpoint(name, type);
+    }
+
+    /** Why the endpoint is not acceptable, or {@code null}. */
+    private String endpointProblem(RelationSpec.Endpoint e, List<String> bodies, boolean userAsserted) {
+        var cfg = props.getRelations();
+        if (e.self()) {
+            // The user-self entity: a first-person word in a source message, and an item the user asserted
+            // (pasted, quoted, hypothetical or role-play content is never USER_* — see the poisoning checks).
+            boolean firstPerson = cfg.getFirstPersonWords().stream()
+                    .anyMatch(w -> bodies.stream().anyMatch(b -> b.contains(w)));
+            if (!firstPerson) {
+                return "SELF_NOT_IN_SOURCE";
+            }
+            return userAsserted ? null : "SELF_NOT_USER_ASSERTED";
+        }
+        if (!cfg.getEntityTypes().contains(e.type())) {
+            return "BAD_ENTITY_TYPE";
+        }
+        if (e.name().isEmpty() || EntityGraphRepository.SELF_KEY.equals(e.key())) {
+            return "BAD_NAME";
+        }
+        if (WriteGovernance.containsBlockedPii(e.name())) {
+            return "PII_OR_CREDENTIAL";
+        }
+        if (e.name().length() > cfg.getMaxEntityNameChars()) {
+            return "NAME_TOO_LONG";
+        }
+        if (bodies.stream().noneMatch(b -> b.contains(e.name()))) {
+            return "NAME_NOT_IN_SOURCE";
+        }
+        return null;
+    }
+
+    private Mono<List<Loaded>> loadSources(MemoryScope scope, List<String> ids, List<String> excerpts) {
         if (ids.isEmpty()) {
             return Mono.just(List.of());
         }
@@ -235,8 +357,8 @@ public class JudgementValidator {
                                 String safeExcerpt = scrub(excerpt.isBlank()
                                         ? body.substring(0, Math.min(body.length(), 200))
                                         : excerpt);
-                                return new SourceRef(row.get("id", String.class),
-                                        row.get("conversation_id", String.class), type, safeExcerpt);
+                                return new Loaded(new SourceRef(row.get("id", String.class),
+                                        row.get("conversation_id", String.class), type, safeExcerpt), body);
                             })
                             .one()
                             .switchIfEmpty(Mono.error(new RejectedException("SOURCE_MISSING_OR_FOREIGN")));

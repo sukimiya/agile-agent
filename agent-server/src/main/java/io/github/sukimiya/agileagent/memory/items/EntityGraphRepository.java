@@ -153,6 +153,61 @@ public class EntityGraphRepository {
                 .onErrorResume(DuplicateKeyException.class, e -> existing(scope, itemId, from, relation, to));
     }
 
+    /**
+     * Makes {@code specs} the item's current relation set: each is saved (an existing edge is reactivated), every
+     * other ACTIVE relation of the item becomes SUPERSEDED. Returns the number of relations saved.
+     */
+    public Mono<Integer> replaceItemRelations(MemoryScope scope, String itemId, List<RelationSpec> specs) {
+        return Flux.fromIterable(specs == null ? List.<RelationSpec>of() : specs)
+                .concatMap(spec -> endpoint(scope, spec.from())
+                        .zipWith(endpoint(scope, spec.to()))
+                        .flatMap(t -> saveRelation(scope, itemId, t.getT1().id(), spec.relation(), t.getT2().id())))
+                .map(MemoryRelation::id)
+                .collectList()
+                .flatMap(kept -> {
+                    var sql = "UPDATE memory_relations SET status = 'SUPERSEDED' WHERE tenant_id = :tenantId"
+                            + " AND subject = :subject AND item_id = :itemId AND status = 'ACTIVE'"
+                            + (kept.isEmpty() ? "" : " AND id NOT IN (:kept)");
+                    var spec = db.sql(sql).bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                            .bind("itemId", itemId);
+                    if (!kept.isEmpty()) {
+                        spec = spec.bind("kept", kept);
+                    }
+                    return spec.fetch().rowsUpdated().thenReturn(kept.size());
+                });
+    }
+
+    private Mono<MemoryEntity> endpoint(MemoryScope scope, RelationSpec.Endpoint e) {
+        return e.self() ? self(scope) : upsertEntity(scope, e.name(), e.type());
+    }
+
+    /** Current (ACTIVE, valid, both ends valid) relations of the given items, oldest first, keyed by item id. */
+    public Mono<java.util.Map<String, List<RelationHop>>> relationsOfItems(MemoryScope scope,
+            Collection<String> itemIds) {
+        if (itemIds == null || itemIds.isEmpty()) {
+            return Mono.just(java.util.Map.of());
+        }
+        return db.sql("SELECT r.id, r.tenant_id, r.subject, r.from_entity, r.relation, r.to_entity, r.item_id,"
+                        + " r.valid_from, r.valid_until, r.status,"
+                        + " fe.name AS f_name, fe.entity_type AS f_type, fe.normalized_key AS f_key,"
+                        + " te.name AS t_name, te.entity_type AS t_type, te.normalized_key AS t_key"
+                        + " FROM memory_relations r"
+                        + " JOIN memory_entities fe ON fe.id = r.from_entity AND fe.is_valid = 1"
+                        + " JOIN memory_entities te ON te.id = r.to_entity AND te.is_valid = 1"
+                        + " WHERE r.tenant_id = :tenantId AND r.subject = :subject AND r.item_id IN (:ids)"
+                        + " AND r.status = 'ACTIVE' AND r.is_valid = 1 ORDER BY r.valid_from, r.id")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .bind("ids", List.copyOf(itemIds))
+                .map((row, meta) -> hop(row))
+                .all()
+                .collectMultimap(h -> h.relation().itemId())
+                .map(m -> {
+                    var out = new java.util.LinkedHashMap<String, List<RelationHop>>();
+                    m.forEach((k, v) -> out.put(k, List.copyOf(v)));
+                    return out;
+                });
+    }
+
     public Mono<Boolean> supersedeRelation(MemoryScope scope, String relationId) {
         return db.sql("UPDATE memory_relations SET status = 'SUPERSEDED' WHERE id = :id AND tenant_id = :tenantId"
                         + " AND subject = :subject")
@@ -197,23 +252,24 @@ public class EntityGraphRepository {
             spec = spec.bind("conversationId", conversationId);
         }
         var seen = new HashSet<String>();
-        return spec.map((row, meta) -> {
-                    var owner = new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class));
-                    var rel = new MemoryRelation(row.get("id", String.class), owner,
-                            row.get("from_entity", String.class), row.get("relation", String.class),
-                            row.get("to_entity", String.class), row.get("item_id", String.class),
-                            row.get("valid_from", LocalDateTime.class), row.get("valid_until", LocalDateTime.class),
-                            row.get("status", String.class));
-                    return new RelationHop(rel,
-                            new MemoryEntity(rel.fromEntityId(), owner, row.get("f_name", String.class),
-                                    row.get("f_type", String.class), row.get("f_key", String.class)),
-                            new MemoryEntity(rel.toEntityId(), owner, row.get("t_name", String.class),
-                                    row.get("t_type", String.class), row.get("t_key", String.class)));
-                })
+        return spec.map((row, meta) -> hop(row))
                 .all()
                 .filter(h -> seen.add(h.relation().fromEntityId() + '\u0000' + h.relation().relation() + '\u0000'
                         + h.relation().toEntityId()))
                 .take(limit);
+    }
+
+    private static RelationHop hop(Readable row) {
+        var owner = new MemoryScope(row.get("tenant_id", String.class), row.get("subject", String.class));
+        var rel = new MemoryRelation(row.get("id", String.class), owner, row.get("from_entity", String.class),
+                row.get("relation", String.class), row.get("to_entity", String.class),
+                row.get("item_id", String.class), row.get("valid_from", LocalDateTime.class),
+                row.get("valid_until", LocalDateTime.class), row.get("status", String.class));
+        return new RelationHop(rel,
+                new MemoryEntity(rel.fromEntityId(), owner, row.get("f_name", String.class),
+                        row.get("f_type", String.class), row.get("f_key", String.class)),
+                new MemoryEntity(rel.toEntityId(), owner, row.get("t_name", String.class),
+                        row.get("t_type", String.class), row.get("t_key", String.class)));
     }
 
     private static MemoryEntity entity(Readable row, String prefix) {

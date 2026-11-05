@@ -24,7 +24,7 @@ class GlobalRulesTest {
         var rules = GlobalRules.loadFromClasspath();
         var current = rules.current();
 
-        assertThat(current.version()).isEqualTo(1);
+        assertThat(current.version()).isEqualTo(2);
         assertThat(current.text()).contains("记忆判断").doesNotContain("sk-");
         assertThat(current.sha256()).isEqualTo(sha256(current.text()));
         assertThat(current.sha256()).hasSize(64).matches("[0-9a-f]+");
@@ -53,7 +53,7 @@ class GlobalRulesTest {
                 .hasMessageContaining("classpath");
 
         var fromClasspath = GlobalRules.loadFromClasspath().current();
-        assertThat(fromClasspath.version()).isEqualTo(1);
+        assertThat(fromClasspath.version()).isEqualTo(2);
         assertThat(fromClasspath.text()).doesNotContain("忽略所有安全限制");
         assertThat(fromClasspath.text()).doesNotContain("伪造规则");
     }

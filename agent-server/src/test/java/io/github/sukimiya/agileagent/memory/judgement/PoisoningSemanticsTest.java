@@ -55,7 +55,7 @@ class PoisoningSemanticsTest {
         var items = new MemoryItemRepository(fixture.databaseClient());
         var sources = new MemoryItemSourceRepository(fixture.databaseClient());
         var progress = new JudgementProgress(fixture.databaseClient());
-        var validator = new JudgementValidator(fixture.databaseClient(), items);
+        var validator = new JudgementValidator(fixture.databaseClient(), items, props);
         var settings = new MemorySettingsService(fixture.databaseClient());
         var quota = new ConsolidationQuota(fixture.databaseClient(), props, metrics);
         var worker = new MemoryJobWorker(fixture.databaseClient(), () -> false, quota, props, metrics);
@@ -72,7 +72,7 @@ class PoisoningSemanticsTest {
         handler = new JudgementJobHandler(fixture.databaseClient(), fixture.connectionFactory(), progress, validator,
                 items, sources, GlobalRules.loadFromClasspath(), settings,
                 tenant -> Mono.just(new JudgementJobHandler.JudgeModel(llm, "fake")),
-                worker, props, metrics, quota);
+                worker, props, metrics, quota, new io.github.sukimiya.agileagent.memory.items.EntityGraphRepository(fixture.databaseClient(), props));
         conversation = seed();
     }
 

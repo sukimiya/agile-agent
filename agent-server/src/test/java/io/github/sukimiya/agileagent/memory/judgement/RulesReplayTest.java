@@ -86,7 +86,7 @@ class RulesReplayTest {
         var db = fixture.databaseClient();
         items = new MemoryItemRepository(db);
         sources = new MemoryItemSourceRepository(db);
-        validator = new JudgementValidator(db, items);
+        validator = new JudgementValidator(db, items, props);
         settings = new MemorySettingsService(db);
         quota = new ConsolidationQuota(db, props, metrics);
         worker = new MemoryJobWorker(db, () -> false, quota, props, metrics);
@@ -202,7 +202,8 @@ class RulesReplayTest {
         props.getJudgement().setEnabled(true);
         var judge = new JudgementJobHandler(fixture.databaseClient(), fixture.connectionFactory(),
                 new JudgementProgress(fixture.databaseClient()), validator, items, sources, NEW_RULES, settings,
-                tenant -> Mono.empty(), worker, props, metrics, quota);
+                tenant -> Mono.empty(), worker, props, metrics, quota,
+                new io.github.sukimiya.agileagent.memory.items.EntityGraphRepository(fixture.databaseClient(), props));
         assertThat(judge).isNotNull();
 
         worker.runPending(10).block(WAIT);

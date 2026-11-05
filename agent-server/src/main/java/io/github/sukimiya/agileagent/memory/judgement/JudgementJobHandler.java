@@ -22,6 +22,7 @@ import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
 import io.github.sukimiya.agileagent.memory.items.DecayPolicy;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
 import io.github.sukimiya.agileagent.memory.items.ItemStatus;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
@@ -71,24 +72,28 @@ public class JudgementJobHandler {
     private final ConsolidationQuota quota;
     private final MemoryJobQueue jobs;
     private final ExistingItems existingItems;
+    private final EntityGraphRepository graph;
 
     @Autowired
     public JudgementJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementProgress progress,
             JudgementValidator validator, MemoryItemRepository items, MemoryItemSourceRepository sources,
             GlobalRules rules, MemorySettingsService settings, TenantLlmClientResolver resolver,
-            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
+            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota,
+            EntityGraphRepository graph) {
         this(db, connectionFactory, progress, validator, items, sources, rules, settings,
                 tenant -> resolver.resolveModel(tenant)
                         .zipWith(resolver.resolvePresetAndKey(tenant),
                                 (model, preset) -> new JudgeModel(model.client(), preset.preset().model())),
-                worker, props, metrics, quota);
+                worker, props, metrics, quota, graph);
     }
 
     public JudgementJobHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementProgress progress,
             JudgementValidator validator, MemoryItemRepository items, MemoryItemSourceRepository sources,
             GlobalRules rules, MemorySettingsService settings, Function<String, Mono<JudgeModel>> models,
-            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
+            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota,
+            EntityGraphRepository graph) {
         this.db = db;
+        this.graph = graph;
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.progress = progress;
         this.validator = validator;
@@ -103,7 +108,7 @@ public class JudgementJobHandler {
         this.quota = quota;
         this.jobs = new MemoryJobQueue(db);
         props.getJudgement().validate();
-        this.existingItems = new ExistingItems(db, props);
+        this.existingItems = new ExistingItems(db, props, graph);
         if (props.getJudgement().isEnabled()) {
             worker.register(JobType.JUDGE_MEMORY, this::handle);
         }
@@ -236,6 +241,7 @@ public class JudgementJobHandler {
                 .flatMap(raw -> parseActions(raw)
                         .flatMapMany(Flux::fromIterable)
                         .concatMap(action -> validator.validate(scope, action, rulesVersion)
+                                .doOnNext(v -> v.relationRejects().forEach(metrics::relationRejected))
                                 .flatMap(v -> apply(scope, conversationId, v, cross, model.model(),
                                         rulesVersion.version()))
                                 .onErrorResume(RejectedException.class, e -> {
@@ -274,16 +280,17 @@ public class JudgementJobHandler {
                     null, v.reason()).then();
         }
         if (v.kind() == JudgementAction.Kind.UPDATE || v.kind() == JudgementAction.Kind.MERGE) {
-            return items.casUpdate(scope, v.targetItemId(), v.expectedRevision(), v.status(), v.content(),
-                    v.assertion(), null, v.reason()).flatMap(ok -> {
+            return transactions.transactional(items.casUpdate(scope, v.targetItemId(), v.expectedRevision(),
+                    v.status(), v.content(), v.assertion(), null, v.reason()).flatMap(ok -> {
                         if (!ok) {
                             metrics.judgementRejected("STALE_REVISION");
-                            return Mono.empty();
+                            return Mono.<Void>empty();
                         }
                         return sources.saveAll(v.targetItemId(), v.sources())
+                                .then(writeRelations(scope, v.targetItemId(), v))
                                 .then(reconfirmed(scope, v))
                                 .then(enqueueRebuild(scope, conversationId, cross));
-                    });
+                    }));
         }
         if (v.kind() == JudgementAction.Kind.SUPERSEDE) {
             var neu = MemoryItem.newItem(scope, itemConversationId, v.itemType(), v.content(), v.status(),
@@ -308,6 +315,7 @@ public class JudgementJobHandler {
                                     return Mono.<Void>empty();
                                 }
                                 return items.save(created).then(sources.saveAll(created.id(), v.sources()))
+                                        .then(writeRelations(scope, created.id(), v))
                                         .doOnSuccess(x -> metrics.judgementWritten())
                                         .then(enqueueRebuild(scope, conversationId, cross));
                             }));
@@ -320,11 +328,25 @@ public class JudgementJobHandler {
         // REMEMBER
         var item = MemoryItem.newItem(scope, itemConversationId, v.itemType(), v.content(), v.status(),
                 v.assertion(), v.importance(), v.confidence(), rulesVersion, judgeModel, v.reason());
-        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources())))
+        return transactions.transactional(items.save(item).then(sources.saveAll(item.id(), v.sources()))
+                        .then(writeRelations(scope, item.id(), v)))
                 .doOnSuccess(x -> metrics.judgementWritten())
                 .then(enqueueRebuild(scope, conversationId, cross));
     }
 
+
+    /**
+     * Writes the action's checked relations as the item's relation set (relation write path T2). {@code null}
+     * relations (field absent) keep the item's set; for a new item that means none.
+     */
+    private Mono<Void> writeRelations(MemoryScope scope, String itemId, ValidatedAction v) {
+        if (v.relations() == null || graph == null) {
+            return Mono.empty();
+        }
+        return graph.replaceItemRelations(scope, itemId, v.relations())
+                .doOnNext(metrics::relationsWritten)
+                .then();
+    }
 
     /**
      * A user re-confirmation of an existing item (UPDATE / MERGE / REMEMBER naming {@code targetItemId}, final
@@ -348,7 +370,8 @@ public class JudgementJobHandler {
     private Mono<String> call(JudgeModel model, String rulesText, String transcript, String existing,
             long[] usageAcc) {
         var options = new LlmClient.CallOptions(props.getJudgement().getMaxOutputTokens(), true);
-        return model.client().chatStream(MemoryJudgementPrompt.messages(rulesText, transcript, existing), List.of(),
+        return model.client().chatStream(MemoryJudgementPrompt.messages(rulesText, transcript, existing,
+                props.getRelations()), List.of(),
                         options)
                 .collectList()
                 .map(events -> {
