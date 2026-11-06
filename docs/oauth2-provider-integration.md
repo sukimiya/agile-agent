@@ -46,7 +46,7 @@ The server exchanges the authorization code and fetches user info from the confi
 
 ## Local mock provider
 
-For isolated development, use the Compose `local-mock` profile described in the [README](../README.md). It seeds these identities:
+For isolated development, use the Compose `local-mock` profile described in the [README Quick start](../README.md#quick-start) and [local development notes](local-development.md). It seeds these identities:
 
 | Subject | Role | Tenant | Primary organization |
 | --- | --- | --- | --- |
