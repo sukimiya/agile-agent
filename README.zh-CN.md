@@ -185,12 +185,6 @@ public final class InventoryCapabilityProvider implements AgentCapabilityProvide
 
 细节、成本和延迟见 [eval-baseline.md](docs/memory/eval-baseline.md) 第 4–5 节。质量门槛是：相对任一基线不回退、无投毒内容，以及 Recall@5 ≥ 0.9。
 
-## 基于 Agile Agent 构建
-
-- [China Medical Agent](https://github.com/sukimiya/china-medical-agent) — 外籍人士来华就医的跨境 Agent 平台，构建在 Agile Agent 之上，而不是另一套技术栈。
-- 一个企业内部的 API Agent（正在迁移到 Agile Agent 上），用自然语言查询和操作 8 个业务系统的 715 个接口。
-
-
 ## 后续计划
 
 当前代码树中已记录的后续事项：

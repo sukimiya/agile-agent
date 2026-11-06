@@ -185,12 +185,6 @@ The real-model evaluation (`-Pmemory-eval-live`) runs 24 answer cases against on
 
 Details, cost, and latency are in [eval-baseline.md](docs/memory/eval-baseline.md) sections 4–5. The quality gate is: no regression against any baseline, no poisoned content, and Recall@5 ≥ 0.9.
 
-## Built with Agile Agent
-
-- [China Medical Agent](https://github.com/sukimiya/china-medical-agent) — a cross-border Agent platform for medical travel to China, built on Agile Agent rather than a separate stack.
-- An internal enterprise API Agent (being migrated onto Agile Agent) that uses natural language to query and operate 715 APIs across 8 business systems.
-
-
 ## Roadmap
 
 Known follow-ups from the current tree:
