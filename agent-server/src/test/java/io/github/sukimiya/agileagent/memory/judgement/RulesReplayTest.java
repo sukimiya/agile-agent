@@ -23,7 +23,9 @@ import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.MemoryTestFixture;
 import io.github.sukimiya.agileagent.memory.MemoryTestStack;
 import io.github.sukimiya.agileagent.memory.SourceType;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
 import io.github.sukimiya.agileagent.memory.items.ItemStatus;
+import io.github.sukimiya.agileagent.memory.items.RelationSpec;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem.Assertion;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
@@ -64,6 +66,7 @@ class RulesReplayTest {
     ConsolidationQuota quota;
     MemoryJobWorker worker;
     RulesReplayHandler replay;
+    EntityGraphRepository graph;
     /** Model output per targeted item id; missing: "[]". */
     final Map<String, String> outputs = new ConcurrentHashMap<>();
     final Set<String> failing = ConcurrentHashMap.newKeySet();
@@ -110,9 +113,10 @@ class RulesReplayTest {
                 });
             }
         };
+        graph = new EntityGraphRepository(db, props);
         replay = new RulesReplayHandler(db, fixture.connectionFactory(), validator, items, NEW_RULES,
                 tenant -> Mono.just(new JudgementJobHandler.JudgeModel(llm, "fake-model")), worker, props, metrics,
-                quota);
+                quota, graph);
         conversation = seedConversation(true);
         userMsgId = "msg-" + conversation;
     }
@@ -251,6 +255,33 @@ class RulesReplayTest {
         assertThat(done.processed()).isEqualTo(1);
         assertThat(done.toRulesVersion()).isEqualTo(2);
         assertThat(systemPrompts.getFirst()).contains("新规则").contains(old.id()).contains("用户可能住在杭州");
+    }
+
+    @Test
+    void replayedItemInheritsTheOldItemsRelations() throws Exception {
+        var old = oldInferred("用户可能负责星河项目");
+        graph.replaceItemRelations(ALICE, old.id(), List.of(
+                RelationSpec.of("用户", "SELF", "负责", "星河项目", "PROJECT"))).block(WAIT);
+        outputs.put(old.id(), action("UPDATE", old, "用户负责星河项目（推断）"));
+
+        var id = request(null);
+        worker.runPending(5).block(WAIT);
+        var newId = (String) row(old.id()).get("SUPERSEDED_BY");
+        assertThat(newId).isNotNull();
+        assertThat(fixture.jdbc().queryForList(
+                "SELECT fe.name AS f, r.relation AS rel, te.name AS t, r.status AS st FROM memory_relations r"
+                        + " JOIN memory_entities fe ON fe.id = r.from_entity"
+                        + " JOIN memory_entities te ON te.id = r.to_entity WHERE r.item_id = ?", newId))
+                .singleElement().satisfies(m -> {
+                    assertThat(String.valueOf(m.getOrDefault("f", m.get("F")))).isEqualTo("用户");
+                    assertThat(String.valueOf(m.getOrDefault("rel", m.get("REL")))).isEqualTo("负责");
+                    assertThat(String.valueOf(m.getOrDefault("t", m.get("T")))).isEqualTo("星河项目");
+                    assertThat(String.valueOf(m.getOrDefault("st", m.get("ST")))).isEqualTo("ACTIVE");
+                });
+        // Old item is SUPERSEDED, so its relation is no longer visible via one-hop.
+        assertThat(graph.oneHop(ALICE, conversation, false, List.of(EntityGraphRepository.SELF_KEY), 10)
+                .map(h -> h.relation().itemId()).collectList().block(WAIT)).containsExactly(newId);
+        assertThat(status(id).superseded()).isEqualTo(1);
     }
 
     @Test

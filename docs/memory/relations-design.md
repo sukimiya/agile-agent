@@ -1,6 +1,6 @@
 # 实体关系写入路径设计（M2b 后续项）
 
-> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1 已完成、T2 已完成（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
+> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1–T3 已完成（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
 
 ## 1. 现状（2026-11-04，main `9fa3d6e`）
 
@@ -54,7 +54,23 @@
 - 逐条校验（失败只丢该关系，计 `memory.relations.rejected{reason}`）：`BAD_SHAPE`、`BAD_RELATION_TYPE`、`BAD_ENTITY_TYPE`、`BAD_NAME`、`PII_OR_CREDENTIAL`、`NAME_TOO_LONG`、`NAME_NOT_IN_SOURCE`（实体名须在某条来源消息全文中逐字出现）、`SELF_NOT_IN_SOURCE`（来源消息不含第一人称词）、`SELF_NOT_USER_ASSERTED`（条目断言不是 USER_STATED / USER_CONFIRMED、来源不全是用户输入或内容命中粘贴/引用/假设/角色设定判定）、`SAME_ENTITY`、`DUPLICATE`、`TOO_MANY`（超过 `max-per-item`）。
 - 写入（与条目同一事务）：新条目写入其关系；UPDATE / MERGE 带 `relations` 时整体替换（相同的边复用并重新激活，其余旧关系 SUPERSEDED，`[]` 清空），不带该字段时保持不变；SUPERSEDE 的新条目带新关系，旧条目被替代后其关系自然不可见。`memory.relations.written` 计写入（含复用）的关系数。
 - 给判断的已有条目附带其当前关系（`"relations":["名称(类型) —关系→ 名称(类型)"]`），计入 `existing-max-tokens`。
-- Rules 回放（管理员发起）暂不处理关系：回放提示词不要求关系，回放产生的新条目不带关系（旧条目被替代后其关系不再可见）。
+- Rules 回放（管理员发起）：回放提示词仍不要求模型产出关系；新条目继承旧条目当前 ACTIVE 关系（T2 确认 A，T3 实现）。
+
+### T2 实施后确认（2026-11-05/06，用户“没有问题”，全部按建议）
+
+1. `relations` 字段省略时保持该条目原有关系；写 `[]` 清空；字段有内容但全部校验不过时也清空（整体替换语义）。
+2. Rules 回放选 A：回放产生的新条目继承旧条目的当前关系（T3 一并实现，带测试）。
+
+### T3 实施细节（2026-11-06）
+
+- 实体匹配：扫描该用户最多 `entity-scan-limit` 个有效实体（`CHAR_LENGTH(name)` 降序，较长名称优先），名称长度 ≥ `entity-match-min-chars` 且被问题包含（大小写不敏感）则命中其 `normalized_key`；`SELF` 实体不靠名称匹配，问题含任一 `first-person-words` 时加入 `@self`。
+- 行格式：`名称（类型）—关系→ 名称`（全角括号，终点不带类型，按设计原文）。
+- 去重仍在 `oneHop`：同一 (from, relation, to) 只取最新。
+- `ContextAssembler` 在拟合历史前把概要与关系消息的 Token 计入预算；`memory.relations.recalled` 计注入条数。
+- 关系召回不刷新 `last_recalled_at`（解释仍只对 ITEM 刷新，未改）。
+- Rules 回放：新条目 `copyItemRelations` 继承旧条目当前 ACTIVE 关系。
+3. “我同事负责天枢项目”一类投毒目前只靠 Rules 第 8 条约束模型；是否加程序规则等 T5 rel-03 真实模型评测后再定。
+4. 实体名逐字检查用的是来源消息全文，不是证据摘录。
 
 ## 4. 任务
 

@@ -231,6 +231,14 @@ public class MemoryMetrics {
         }
     }
 
+    /** Relations injected into a turn's prompt (relation write path T3). */
+    public void relationsRecalled(int count) {
+        if (count > 0) {
+            Counter.builder("memory.relations.recalled").description("Entity relations injected into a recall")
+                    .register(meters).increment(count);
+        }
+    }
+
     /** A relation proposed by judgement was dropped (the item itself is unaffected); {@code reason} is a code. */
     public void relationRejected(String reason) {
         Counter.builder("memory.relations.rejected").tag("reason", reason == null ? "UNKNOWN" : reason)

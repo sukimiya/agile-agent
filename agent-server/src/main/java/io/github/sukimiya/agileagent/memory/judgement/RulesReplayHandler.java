@@ -24,6 +24,7 @@ import io.github.sukimiya.agileagent.memory.MemoryModel.TokenUsage;
 import io.github.sukimiya.agileagent.memory.MemoryProperties;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.context.TokenEstimator;
+import io.github.sukimiya.agileagent.memory.items.EntityGraphRepository;
 import io.github.sukimiya.agileagent.memory.items.ItemStatus;
 import io.github.sukimiya.agileagent.memory.items.MemoryItem;
 import io.github.sukimiya.agileagent.memory.items.MemoryItemRepository;
@@ -108,21 +109,23 @@ public class RulesReplayHandler {
     private final ConsolidationQuota quota;
     private final MemoryJobQueue jobs;
     private final MemoryItemSourceRepository sources;
+    private final EntityGraphRepository graph;
 
     @Autowired
     public RulesReplayHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementValidator validator,
             MemoryItemRepository items, GlobalRules rules, TenantLlmClientResolver resolver, MemoryJobWorker worker,
-            MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
+            MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota, EntityGraphRepository graph) {
         this(db, connectionFactory, validator, items, rules,
                 tenant -> resolver.resolveModel(tenant)
                         .zipWith(resolver.resolvePresetAndKey(tenant),
                                 (model, preset) -> new JudgeModel(model.client(), preset.preset().model())),
-                worker, props, metrics, quota);
+                worker, props, metrics, quota, graph);
     }
 
     public RulesReplayHandler(DatabaseClient db, ConnectionFactory connectionFactory, JudgementValidator validator,
             MemoryItemRepository items, GlobalRules rules, Function<String, Mono<JudgeModel>> models,
-            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota) {
+            MemoryJobWorker worker, MemoryProperties props, MemoryMetrics metrics, ConsolidationQuota quota,
+            EntityGraphRepository graph) {
         this.db = db;
         this.transactions = TransactionalOperator.create(new R2dbcTransactionManager(connectionFactory));
         this.validator = validator;
@@ -135,6 +138,7 @@ public class RulesReplayHandler {
         this.quota = quota;
         this.jobs = new MemoryJobQueue(db);
         this.sources = new MemoryItemSourceRepository(db);
+        this.graph = graph;
         worker.register(JobType.REPLAY_RULES, this::handle);
     }
 
@@ -425,7 +429,10 @@ public class RulesReplayHandler {
         return transactions.transactional(items.casUpdate(c.scope(), c.id(), c.revision(), ItemStatus.SUPERSEDED,
                         null, null, neu.id(), null)
                 .flatMap(ok -> !ok ? record(replay, c, null, "SKIPPED", "CHANGED")
-                        : items.save(neu).then(newSources).then(inheritSpec.fetch().rowsUpdated())
+                        : items.save(neu).then(newSources)
+                                .then(graph == null ? Mono.<Integer>just(0)
+                                        : graph.copyItemRelations(c.scope(), c.id(), neu.id()))
+                                .then(inheritSpec.fetch().rowsUpdated())
                                 .then(record(replay, c, neu.id(), "SUPERSEDED", v.kind().name()))
                                 .then(rebuild(c))));
     }

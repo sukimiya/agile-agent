@@ -168,8 +168,12 @@ class MemoryDecayTest {
     void neverRecalledItemsAgeFromCreation() {
         var never = item("用户的车牌是 A7-3921", Assertion.USER_STATED, 0.0);
         age(never, 60, null);
-
-        assertThat(itemHits("车牌").getFirst().score()).isCloseTo(DecayPolicy.ITEM_BASE_SCORE * 0.25, within(0.01));
+        // Age is TIMESTAMPDIFF seconds (DST can shift calendar-day math by ~1h); assert against the stored age.
+        long ageS = ((Number) stack.rows("SELECT TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP(6)) AS age_s"
+                + " FROM memory_items WHERE id = ?", never.id()).getFirst().get("AGE_S")).longValue();
+        assertThat(ageS).isGreaterThan(Duration.ofDays(59).toSeconds());
+        assertThat(itemHits("车牌").getFirst().score())
+                .isCloseTo(new DecayPolicy(stack.props().getDecay()).score(0.0, ageS), within(1e-9));
     }
 
     // --- refresh -------------------------------------------------------------------------------------------

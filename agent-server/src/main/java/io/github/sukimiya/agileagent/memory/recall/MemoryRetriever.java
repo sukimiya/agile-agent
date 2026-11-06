@@ -309,37 +309,22 @@ public class MemoryRetriever {
     }
 
     private Mono<List<RecallResult.RelationHit>> relationLines(MemoryScope scope, String current, String query) {
-        if (entities == null) {
+        if (entities == null || !props.getRelations().isEnabled()) {
             return Mono.just(List.of());
         }
-        var keys = new ArrayList<String>();
-        keys.addAll(EntityTerms.codes(query));
-        // CJK bigrams alone are weak keys; also try contiguous Han runs of length >= 2 from the query.
-        if (query != null) {
-            var run = new StringBuilder();
-            for (int i = 0; i < query.length(); ) {
-                int cp = query.codePointAt(i);
-                i += Character.charCount(cp);
-                if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) {
-                    run.appendCodePoint(cp);
-                } else {
-                    if (run.length() >= 2) {
-                        keys.add(run.toString());
-                    }
-                    run.setLength(0);
-                }
-            }
-            if (run.length() >= 2) {
-                keys.add(run.toString());
-            }
-        }
         int limit = props.getRelations().getMaxRecalled();
-        // Visibility follows the owning item: same switch and conversation rule as item recall.
-        return settings.crossConversationEnabled(scope)
-                .flatMapMany(cross -> entities.oneHop(scope, current, cross, keys, limit))
-                .map(h -> new RecallResult.RelationHit(h.relation().id(),
-                        h.from().name() + " —" + h.relation().relation() + "→ " + h.to().name()))
-                .collectList();
+        // Entity name contained in the question (and first-person → user-self); visibility follows the item.
+        return entities.matchKeys(scope, query).flatMapMany(keys -> keys.isEmpty() ? Flux.empty()
+                        : settings.crossConversationEnabled(scope)
+                                .flatMapMany(cross -> entities.oneHop(scope, current, cross, keys, limit)))
+                .map(h -> new RecallResult.RelationHit(h.relation().id(), formatRelation(h)))
+                .collectList()
+                .doOnNext(list -> { if (metrics != null) metrics.relationsRecalled(list.size()); });
+    }
+
+    /** {@code 名称（类型）—关系→ 名称} (relation write path T3). */
+    static String formatRelation(EntityGraphRepository.RelationHop h) {
+        return h.from().name() + "（" + h.from().entityType() + "）—" + h.relation().relation() + "→ " + h.to().name();
     }
 
 }

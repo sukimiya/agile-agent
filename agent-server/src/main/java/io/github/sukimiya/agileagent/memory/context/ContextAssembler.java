@@ -182,28 +182,32 @@ public class ContextAssembler {
             List<HistoryTurn> turns, RecallResult recalled) {
         var available = budget.availableInput(window);
         long fixedRaw = TokenEstimator.estimate(fixed);
-        var kept = fit(turns, fixedRaw, available);
+        // Relation (and profile) lines count in the recall token budget (T3): charge them before fitting history.
+        LlmClient.Message profileMsg = profileMessage(recalled);
+        LlmClient.Message relationMsg = relationMessage(recalled);
+        long enrichRaw = TokenEstimator.estimate(java.util.stream.Stream.of(profileMsg, relationMsg)
+                .filter(java.util.Objects::nonNull).toList());
+        var kept = fit(turns, fixedRaw + enrichRaw, available);
         LlmClient.Message reference = null;
         var referenced = new ArrayList<RecallCandidate>();
         if (!recalled.items().isEmpty() && retriever != null) {
             var inWindow = kept.stream().map(HistoryTurn::turnId).collect(Collectors.toSet());
             var outside = recalled.items().stream().filter(item -> !inWindow.contains(item.turnId())).toList();
             if (!outside.isEmpty()) {
-                int cap = (int) Math.floor(budget.historyBudget(window, fixed) * retriever.budgetShare());
+                int cap = (int) Math.floor(Math.max(0, budget.historyBudget(window, fixed) - enrichRaw)
+                        * retriever.budgetShare());
                 reference = reference(outside, cap, retriever.maxItems(), referenced);
                 if (reference != null) {
-                    kept = fit(turns, fixedRaw + TokenEstimator.estimate(List.of(reference)), available);
+                    kept = fit(turns, fixedRaw + enrichRaw + TokenEstimator.estimate(List.of(reference)), available);
                 }
             }
         }
         var injected = kept.stream().flatMap(t -> t.messages().stream()).toList();
         var historyMessages = injected.stream().map(HistoryMessage::message).toList();
         var messages = new ArrayList<LlmClient.Message>(fixedPrefix);
-        LlmClient.Message profileMsg = profileMessage(recalled);
         if (profileMsg != null) {
             messages.add(profileMsg);
         }
-        LlmClient.Message relationMsg = relationMessage(recalled);
         if (relationMsg != null) {
             messages.add(relationMsg);
         }

@@ -208,6 +208,71 @@ public class EntityGraphRepository {
                 });
     }
 
+    /**
+     * Normalized keys of entities whose display name is contained in {@code query} (length at least
+     * {@code entity-match-min-chars}), scanning at most {@code entity-scan-limit} of the owner's valid entities
+     * (longer names first). First-person words from config add the user-self key. Live config is read each call.
+     */
+    public Mono<List<String>> matchKeys(MemoryScope scope, String query) {
+        if (query == null || query.isBlank()) {
+            return Mono.just(List.of());
+        }
+        var cfg = props.getRelations();
+        String q = query;
+        return db.sql("SELECT name, normalized_key, entity_type FROM memory_entities WHERE tenant_id = :tenantId"
+                        + " AND subject = :subject AND is_valid = 1"
+                        + " ORDER BY CHAR_LENGTH(name) DESC, normalized_key ASC LIMIT :lim")
+                .bind("tenantId", scope.tenantId()).bind("subject", scope.subject())
+                .bind("lim", cfg.getEntityScanLimit())
+                .map((row, meta) -> new String[] {row.get("name", String.class), row.get("normalized_key", String.class),
+                        row.get("entity_type", String.class)})
+                .all()
+                .collectList()
+                .map(rows -> {
+                    var keys = new java.util.LinkedHashSet<String>();
+                    for (var word : cfg.getFirstPersonWords()) {
+                        if (word != null && !word.isEmpty() && q.contains(word)) {
+                            keys.add(SELF_KEY);
+                            break;
+                        }
+                    }
+                    int min = cfg.getEntityMatchMinChars();
+                    for (var row : rows) {
+                        if (SELF_TYPE.equals(row[2])) {
+                            continue;
+                        }
+                        String name = row[0];
+                        if (name == null || name.length() < min) {
+                            continue;
+                        }
+                        if (containsIgnoreCase(q, name)) {
+                            keys.add(row[1]);
+                        }
+                    }
+                    return List.copyOf(keys);
+                });
+    }
+
+    private static boolean containsIgnoreCase(String haystack, String needle) {
+        return haystack.toLowerCase(Locale.ROOT).contains(needle.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Copies ACTIVE, valid relations of {@code fromItemId} onto {@code toItemId} (new ids; same entities and type).
+     * Used by Rules replay so the new item inherits the old item's relation set (T2 decision A).
+     */
+    public Mono<Integer> copyItemRelations(MemoryScope scope, String fromItemId, String toItemId) {
+        return relationsOfItems(scope, List.of(fromItemId)).flatMap(map -> {
+            var hops = map.getOrDefault(fromItemId, List.of());
+            if (hops.isEmpty()) {
+                return Mono.just(0);
+            }
+            var specs = hops.stream().map(h -> RelationSpec.of(h.from().name(), h.from().entityType(),
+                    h.relation().relation(), h.to().name(), h.to().entityType())).toList();
+            return replaceItemRelations(scope, toItemId, specs);
+        });
+    }
+
     public Mono<Boolean> supersedeRelation(MemoryScope scope, String relationId) {
         return db.sql("UPDATE memory_relations SET status = 'SUPERSEDED' WHERE id = :id AND tenant_id = :tenantId"
                         + " AND subject = :subject")
