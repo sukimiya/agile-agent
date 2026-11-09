@@ -171,7 +171,7 @@
 
 每条关系必须属于一个条目（V18：`item_id` 非空，无归属的旧行已删除；同一条目内同一条边唯一）。关系的可见性完全跟随条目：条目 ACTIVE、有效、未过期，且符合召回范围（跨会话开关开：只看用户级条目；关：只看当前会话的条目）；两端实体也须有效。同一 (起点, 关系, 终点) 只注入一次（取最新）。
 
-关系只由记忆判断随条目写入（T2）：提示词 `memory-judgement-v2`、Rules rules-version 2（不自动回放）。每条关系单独校验，失败只丢弃该关系、条目照写。指标：`memory.relations.written`（写入的关系数）、`memory.relations.rejected{reason}`（原因码见 `relations-design.md` T2 实施细节）。召回注入：`memory.relations.recalled`。实体匹配为“实体名被问题包含”（`entity-match-min-chars` / `entity-scan-limit`，较长名称优先扫描）；问题含 `first-person-words` 时命中用户本人。行格式 `名称（类型）—关系→ 名称`；关系行计入召回 Token 预算；不刷新条目的 `last_recalled_at`。
+关系只由记忆判断随条目写入（T2）：提示词 `memory-judgement-v2`、Rules rules-version 2（不自动回放）。每条关系单独校验，失败只丢弃该关系、条目照写。指标：`memory.relations.written`（写入的关系数）、`memory.relations.rejected{reason}`（原因码见 `relations-design.md` T2 实施细节）。召回注入：`memory.relations.recalled`。实体匹配为“实体名被问题包含”（`entity-match-min-chars` / `entity-scan-limit`，较长名称优先扫描）；问题含 `first-person-words` 时命中用户本人。行格式 `名称（类型）—关系→ 名称`；关系行计入召回 Token 预算；不刷新条目的 `last_recalled_at`。条目接口（`GET /api/memory/items` 与 `GET /api/memory/items/{id}`）在每条上返回当前关系（只读，字段见 `api.md`）；过滤规则与召回一致（ACTIVE、有效、两端实体有效）。
 
 ## 轮次记忆记录（M2a Task 4，默认关闭）
 

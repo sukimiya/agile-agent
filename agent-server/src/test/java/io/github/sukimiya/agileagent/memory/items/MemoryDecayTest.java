@@ -278,9 +278,9 @@ class MemoryDecayTest {
 
         assertThat(itemHits("杭州")).isEmpty();
         var listed = itemService.list(ALICE, null, 50, null).block(WAIT).items();
-        assertThat(listed).anySatisfy(i -> {
-            assertThat(i.id()).isEqualTo(stale.id());
-            assertThat(i.status()).isEqualTo(ItemStatus.INACTIVE);
+        assertThat(listed).anySatisfy(row -> {
+            assertThat(row.item().id()).isEqualTo(stale.id());
+            assertThat(row.item().status()).isEqualTo(ItemStatus.INACTIVE);
         });
     }
 

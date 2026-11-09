@@ -1,6 +1,6 @@
 # 实体关系写入路径设计（M2b 后续项）
 
-> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1–T3 已完成（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
+> 状态：设计已于 2026-11-04 经用户确认（“继续”，16 项决定全部按建议），按 T1–T5 分步实施；T1–T4 已完成（分支 `codex/memory-relations`）。依据：spec `docs/superpowers/specs/2026-10-21-memory-runtime-design.md` 第 7.2 节（轻量关系图，一跳、有上限、带范围与来源、替代不作为当前事实），计划 `docs/superpowers/plans/2026-10-23-memory-m2.md` Task 4 与 Task 8 决定 4（关系写入延后）。
 
 ## 1. 现状（2026-11-04，main `9fa3d6e`）
 
@@ -71,6 +71,20 @@
 - Rules 回放：新条目 `copyItemRelations` 继承旧条目当前 ACTIVE 关系。
 3. “我同事负责天枢项目”一类投毒目前只靠 Rules 第 8 条约束模型；是否加程序规则等 T5 rel-03 真实模型评测后再定。
 4. 实体名逐字检查用的是来源消息全文，不是证据摘录。
+
+### T3 实施后确认（2026-11-08，用户“没问题”，全部按建议）
+
+1. 行格式保持终点不带类型：`名称（类型）—关系→ 名称`。
+2. 实体扫描按名称长度降序（`CHAR_LENGTH`）。
+3. 概要与关系消息一并计入召回 Token 预算。
+4. `RelationRecallTest` 暂不单加 MySQL 子类。
+5. `MemoryDecayTest` 按实际 `age_s` 断言的改动接受；夏令时日历日偏差另开任务修。
+
+### T4 实施细节（2026-11-08）
+
+- `GET /api/memory/items` 与 `GET /api/memory/items/{id}` 的条目带 `relations`：`[{from:{name,type}, relation, to:{name,type}}]`。
+- 只读；过滤与召回一致（该条目上 ACTIVE、`is_valid=1`、两端实体有效）；按 `valid_from` 升序。
+- `api.md` / `operations.md` 已更新。
 
 ## 4. 任务
 

@@ -38,8 +38,7 @@ import reactor.core.publisher.Mono;
  * scope is always the caller's {@code (tenantId, subject)}, never taken from the request.
  * <ul>
  * <li>{@code GET/PUT /api/memory/settings}: {@code {"crossConversationEnabled": true|false}}.</li>
- * <li>{@code GET /api/memory/items?status=&limit=&before=}, {@code GET /api/memory/items/{id}} (with sources and
- * evidence), {@code POST /api/memory/items/{id}/corrections} ({@code {"content", "expectedRevision"?}} → 201 new
+ * <li>{@code GET /api/memory/items?status=&limit=&before=}, {@code GET /api/memory/items/{id}} (with sources, evidence and current relations), {@code POST /api/memory/items/{id}/corrections} ({@code {"content", "expectedRevision"?}} → 201 new
  * item), {@code DELETE /api/memory/items/{id}} (204), {@code DELETE /api/memory/profile} (204, with the graph).</li>
  * <li>{@code GET /api/conversations/{id}/turns/{turnId}/memory}: what the turn's answer prompt took from
  * memory.</li>
@@ -51,15 +50,36 @@ import reactor.core.publisher.Mono;
 @RestController
 public class MemoryController {
 
-    /** An item as shown to its owner (no scope). */
+    /** An entity end of a relation as shown to its owner. */
+    public record EntityRefView(String name, String type) {
+        static EntityRefView of(MemoryItemService.RelationView.EntityRef e) {
+            return new EntityRefView(e.name(), e.type());
+        }
+    }
+
+    /** One current relation of an item (ACTIVE, valid ends). */
+    public record RelationView(EntityRefView from, String relation, EntityRefView to) {
+        static RelationView of(MemoryItemService.RelationView r) {
+            return new RelationView(EntityRefView.of(r.from()), r.relation(), EntityRefView.of(r.to()));
+        }
+    }
+
+    /** An item as shown to its owner (no scope), with its current relations (relation write path T4). */
     public record ItemView(String id, String conversationId, String itemType, String content, ItemStatus status,
             MemoryItem.Assertion assertion, Double importance, Double confidence, LocalDateTime validUntil,
-            String supersededBy, long revision, LocalDateTime createdAt, LocalDateTime updatedAt) {
+            String supersededBy, long revision, LocalDateTime createdAt, LocalDateTime updatedAt,
+            List<RelationView> relations) {
 
-        static ItemView of(MemoryItem item) {
+        static ItemView of(MemoryItem item, List<MemoryItemService.RelationView> relations) {
+            var rels = relations == null ? List.<RelationView>of()
+                    : relations.stream().map(RelationView::of).toList();
             return new ItemView(item.id(), item.conversationId(), item.itemType(), item.content(), item.status(),
                     item.assertion(), item.importance(), item.confidence(), item.validUntil(), item.supersededBy(),
-                    item.revision(), item.createdAt(), item.updatedAt());
+                    item.revision(), item.createdAt(), item.updatedAt(), rels);
+        }
+
+        static ItemView of(MemoryItem item) {
+            return of(item, List.of());
         }
     }
 
@@ -118,14 +138,15 @@ public class MemoryController {
         return Mono.defer(() -> {
             var scope = MemoryScope.of(user.identity());
             return items.list(scope, parseStatus(status), parseLimit(limit), before)
-                    .map(p -> new ItemPageView(p.items().stream().map(ItemView::of).toList(), p.nextBefore()));
+                    .map(p -> new ItemPageView(p.items().stream().map(r -> ItemView.of(r.item(), r.relations()))
+                            .toList(), p.nextBefore()));
         }).onErrorMap(MemoryController::storage);
     }
 
     @GetMapping("/api/memory/items/{id}")
     Mono<ItemDetailView> detail(@CurrentUser AuthSessionStore.AuthUser user, @PathVariable String id) {
         return Mono.defer(() -> items.detail(MemoryScope.of(user.identity()), id))
-                .map(d -> new ItemDetailView(ItemView.of(d.item()), d.sources()))
+                .map(d -> new ItemDetailView(ItemView.of(d.item(), d.relations()), d.sources()))
                 .onErrorMap(MemoryController::storage);
     }
 

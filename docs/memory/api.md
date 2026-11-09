@@ -127,12 +127,12 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 
 ## 用户记忆（`/api/memory/items`、`/api/memory/profile`，M2b 起，D15=A）
 
-只操作当前用户（租户 + subject）自己的长期记忆条目；范围始终取自服务端身份。所有接口：未登录 401，缺租户 403 `TENANT_REQUIRED`，数据库不可用 503 `STORAGE_UNAVAILABLE`。条目响应不含租户与 subject，字段：`id`、`conversationId`（null 表示用户级）、`itemType`、`content`、`status`、`assertion`（`USER_CONFIRMED` / `USER_STATED` / `INFERRED`）、`importance`、`confidence`、`validUntil`、`supersededBy`、`revision`、`createdAt`、`updatedAt`。
+只操作当前用户（租户 + subject）自己的长期记忆条目；范围始终取自服务端身份。所有接口：未登录 401，缺租户 403 `TENANT_REQUIRED`，数据库不可用 503 `STORAGE_UNAVAILABLE`。条目响应不含租户与 subject，字段：`id`、`conversationId`（null 表示用户级）、`itemType`、`content`、`status`、`assertion`（`USER_CONFIRMED` / `USER_STATED` / `INFERRED`）、`importance`、`confidence`、`validUntil`、`supersededBy`、`revision`、`createdAt`、`updatedAt`、`relations`（只读，见下）。
 
 | 接口 | 说明 | 成功 |
 | --- | --- | --- |
-| `GET /api/memory/items?status=&limit=&before=` | 按创建时间从新到旧；`status` 为 `ItemStatus` 之一（省略时返回除 DELETED 外全部），`limit` 1–100（默认 20），`before` 取上一页的 `nextBefore` | 200 `{"items": [...], "nextBefore": "…" 或 null}` |
-| `GET /api/memory/items/{id}` | 条目及来源：`sources[]` 含 `messageId`、`conversationId`、`sourceType`、`evidenceExcerpt` | 200 `{"item": {...}, "sources": [...]}` |
+| `GET /api/memory/items?status=&limit=&before=` | 按创建时间从新到旧；`status` 为 `ItemStatus` 之一（省略时返回除 DELETED 外全部），`limit` 1–100（默认 20），`before` 取上一页的 `nextBefore`；每条含当前 `relations` | 200 `{"items": [...], "nextBefore": "…" 或 null}` |
+| `GET /api/memory/items/{id}` | 条目、来源与当前关系：`sources[]` 含 `messageId`、`conversationId`、`sourceType`、`evidenceExcerpt`；`item.relations` 同上 | 200 `{"item": {...}, "sources": [...]}` |
 | `POST /api/memory/items/{id}/corrections` | 请求体 `{"content": "…", "expectedRevision": 3}`（`expectedRevision` 可省略）。按 D16 新建一条 ACTIVE、`USER_CONFIRMED` 的条目（类型与所属会话同旧条目），旧条目变为 SUPERSEDED 并指向新条目，二者在同一事务内生效；旧条目正文保留以便查看历史 | 201 新条目 |
 | `DELETE /api/memory/items/{id}` | 软删除：条目标记 DELETED、`is_valid = 0`（正文保留在数据库中，但任何接口和提示词都不再返回），来源与由它派生的关系置为无效，引用它的每轮解释记录不再返回（仍计入引用数）；已有概要快照立即按剩余条目重写（即使跨会话开关已关闭，只删内容、不做新的汇总）。之后不会再被召回或用于重建。与对话中遗忘相同，该条目来源消息所在的轮次永久不再进入原文召回和近期对话窗口（历史接口仍完整列出，2026-10-29） | 204 |
 | `DELETE /api/memory/profile` | 软删除概要快照、全部实体与关系（`is_valid = 0`，以及引用它们的每轮解释记录）并清除缓存；条目保留，跨会话开关打开时之后的重建会复用该行、以更高版本重新生成概要，新写入的同名实体重新生效 | 204 |
@@ -147,6 +147,13 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 | 更正内容缺失或为空、`expectedRevision` 不是整数、内容含被拒绝的个人敏感信息（F3：手机号、身份证号、银行卡号、密钥等） | 400 `INVALID_ARGUMENT` |
 | 条目不存在、属于他人或已删除（含重复删除） | 404 `MEMORY_ITEM_NOT_FOUND` |
 | 更正已被替代的条目，或 `expectedRevision` 不符；减少引用数时与另一个并发调整冲突；恢复不是 FORGOTTEN 的条目 | 409 `MEMORY_ITEM_CONFLICT` |
+
+### 条目上的关系（关系写入路径 T4，只读）
+
+列表与详情中的每条记忆都带 `relations` 数组（可能为空）。元素形如
+`{"from":{"name":"用户","type":"SELF"},"relation":"负责","to":{"name":"星河项目","type":"PROJECT"}}`。
+只返回该条目当前 ACTIVE、有效且两端实体有效的关系（与召回侧同一行过滤；`SUPERSEDED` / 无效实体端不出现）。
+顺序为写入时间升序。接口不提供手工增删关系；关系只由记忆判断随条目写入（见 `operations.md` 实体关系一节）。
 
 ### 按最近召回时间衰减（M2b Task 6）
 

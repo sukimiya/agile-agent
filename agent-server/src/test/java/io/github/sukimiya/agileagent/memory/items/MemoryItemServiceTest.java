@@ -83,7 +83,7 @@ class MemoryItemServiceTest {
         var rest = service.list(ALICE, null, 10, page.nextBefore()).block(WAIT);
         assertThat(rest.items()).hasSize(1);
         assertThat(rest.nextBefore()).isNull();
-        assertThat(List.of(page.items().getFirst().id(), rest.items().getFirst().id()))
+        assertThat(List.of(page.items().getFirst().item().id(), rest.items().getFirst().item().id()))
                 .containsExactlyInAnyOrder(a.id(), b.id());
 
         assertThat(service.list(ALICE, ItemStatus.SUPERSEDED, 10, null).block(WAIT).items()).isEmpty();
@@ -107,6 +107,44 @@ class MemoryItemServiceTest {
         assertThatThrownBy(() -> service.delete(BOB, a.id()).block(WAIT))
                 .satisfies(e -> assertThat(code(e)).isEqualTo(ErrorCode.MEMORY_ITEM_NOT_FOUND));
         assertThat(service.detail(ALICE, a.id()).block(WAIT).item().status()).isEqualTo(ItemStatus.ACTIVE);
+    }
+
+    @Test
+    void detailAndListReturnTheItemsCurrentRelations() {
+        var item = save(ALICE, "我负责星河项目，项目使用 MySQL");
+        graph.replaceItemRelations(ALICE, item.id(), List.of(
+                RelationSpec.of("用户", "SELF", "负责", "星河项目", "PROJECT"),
+                RelationSpec.of("星河项目", "PROJECT", "使用", "MySQL", "PRODUCT"))).block(WAIT);
+        // A superseded edge of the same item is not returned.
+        var old = graph.saveRelation(ALICE, item.id(),
+                graph.upsertEntity(ALICE, "星河项目", "PROJECT").block(WAIT).id(), "使用",
+                graph.upsertEntity(ALICE, "PostgreSQL", "PRODUCT").block(WAIT).id()).block(WAIT);
+        graph.supersedeRelation(ALICE, old.id()).block(WAIT);
+
+        var detail = service.detail(ALICE, item.id()).block(WAIT);
+        assertThat(detail.relations()).extracting(MemoryItemService.RelationView::relation)
+                .containsExactly("负责", "使用");
+        assertThat(detail.relations().getFirst()).satisfies(r -> {
+            assertThat(r.from().name()).isEqualTo("用户");
+            assertThat(r.from().type()).isEqualTo("SELF");
+            assertThat(r.to().name()).isEqualTo("星河项目");
+            assertThat(r.to().type()).isEqualTo("PROJECT");
+        });
+        assertThat(detail.relations().get(1).to().name()).isEqualTo("MySQL");
+
+        var page = service.list(ALICE, ItemStatus.ACTIVE, 10, null).block(WAIT);
+        assertThat(page.items()).singleElement().satisfies(row -> {
+            assertThat(row.item().id()).isEqualTo(item.id());
+            assertThat(row.relations()).hasSize(2);
+            assertThat(row.relations()).noneMatch(r -> "PostgreSQL".equals(r.to().name()));
+        });
+
+        // An invalid entity end hides that relation only.
+        var mysql = graph.upsertEntity(ALICE, "MySQL", "PRODUCT").block(WAIT);
+        fixture.jdbc().update("UPDATE memory_entities SET is_valid = 0 WHERE id = ?", mysql.id());
+        assertThat(service.detail(ALICE, item.id()).block(WAIT).relations())
+                .extracting(r -> r.from().name() + "—" + r.relation() + "→" + r.to().name())
+                .containsExactly("用户—负责→星河项目");
     }
 
     @Test

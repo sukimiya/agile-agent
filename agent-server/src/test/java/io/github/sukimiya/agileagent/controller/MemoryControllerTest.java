@@ -157,14 +157,22 @@ class MemoryControllerTest {
     @Test
     void itemsApiListsDetailsCorrectsAndDeletes() {
         asUser("tenant-1");
+        var rel = new MemoryItemService.RelationView(
+                new MemoryItemService.RelationView.EntityRef("用户", "SELF"), "负责",
+                new MemoryItemService.RelationView.EntityRef("星河项目", "PROJECT"));
         when(items.list(SCOPE, ItemStatus.ACTIVE, 2, "c-1")).thenReturn(Mono.just(
-                new MemoryItemService.ItemPage(java.util.List.of(item("i-1", ItemStatus.ACTIVE)), "c-2")));
+                new MemoryItemService.ItemPage(java.util.List.of(
+                        new MemoryItemService.ItemRow(item("i-1", ItemStatus.ACTIVE), java.util.List.of(rel))), "c-2")));
         auth(client.get().uri("/api/memory/items?status=ACTIVE&limit=2&before=c-1")).exchange()
                 .expectStatus().isOk().expectBody()
                 .jsonPath("$.items[0].id").isEqualTo("i-1")
                 .jsonPath("$.items[0].content").isEqualTo("喜欢绿茶")
                 .jsonPath("$.items[0].assertion").isEqualTo("USER_STATED")
                 .jsonPath("$.items[0].scope").doesNotExist()
+                .jsonPath("$.items[0].relations[0].from.name").isEqualTo("用户")
+                .jsonPath("$.items[0].relations[0].from.type").isEqualTo("SELF")
+                .jsonPath("$.items[0].relations[0].relation").isEqualTo("负责")
+                .jsonPath("$.items[0].relations[0].to.name").isEqualTo("星河项目")
                 .jsonPath("$.nextBefore").isEqualTo("c-2");
         auth(client.get().uri("/api/memory/items?status=NOPE")).exchange().expectStatus().isBadRequest()
                 .expectBody().jsonPath("$.code").isEqualTo("INVALID_ARGUMENT");
@@ -173,9 +181,11 @@ class MemoryControllerTest {
 
         when(items.detail(SCOPE, "i-1")).thenReturn(Mono.just(new MemoryItemService.ItemDetail(
                 item("i-1", ItemStatus.ACTIVE),
-                java.util.List.of(new SourceRef("m-1", CONV, SourceType.USER_INPUT, "我喜欢绿茶")))));
+                java.util.List.of(new SourceRef("m-1", CONV, SourceType.USER_INPUT, "我喜欢绿茶")),
+                java.util.List.of(rel))));
         auth(client.get().uri("/api/memory/items/i-1")).exchange().expectStatus().isOk().expectBody()
                 .jsonPath("$.item.id").isEqualTo("i-1")
+                .jsonPath("$.item.relations[0].relation").isEqualTo("负责")
                 .jsonPath("$.sources[0].messageId").isEqualTo("m-1")
                 .jsonPath("$.sources[0].evidenceExcerpt").isEqualTo("我喜欢绿茶");
 

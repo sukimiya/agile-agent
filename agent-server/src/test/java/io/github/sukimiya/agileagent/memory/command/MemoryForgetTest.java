@@ -224,10 +224,10 @@ class MemoryForgetTest {
         assertThat(count("SELECT COUNT(*) FROM chat_turns WHERE id = ? AND memory_command = 'FORGET'", lastTurn))
                 .as("the command turn is marked so judgement skips it").isEqualTo(1);
         // Still listed (not a delete), excluded from item recall.
-        assertThat(itemService.list(ALICE, null, 20, null).block(WAIT).items()).extracting(MemoryItem::id)
+        assertThat(itemService.list(ALICE, null, 20, null).block(WAIT).items()).extracting(r -> r.item().id())
                 .contains(clinic.id());
         assertThat(itemService.list(ALICE, ItemStatus.FORGOTTEN, 20, null).block(WAIT).items())
-                .extracting(MemoryItem::id).containsExactly(clinic.id());
+                .extracting(r -> r.item().id()).containsExactly(clinic.id());
         assertThat(items.searchActive(ALICE, conversation, List.of("口腔"), 10).collectList().block(WAIT)).isEmpty();
     }
 

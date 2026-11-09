@@ -22,7 +22,7 @@ import io.r2dbc.spi.ConnectionFactory;
 import reactor.core.publisher.Mono;
 
 /**
- * The user's own long-term memory (M2b Task 5, D15=A): list, detail with provenance, correction (D16=A: a new
+ * The user's own long-term memory (M2b Task 5, D15=A): list, detail with provenance and current relations (T4), correction (D16=A: a new
  * {@code USER_CONFIRMED} item supersedes the old one), deletion and profile deletion. Every operation is
  * scoped to the caller's {@code (tenantId, subject)}; another owner's or a deleted item is
  * {@code MEMORY_ITEM_NOT_FOUND}.
@@ -36,9 +36,25 @@ public class MemoryItemService {
     static final String CORRECTION_REASON = "USER_CORRECTION";
 
     /** One page, newest first; {@code nextBefore} is the cursor for the next page (null when none). */
-    public record ItemPage(List<MemoryItem> items, String nextBefore) {}
+    public record ItemPage(List<ItemRow> items, String nextBefore) {}
 
-    public record ItemDetail(MemoryItem item, List<SourceRef> sources) {}
+    /** An item with its current relations (relation write path T4, read-only). */
+    public record ItemRow(MemoryItem item, List<RelationView> relations) {}
+
+    public record ItemDetail(MemoryItem item, List<SourceRef> sources, List<RelationView> relations) {}
+
+    /**
+     * A relation of an item as returned by the user memory API: ACTIVE, valid, both ends valid (same row filter as
+     * recall). Ordered by {@code valid_from}.
+     */
+    public record RelationView(EntityRef from, String relation, EntityRef to) {
+        public record EntityRef(String name, String type) {}
+
+        static RelationView of(EntityGraphRepository.RelationHop hop) {
+            return new RelationView(new EntityRef(hop.from().name(), hop.from().entityType()),
+                    hop.relation().relation(), new EntityRef(hop.to().name(), hop.to().entityType()));
+        }
+    }
 
     /**
      * An item's effective recall reference count, the retention its tier gives, and when it becomes purgeable
@@ -127,19 +143,38 @@ public class MemoryItemService {
             if (c.isPresent()) {
                 spec = spec.bind("cAt", c.get().createdAt()).bind("cId", c.get().id());
             }
-            return spec.map((row, meta) -> MemoryItemRepository.mapRow(row)).all().collectList().map(rows -> {
-                if (rows.size() <= limit) {
-                    return new ItemPage(rows, null);
-                }
-                var page = rows.subList(0, limit);
-                return new ItemPage(List.copyOf(page), page.getLast().id());
+            return spec.map((row, meta) -> MemoryItemRepository.mapRow(row)).all().collectList().flatMap(rows -> {
+                List<MemoryItem> page = rows.size() <= limit ? rows : rows.subList(0, limit);
+                String next = rows.size() <= limit ? null : page.getLast().id();
+                return withRelations(scope, page).map(list -> new ItemPage(list, next));
             });
         });
     }
 
     public Mono<ItemDetail> detail(MemoryScope scope, String id) {
-        return visibleOrNotFound(scope, id)
-                .flatMap(item -> sources.findByItem(item.id()).collectList().map(s -> new ItemDetail(item, s)));
+        return visibleOrNotFound(scope, id).flatMap(item -> Mono.zip(
+                sources.findByItem(item.id()).collectList(),
+                relationsOf(scope, List.of(item.id())).map(m -> m.getOrDefault(item.id(), List.of())))
+                .map(t -> new ItemDetail(item, t.getT1(), t.getT2())));
+    }
+
+    private Mono<List<ItemRow>> withRelations(MemoryScope scope, List<MemoryItem> page) {
+        if (page.isEmpty()) {
+            return Mono.just(List.of());
+        }
+        return relationsOf(scope, page.stream().map(MemoryItem::id).toList())
+                .map(byItem -> page.stream()
+                        .map(item -> new ItemRow(item, byItem.getOrDefault(item.id(), List.of())))
+                        .toList());
+    }
+
+    /** Current relations of the given items (ACTIVE, valid, both ends valid). */
+    private Mono<java.util.Map<String, List<RelationView>>> relationsOf(MemoryScope scope, List<String> ids) {
+        return graph.relationsOfItems(scope, ids).map(byItem -> {
+            var out = new java.util.LinkedHashMap<String, List<RelationView>>();
+            byItem.forEach((id, hops) -> out.put(id, hops.stream().map(RelationView::of).toList()));
+            return out;
+        });
     }
 
     /**
