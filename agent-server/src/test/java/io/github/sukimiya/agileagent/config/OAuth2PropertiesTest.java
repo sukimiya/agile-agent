@@ -60,4 +60,57 @@ class OAuth2PropertiesTest {
                 "/org/primary/id", "/org/primary/name", "/access/roles", "/access/manageable", "/access/readable"));
         assertThat(props.roles()).isEqualTo(new OAuth2Properties.Roles("root_operator", "tenant_owner"));
     }
+
+    @Test
+    void bindsGitHubCompatibilitySettingsFromCommaSeparatedValues() {
+        var source = new MapConfigurationPropertySource(java.util.Map.ofEntries(
+                java.util.Map.entry("oauth2.default-access-token-ttl", "8h"),
+                java.util.Map.entry("oauth2.user-agent", "agile-agent-test"),
+                java.util.Map.entry("oauth2.claims.subject", "/id"),
+                java.util.Map.entry("oauth2.claims.subject-prefix", "github:"),
+                java.util.Map.entry("oauth2.claims.display-name-fallback", "/login"),
+                java.util.Map.entry("oauth2.claim-defaults.enabled", "true"),
+                java.util.Map.entry("oauth2.claim-defaults.tenant-id", "users.example.test"),
+                java.util.Map.entry("oauth2.claim-defaults.roles", "user"),
+                java.util.Map.entry("oauth2.claim-defaults.manageable-org-ids", ""),
+                java.util.Map.entry("oauth2.claim-defaults.readable-org-ids", "users.example.test"),
+                java.util.Map.entry("oauth2.admin-grant.match-claim", "/id"),
+                java.util.Map.entry("oauth2.admin-grant.match-values", "1, 2"),
+                java.util.Map.entry("oauth2.admin-grant.roles", "platform_admin,tenant_admin")));
+
+        var props = new Binder(source).bind("oauth2", OAuth2Properties.class).get();
+
+        assertThat(props.defaultAccessTokenTtl()).isEqualTo(java.time.Duration.ofHours(8));
+        assertThat(props.userAgent()).isEqualTo("agile-agent-test");
+        assertThat(props.claims().subjectPrefix()).isEqualTo("github:");
+        assertThat(props.claims().displayNameFallback()).isEqualTo("/login");
+        assertThat(props.claimDefaults().enabled()).isTrue();
+        assertThat(props.claimDefaults().tenantId()).isEqualTo("users.example.test");
+        assertThat(props.claimDefaults().roles()).containsExactly("user");
+        assertThat(props.claimDefaults().manageableOrgIds()).isEmpty();
+        assertThat(props.claimDefaults().readableOrgIds()).containsExactly("users.example.test");
+        assertThat(props.adminGrant().enabled()).isTrue();
+        assertThat(props.adminGrant().matchValues()).containsExactly("1", "2");
+        assertThat(props.adminGrant().roles()).containsExactly("platform_admin", "tenant_admin");
+    }
+
+    @Test
+    void blankCompatibilitySettingsLeaveDefaultsAndAdminGrantDisabled() {
+        var source = new MapConfigurationPropertySource(java.util.Map.ofEntries(
+                java.util.Map.entry("oauth2.default-access-token-ttl", "1h"),
+                java.util.Map.entry("oauth2.user-agent", "agile-agent"),
+                java.util.Map.entry("oauth2.claims.subject-prefix", ""),
+                java.util.Map.entry("oauth2.claims.display-name-fallback", ""),
+                java.util.Map.entry("oauth2.claim-defaults.enabled", "false"),
+                java.util.Map.entry("oauth2.claim-defaults.tenant-id", ""),
+                java.util.Map.entry("oauth2.claim-defaults.roles", ""),
+                java.util.Map.entry("oauth2.admin-grant.match-claim", ""),
+                java.util.Map.entry("oauth2.admin-grant.match-values", "")));
+
+        var props = new Binder(source).bind("oauth2", OAuth2Properties.class).get();
+
+        assertThat(props.claims()).isEqualTo(new OAuth2ClaimProperties());
+        assertThat(props.claimDefaults()).isEqualTo(new OAuth2Properties.ClaimDefaults());
+        assertThat(props.adminGrant().enabled()).isFalse();
+    }
 }

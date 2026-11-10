@@ -332,4 +332,76 @@ class OAuth2ClientTest {
         }
         assertThrowableGraphDoesNotContain(error.getCause(), sentinel);
     }
+
+    @Test
+    void tokenRequestsAskForJsonAndCarryUserAgent() throws InterruptedException {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"access_token\":\"at-1\",\"token_type\":\"bearer\",\"scope\":\"read:user\"}"));
+
+        StepVerifier.create(client.exchangeCode("code-1", "verifier-1")).expectNextCount(1).verifyComplete();
+
+        var req = server.takeRequest();
+        assertThat(req.getHeader("Accept")).contains("application/json");
+        assertThat(req.getHeader("User-Agent")).isEqualTo("agile-agent");
+    }
+
+    @Test
+    void missingExpiresInAndRefreshTokenUseConfiguredDefaultTtl() {
+        var configured = props("userType", null);
+        configured = new OAuth2Properties(configured.authorizationUri(), configured.tokenUri(),
+                configured.userInfoUri(), configured.revocationUri(), configured.clientId(), configured.clientSecret(),
+                configured.redirectUri(), configured.scope(), configured.userTypeClaim(),
+                configured.frontendRedirectUri(), null, null, null, null,
+                java.time.Duration.ofHours(8), "custom-agent");
+        var githubLike = clientWith(configured);
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"access_token\":\"gho-1\",\"token_type\":\"bearer\",\"scope\":\"read:user\"}"));
+
+        StepVerifier.create(githubLike.exchangeCode("code-1", "verifier-1"))
+                .assertNext(r -> {
+                    assertThat(r.accessToken()).isEqualTo("gho-1");
+                    assertThat(r.refreshToken()).isNull();
+                    assertThat(r.expiresInSeconds()).isEqualTo(8 * 3600);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void errorBodyWithSuccessStatusIsRejectedWithoutExposingIt() {
+        String sentinel = "sentinel-oauth2-github-error";
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"error\":\"bad_verification_code\",\"error_description\":\"" + sentinel + "\"}"));
+
+        StepVerifier.create(client.exchangeCode("code-1", "verifier-1"))
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(OAuth2Client.OAuth2AuthException.class);
+                    assertThat(e.getMessage()).doesNotContain(sentinel);
+                })
+                .verify();
+    }
+
+    @Test
+    void refreshWithoutRefreshTokenFailsAsAuthWithoutCallingProvider() {
+        StepVerifier.create(client.refresh(null))
+                .expectError(OAuth2Client.OAuth2AuthException.class)
+                .verify();
+        StepVerifier.create(client.refresh(" "))
+                .expectError(OAuth2Client.OAuth2AuthException.class)
+                .verify();
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void userInfoRequestCarriesUserAgentAndJsonAccept() throws InterruptedException {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"sub\":\"u\",\"name\":\"n\",\"roles\":[],\"manageable_org_ids\":[],"
+                        + "\"readable_org_ids\":[]}"));
+
+        StepVerifier.create(client.fetchIdentity("at-1")).expectNextCount(1).verifyComplete();
+
+        var req = server.takeRequest();
+        assertThat(req.getHeader("User-Agent")).isEqualTo("agile-agent");
+        assertThat(req.getHeader("Accept")).contains("application/json");
+        assertThat(req.getHeader("Authorization")).isEqualTo("Bearer at-1");
+    }
 }
