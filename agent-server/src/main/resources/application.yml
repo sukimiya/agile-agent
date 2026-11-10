@@ -36,9 +36,15 @@ oauth2:
   scope: ${OAUTH2_SCOPE:openid profile offline_access}
   user-type-claim: ${OAUTH2_USER_TYPE_CLAIM:}
   frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:5173/login/callback}
+  # Access-token lifetime when the token response has no expires_in (GitHub OAuth Apps).
+  default-access-token-ttl: ${OAUTH2_DEFAULT_ACCESS_TOKEN_TTL:1h}
+  # Sent on token, userinfo, and revocation requests; GitHub's API rejects requests without one.
+  user-agent: ${OAUTH2_USER_AGENT:agile-agent}
   claims:
     subject: ${OAUTH2_CLAIM_SUBJECT:/sub}
+    subject-prefix: ${OAUTH2_CLAIM_SUBJECT_PREFIX:}
     display-name: ${OAUTH2_CLAIM_DISPLAY_NAME:/name}
+    display-name-fallback: ${OAUTH2_CLAIM_DISPLAY_NAME_FALLBACK:}
     tenant-id: ${OAUTH2_CLAIM_TENANT_ID:/tenant_id}
     tenant-name: ${OAUTH2_CLAIM_TENANT_NAME:/tenant_name}
     primary-org-id: ${OAUTH2_CLAIM_PRIMARY_ORG_ID:/primary_org/id}
@@ -49,6 +55,23 @@ oauth2:
   roles:
     platform-admin: ${OAUTH2_PLATFORM_ADMIN_ROLE:platform_admin}
     tenant-admin: ${OAUTH2_TENANT_ADMIN_ROLE:tenant_admin}
+  # Used only when enabled and the userinfo lacks the claim (providers without tenant/role/org data).
+  claim-defaults:
+    enabled: ${OAUTH2_CLAIM_DEFAULTS_ENABLED:false}
+    tenant-id: ${OAUTH2_DEFAULT_TENANT_ID:}
+    tenant-name: ${OAUTH2_DEFAULT_TENANT_NAME:}
+    primary-org-id: ${OAUTH2_DEFAULT_PRIMARY_ORG_ID:}
+    primary-org-name: ${OAUTH2_DEFAULT_PRIMARY_ORG_NAME:}
+    roles: ${OAUTH2_DEFAULT_ROLES:}
+    manageable-org-ids: ${OAUTH2_DEFAULT_MANAGEABLE_ORG_IDS:}
+    readable-org-ids: ${OAUTH2_DEFAULT_READABLE_ORG_IDS:}
+  # Extra roles/orgs for identities whose userinfo claim at match-claim equals one of match-values.
+  admin-grant:
+    match-claim: ${OAUTH2_ADMIN_MATCH_CLAIM:}
+    match-values: ${OAUTH2_ADMIN_MATCH_VALUES:}
+    roles: ${OAUTH2_ADMIN_ROLES:}
+    manageable-org-ids: ${OAUTH2_ADMIN_MANAGEABLE_ORG_IDS:}
+    readable-org-ids: ${OAUTH2_ADMIN_READABLE_ORG_IDS:}
 
 app:
   memory:

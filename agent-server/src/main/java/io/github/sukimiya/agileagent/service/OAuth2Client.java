@@ -3,6 +3,7 @@ package io.github.sukimiya.agileagent.service;
 import java.time.Duration;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -69,6 +70,10 @@ public class OAuth2Client {
     }
 
     public Mono<TokenResult> refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            // Providers such as GitHub OAuth Apps issue no refresh token; the user must sign in again.
+            return Mono.error(new OAuth2AuthException("no refresh token available"));
+        }
         var form = new LinkedMultiValueMap<String, String>();
         form.add("grant_type", "refresh_token");
         form.add("refresh_token", refreshToken);
@@ -79,7 +84,11 @@ public class OAuth2Client {
 
     public Mono<IdentityContext> fetchIdentity(String accessToken) {
         return http.get().uri(props.userInfoUri())
-                .headers(h -> h.setBearerAuth(accessToken))
+                .headers(h -> {
+                    h.setBearerAuth(accessToken);
+                    h.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
+                    h.set(HttpHeaders.USER_AGENT, props.userAgent());
+                })
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, resp -> {
                     int status = resp.statusCode().value();
@@ -124,6 +133,7 @@ public class OAuth2Client {
         form.add("client_id", props.clientId());
         addClientSecretIfPresent(form);
         return http.post().uri(props.revocationUri())
+                .header(HttpHeaders.USER_AGENT, props.userAgent())
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .bodyValue(form)
                 .retrieve()
@@ -144,7 +154,10 @@ public class OAuth2Client {
     }
 
     private Mono<TokenResult> postForm(String uri, LinkedMultiValueMap<String, String> form) {
+        // Ask for JSON explicitly: GitHub's token endpoint otherwise answers form-encoded.
         return http.post().uri(uri)
+                .accept(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.USER_AGENT, props.userAgent())
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .bodyValue(form)
                 .retrieve()
@@ -161,14 +174,23 @@ public class OAuth2Client {
                 .bodyToMono(JsonNode.class)
                 .onErrorMap(WebClientRequestException.class,
                         e -> new OAuth2UnavailableException("OAuth2 token provider request failed"))
-                .map(OAuth2Client::toTokenResult);
+                .flatMap(this::toTokenResult);
     }
 
-    private static TokenResult toTokenResult(JsonNode body) {
-        return new TokenResult(
-                body.path("access_token").asText(),
+    /**
+     * Some providers (GitHub) report token errors as HTTP 200 with an {@code error} field. Tokens
+     * without {@code expires_in} get the configured default lifetime.
+     */
+    private Mono<TokenResult> toTokenResult(JsonNode body) {
+        String accessToken = body.path("access_token").asText(null);
+        if (body.hasNonNull("error") || accessToken == null || accessToken.isBlank()) {
+            return Mono.error(new OAuth2AuthException("OAuth2 token endpoint returned no access token"));
+        }
+        int defaultTtl = (int) Math.min(Integer.MAX_VALUE, props.defaultAccessTokenTtl().toSeconds());
+        return Mono.just(new TokenResult(
+                accessToken,
                 body.path("refresh_token").asText(null),
-                body.path("expires_in").asInt(3600));
+                body.path("expires_in").asInt(defaultTtl)));
     }
 
     public record TokenResult(String accessToken, String refreshToken, int expiresInSeconds) {
