@@ -20,4 +20,8 @@ public final class LlmBalanceException extends RuntimeException {
     public static LlmBalanceException providerError() {
         return new LlmBalanceException(502, "LLM_BALANCE_PROVIDER_ERROR", "Provider balance lookup failed");
     }
+
+    public static LlmBalanceException teamRequired() {
+        return new LlmBalanceException(400, "LLM_BALANCE_TEAM_REQUIRED", "Balance path requires a team id");
+    }
 }

@@ -56,7 +56,7 @@ public class TenantLlmConfigService {
                 .switchIfEmpty(Mono.error(LlmConfigValidationException.notFound()))
                 .flatMap(config -> presets.findById(config.presetId())
                         .switchIfEmpty(Mono.error(LlmConfigValidationException.notFound()))
-                        .map(preset -> response(preset)));
+                        .map(preset -> response(preset, config)));
     }
 
     public Mono<ConfigResponse> save(IdentityContext identity, ConfigInput input) {
@@ -74,7 +74,7 @@ public class TenantLlmConfigService {
                         .defaultIfEmpty(Optional.empty())
                         .flatMap(existing -> probe(preset, apiKey)
                                 .then(Mono.fromCallable(() -> crypto.encrypt(apiKey)))
-                                .flatMap(encrypted -> persist(tenantId, preset, encrypted, existing))));
+                                .flatMap(encrypted -> persist(tenantId, preset, encrypted, existing, input))));
     }
 
     public Mono<Void> delete(IdentityContext identity) {
@@ -89,15 +89,20 @@ public class TenantLlmConfigService {
     }
 
     private Mono<ConfigResponse> persist(String tenantId, LlmProviderPresetRow preset, String encrypted,
-            Optional<TenantLlmConfigRow> existing) {
+            Optional<TenantLlmConfigRow> existing, ConfigInput input) {
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
+        String balanceKey = mergeSecret(existing.map(TenantLlmConfigRow::balanceApiKeyEncrypted).orElse(null),
+                input.balanceApiKey());
+        String balanceTeam = mergeSecret(existing.map(TenantLlmConfigRow::balanceTeamIdEncrypted).orElse(null),
+                input.balanceTeamId());
         TenantLlmConfigRow row = existing
-                .map(old -> new TenantLlmConfigRow(old.id(), tenantId, preset.id(), encrypted, old.createdAt(), now))
+                .map(old -> new TenantLlmConfigRow(old.id(), tenantId, preset.id(), encrypted, old.createdAt(), now,
+                        balanceKey, balanceTeam))
                 .orElseGet(() -> new TenantLlmConfigRow(NonBlockingIds.uuid(), tenantId, preset.id(),
-                        encrypted, now, now));
+                        encrypted, now, now, balanceKey, balanceTeam));
         return configs.upsert(row)
                 .then(Mono.fromRunnable(() -> resolver.evict(tenantId)))
-                .thenReturn(response(preset))
+                .thenReturn(response(preset, row))
                 .onErrorMap(error -> error instanceof LlmConfigValidationException
                         ? error : LlmConfigValidationException.saveFailed());
     }
@@ -129,22 +134,44 @@ public class TenantLlmConfigService {
                         ? error : LlmConfigValidationException.providerUnavailable());
     }
 
-    private static ConfigResponse response(LlmProviderPresetRow preset) {
-        return new ConfigResponse(preset.id(), preset.name(), preset.model(), "********");
+    private String mergeSecret(String existingEncrypted, String incoming) {
+        if (incoming == null) {
+            return existingEncrypted;
+        }
+        if (incoming.isBlank()) {
+            return null;
+        }
+        return crypto.encrypt(incoming);
+    }
+
+    private static ConfigResponse response(LlmProviderPresetRow preset, TenantLlmConfigRow row) {
+        return new ConfigResponse(preset.id(), preset.name(), preset.model(), "********",
+                row.balanceApiKeyEncrypted() != null, row.balanceTeamIdEncrypted() != null);
     }
 
     private static boolean blank(String value) {
         return value == null || value.isBlank();
     }
 
-    public record ConfigInput(String presetId, String apiKey) {
+    public record ConfigInput(String presetId, String apiKey, String balanceApiKey, String balanceTeamId) {
+        public ConfigInput(String presetId, String apiKey) {
+            this(presetId, apiKey, null, null);
+        }
+
         @Override
         public String toString() {
-            return "ConfigInput[presetId=" + presetId + ", apiKey=[REDACTED]]";
+            return "ConfigInput[presetId=" + presetId + ", apiKey=[REDACTED], balanceApiKey="
+                    + (balanceApiKey == null ? "null" : "[REDACTED]") + ", balanceTeamId="
+                    + (balanceTeamId == null ? "null" : "[REDACTED]") + "]";
         }
     }
 
-    public record ConfigResponse(String presetId, String presetName, String model, String apiKeyMasked) { }
+    public record ConfigResponse(String presetId, String presetName, String model, String apiKeyMasked,
+            boolean balanceKeyConfigured, boolean balanceTeamIdConfigured) {
+        public ConfigResponse(String presetId, String presetName, String model, String apiKeyMasked) {
+            this(presetId, presetName, model, apiKeyMasked, false, false);
+        }
+    }
 
     private record ProbeRequest(String model, List<ProbeMessage> messages, boolean stream) { }
 

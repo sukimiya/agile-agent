@@ -46,7 +46,38 @@ To run the server and optional frontend without Compose, set `LLM_CONFIG_SECRET`
 - starts `agent-server/target/agile-agent-server-0.0.1-SNAPSHOT.jar` in the background (logs under `logs/backend.log`)
 - starts the Vite frontend only if `web/node_modules` exists; otherwise it prints that `web/` should be installed first with `cd web && npm install`
 
-The `web/` directory is not part of this repository yet. A frontend is planned to live there; `start.sh` already starts it when `web/node_modules` is present.
+## Frontend
+
+The SPA lives in `web/` (React, TypeScript, Vite). Install and run it from that directory:
+
+```sh
+cd web
+npm ci
+npm test
+npm run build
+npm run dev
+```
+
+`npm run dev` serves http://localhost:5173 and proxies `/api` to `VITE_API_PROXY_TARGET` (default `http://127.0.0.1:8088`). Leave `VITE_API_BASE_URL` empty so requests stay same-origin; see `web/.env.example`. `./start.sh` starts the Vite server only when `web/node_modules` already exists.
+
+`npm run build` writes static files to `web/dist`. Serve that directory behind nginx (or any static host) on the same origin as the API. The site root must fall back to `index.html` so `/login/callback` works on refresh, and `/api/` must be proxied to the server with response buffering disabled so chat SSE is not held until the turn ends:
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8088;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+
+location / {
+    root /var/www/agile-agent;   # contents of web/dist
+    try_files $uri $uri/ /index.html;
+}
+```
+
+For that deployment, set `OAUTH2_FRONTEND_REDIRECT_URI` to `https://<your-host>/login/callback` (production host `https://ai.avacha.cloud/login/callback`). More detail is in [web/README.md](../web/README.md).
 
 ## Mock OAuth2 end-to-end tests
 

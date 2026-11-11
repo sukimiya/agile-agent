@@ -301,6 +301,31 @@ class TenantLlmClientResolverTest {
         assertThat(sized.presetId()).isEqualTo("preset-b");
     }
 
+    @Test
+    void balanceLookupUsesTheBalanceKeyWhenPresentAndNeverPrintsSecrets() {
+        var fixture = new Fixture();
+        String chat = fixture.crypto.encrypt(RAW_KEY);
+        String balance = fixture.crypto.encrypt("balance-secret-value");
+        String team = fixture.crypto.encrypt("team-secret-value");
+        when(fixture.configs.findByTenantId("tenant-a")).thenReturn(Mono.just(
+                new TenantLlmConfigRepository.TenantLlmConfigRow(
+                        "id-a", "tenant-a", "preset-a", chat, NOW, NOW, balance, team)));
+        when(fixture.presets.findById("preset-a")).thenReturn(Mono.just(new LlmProviderPresetRepository.LlmProviderPresetRow(
+                "preset-a", "Preset", "https://a.example/v1", "model-a", "/balance", "admin", NOW, NOW)));
+
+        var creds = fixture.resolver.resolveBalance("tenant-a").block();
+        assertThat(creds.apiKey()).isEqualTo("balance-secret-value");
+        assertThat(creds.teamId()).isEqualTo("team-secret-value");
+        assertThat(creds.toString()).doesNotContain(RAW_KEY, "balance-secret-value", "team-secret-value");
+
+        when(fixture.configs.findByTenantId("tenant-b")).thenReturn(Mono.just(
+                new TenantLlmConfigRepository.TenantLlmConfigRow("id-b", "tenant-b", "preset-a", chat, NOW, NOW)));
+        var fallback = fixture.resolver.resolveBalance("tenant-b").block();
+        assertThat(fallback.apiKey()).isEqualTo(RAW_KEY);
+        assertThat(fallback.teamId()).isNull();
+        assertThat(fallback.toString()).doesNotContain(RAW_KEY);
+    }
+
     private static TenantLlmConfigRepository.TenantLlmConfigRow config(String tenant, String preset, String encrypted) {
         return new TenantLlmConfigRepository.TenantLlmConfigRow("id-" + tenant, tenant, preset, encrypted, NOW, NOW);
     }

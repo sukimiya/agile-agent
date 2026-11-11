@@ -13,7 +13,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.service.OAuth2Client;
 import io.github.sukimiya.agileagent.spi.identity.IdentityContext;
@@ -45,13 +46,13 @@ class LlmBalanceControllerTest {
     @Test
     void balanceEndpointUsesAuthenticatedIdentityAndIgnoresTenantQuerySelector() throws Exception {
         authenticate();
-        when(service.getBalance(identity())).thenReturn(Mono.just(new ObjectMapper().readTree("{\"remaining\":12}")));
+        when(service.getBalance(identity())).thenReturn(Mono.just(List.of(new LlmBalanceService.BalanceAmount("USD", "12"))));
 
         client.get().uri("/api/llm-config/balance?tenantId=other")
                 .header("Authorization", "Bearer token")
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody().json("{\"remaining\":12}");
+                .expectBody().json("[{\"currency\":\"USD\",\"balance\":\"12\"}]");
 
         verify(service).getBalance(identity());
     }

@@ -54,7 +54,9 @@ public class LlmProviderPresetService {
         var now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
         var row = new LlmProviderPresetRow(NonBlockingIds.uuid(), normalized.name(), normalized.baseUrl(),
                 normalized.model(), normalized.balancePath(), identity.subject(), now, now,
-                normalized.contextWindowTokens(), normalized.maxOutputTokens());
+                normalized.contextWindowTokens(), normalized.maxOutputTokens(), normalized.balanceBaseUrl(),
+                normalized.balanceAmountPointer(), normalized.balanceCurrencyPointer(), normalized.balanceCurrency(),
+                normalized.balanceDivisor(), normalized.balanceNegate());
         return repository.insert(row).thenReturn(row);
     }
 
@@ -67,7 +69,9 @@ public class LlmProviderPresetService {
                     var updated = new LlmProviderPresetRow(existing.id(), normalized.name(), normalized.baseUrl(),
                             normalized.model(), normalized.balancePath(), existing.createdBySubject(),
                             existing.createdAt(), LocalDateTime.ofInstant(clock.instant(), clock.getZone()),
-                            normalized.contextWindowTokens(), normalized.maxOutputTokens());
+                            normalized.contextWindowTokens(), normalized.maxOutputTokens(), normalized.balanceBaseUrl(),
+                            normalized.balanceAmountPointer(), normalized.balanceCurrencyPointer(),
+                            normalized.balanceCurrency(), normalized.balanceDivisor(), normalized.balanceNegate());
                     return repository.update(updated).flatMap(rows -> rows == 1
                             ? Mono.fromRunnable(resolver::evictAll).thenReturn(updated)
                             : Mono.error(new LlmProviderPresetNotFoundException()));
@@ -82,41 +86,79 @@ public class LlmProviderPresetService {
     }
 
     private NormalizedInput validate(PresetInput input) {
-        if (input == null || blank(input.name()) || blank(input.baseUrl()) || blank(input.model())) {
-            throw new LlmProviderPresetValidationException();
+        if (input == null) {
+            throw new LlmProviderPresetValidationException("preset", "Provider preset input is invalid");
+        }
+        if (blank(input.name())) {
+            throw new LlmProviderPresetValidationException("name", "name is required");
+        }
+        if (blank(input.baseUrl())) {
+            throw new LlmProviderPresetValidationException("baseUrl", "base URL is required");
+        }
+        if (blank(input.model())) {
+            throw new LlmProviderPresetValidationException("model", "model is required");
         }
         String name = input.name().trim();
         String baseUrl = input.baseUrl().trim();
         String model = input.model().trim();
-        String balancePath = input.balancePath() == null || input.balancePath().isBlank()
-                ? null : input.balancePath().trim();
+        String balancePath = blank(input.balancePath()) ? null : input.balancePath().trim();
+        String balanceBaseUrl = blank(input.balanceBaseUrl()) ? null : input.balanceBaseUrl().trim();
+        requireAbsoluteUrl("baseUrl", baseUrl, allowHttp);
+        if (balanceBaseUrl != null) {
+            requireAbsoluteUrl("balanceBaseUrl", balanceBaseUrl, false);
+        }
+        if (balancePath != null) {
+            requireRelative("balancePath", balancePath);
+        }
+        String amountPointer = pointer("balanceAmountPointer", input.balanceAmountPointer());
+        String currencyPointer = pointer("balanceCurrencyPointer", input.balanceCurrencyPointer());
+        String currency = blank(input.balanceCurrency()) ? null : input.balanceCurrency().trim();
+        if (input.balanceDivisor() != null && input.balanceDivisor() < 1) {
+            throw new LlmProviderPresetValidationException("balanceDivisor", "balance divisor must be at least 1");
+        }
+        validateWindow(input.contextWindowTokens(), input.maxOutputTokens());
+        return new NormalizedInput(name, baseUrl, model, balancePath, input.contextWindowTokens(),
+                input.maxOutputTokens(), balanceBaseUrl, amountPointer, currencyPointer, currency,
+                input.balanceDivisor(), input.balanceNegate());
+    }
 
+    private static void requireAbsoluteUrl(String field, String value, boolean allowHttp) {
         try {
-            URI uri = new URI(baseUrl);
+            URI uri = new URI(value);
             String scheme = uri.getScheme();
             boolean supportedScheme = "https".equalsIgnoreCase(scheme)
                     || (allowHttp && "http".equalsIgnoreCase(scheme));
             if (!uri.isAbsolute() || !supportedScheme || uri.getHost() == null
                     || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
-                throw new LlmProviderPresetValidationException();
+                throw new LlmProviderPresetValidationException(field,
+                        field + " must be an absolute https URL without user info, query, or fragment");
             }
         } catch (URISyntaxException exception) {
-            throw new LlmProviderPresetValidationException();
+            throw new LlmProviderPresetValidationException(field, field + " is not a valid URL");
         }
+    }
 
-        if (balancePath != null) {
-            try {
-                URI path = new URI(balancePath);
-                if (path.isAbsolute() || path.getRawAuthority() != null || path.getRawFragment() != null) {
-                    throw new LlmProviderPresetValidationException();
-                }
-            } catch (URISyntaxException exception) {
-                throw new LlmProviderPresetValidationException();
+    private static void requireRelative(String field, String value) {
+        try {
+            URI path = new URI(value.replace(BalancePlaceholders.BRACE, "team"));
+            if (path.isAbsolute() || path.getRawAuthority() != null || path.getRawFragment() != null) {
+                throw new LlmProviderPresetValidationException(field,
+                        "balance path must be a relative path without a host or fragment");
             }
+        } catch (URISyntaxException exception) {
+            throw new LlmProviderPresetValidationException(field, "balance path is not a valid URI");
         }
-        validateWindow(input.contextWindowTokens(), input.maxOutputTokens());
-        return new NormalizedInput(name, baseUrl, model, balancePath, input.contextWindowTokens(),
-                input.maxOutputTokens());
+    }
+
+    private static String pointer(String field, String value) {
+        if (blank(value)) {
+            return null;
+        }
+        String pointer = value.trim();
+        if (!pointer.startsWith("/")) {
+            throw new LlmProviderPresetValidationException(field, field + " must be a JSON pointer starting with /");
+        }
+        return pointer;
     }
 
     /** Smallest context window a preset may declare: anything below cannot hold a prompt plus an answer. */
@@ -128,11 +170,15 @@ public class LlmProviderPresetService {
      */
     private static void validateWindow(Integer contextWindowTokens, Integer maxOutputTokens) {
         if (contextWindowTokens != null && contextWindowTokens < MIN_CONTEXT_WINDOW_TOKENS) {
-            throw new LlmProviderPresetValidationException();
+            throw new LlmProviderPresetValidationException("contextWindowTokens",
+                    "context window must be at least " + MIN_CONTEXT_WINDOW_TOKENS);
         }
-        if (maxOutputTokens != null && (maxOutputTokens < 1
-                || (contextWindowTokens != null && maxOutputTokens >= contextWindowTokens))) {
-            throw new LlmProviderPresetValidationException();
+        if (maxOutputTokens != null && maxOutputTokens < 1) {
+            throw new LlmProviderPresetValidationException("maxOutputTokens", "max output must be at least 1");
+        }
+        if (maxOutputTokens != null && contextWindowTokens != null && maxOutputTokens >= contextWindowTokens) {
+            throw new LlmProviderPresetValidationException("maxOutputTokens",
+                    "max output must be smaller than the context window");
         }
     }
 
@@ -141,12 +187,22 @@ public class LlmProviderPresetService {
     }
 
     public record PresetInput(String name, String baseUrl, String model, String balancePath,
-            Integer contextWindowTokens, Integer maxOutputTokens) {
+            Integer contextWindowTokens, Integer maxOutputTokens, String balanceBaseUrl,
+            String balanceAmountPointer, String balanceCurrencyPointer, String balanceCurrency,
+            Integer balanceDivisor, Boolean balanceNegate) {
+        public PresetInput(String name, String baseUrl, String model, String balancePath,
+                Integer contextWindowTokens, Integer maxOutputTokens) {
+            this(name, baseUrl, model, balancePath, contextWindowTokens, maxOutputTokens,
+                    null, null, null, null, null, null);
+        }
+
         public PresetInput(String name, String baseUrl, String model, String balancePath) {
             this(name, baseUrl, model, balancePath, null, null);
         }
     }
 
     private record NormalizedInput(String name, String baseUrl, String model, String balancePath,
-            Integer contextWindowTokens, Integer maxOutputTokens) { }
+            Integer contextWindowTokens, Integer maxOutputTokens, String balanceBaseUrl,
+            String balanceAmountPointer, String balanceCurrencyPointer, String balanceCurrency,
+            Integer balanceDivisor, Boolean balanceNegate) { }
 }

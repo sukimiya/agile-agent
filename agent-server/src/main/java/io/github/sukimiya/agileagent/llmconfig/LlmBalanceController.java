@@ -1,6 +1,7 @@
 package io.github.sukimiya.agileagent.llmconfig;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
+
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
 import io.github.sukimiya.agileagent.web.CurrentUser;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +20,7 @@ public class LlmBalanceController {
     }
 
     @GetMapping("/balance")
-    Mono<JsonNode> getBalance(@CurrentUser AuthSessionStore.AuthUser user) {
+    Mono<List<LlmBalanceService.BalanceAmount>> getBalance(@CurrentUser AuthSessionStore.AuthUser user) {
         return service.getBalance(user.identity());
     }
 }

@@ -91,6 +91,35 @@ public final class TenantLlmClientResolver {
         return resolved(tenantId).map(value -> new PresetAndKey(value.preset(), value.apiKey()));
     }
 
+    /**
+     * Balance lookup credentials. A missing balance key falls back to the chat key. The team id is null when unset.
+     * This reads the database directly so a balance-key change is visible without waiting for the chat client cache.
+     */
+    public Mono<BalanceCredentials> resolveBalance(String tenantId) {
+        if (tenantId == null || tenantId.isBlank()) {
+            return Mono.error(new TenantLlmConfigRequiredException());
+        }
+        return configs.findByTenantId(tenantId)
+                .switchIfEmpty(Mono.error(new TenantLlmConfigRequiredException()))
+                .flatMap(config -> presets.findById(config.presetId())
+                        .switchIfEmpty(Mono.error(new TenantLlmConfigRequiredException()))
+                        .map(preset -> new BalanceCredentials(preset, balanceKey(config), teamId(config))));
+    }
+
+    private String balanceKey(TenantLlmConfigRepository.TenantLlmConfigRow config) {
+        if (config.balanceApiKeyEncrypted() == null || config.balanceApiKeyEncrypted().isBlank()) {
+            return crypto.decrypt(config.apiKeyEncrypted());
+        }
+        return crypto.decrypt(config.balanceApiKeyEncrypted());
+    }
+
+    private String teamId(TenantLlmConfigRepository.TenantLlmConfigRow config) {
+        if (config.balanceTeamIdEncrypted() == null || config.balanceTeamIdEncrypted().isBlank()) {
+            return null;
+        }
+        return crypto.decrypt(config.balanceTeamIdEncrypted());
+    }
+
     public void evict(String tenantId) {
         if (tenantId != null) {
             synchronized (cache) {
@@ -158,6 +187,14 @@ public final class TenantLlmClientResolver {
         @Override
         public String toString() {
             return "PresetAndKey[preset=" + preset + ", apiKey=[REDACTED]]";
+        }
+    }
+
+    public record BalanceCredentials(LlmProviderPresetRepository.LlmProviderPresetRow preset, String apiKey,
+            String teamId) {
+        @Override
+        public String toString() {
+            return "BalanceCredentials[apiKey=[REDACTED], teamId=" + (teamId == null ? "null" : "[REDACTED]") + "]";
         }
     }
 

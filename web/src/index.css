@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Low energy: grayscale surfaces, named accents below. */
+@theme {
+  --color-medium-violet-red: #d21697;
+  --color-fresh-sky: #54b0de;
+  /* Darker Fresh Sky for hover. Ink text stays above 4.5:1. */
+  --color-fresh-sky-dark: #3a96c4;
+  --color-blush-pop: #ebabd7;
+  --color-frozen-water-mountain-lake: #dbf1e7;
+  --color-slime-lime: #aef016;
+  --color-frozen-water: #d1f2e3;
+
+  --color-ink: #171717;
+  --color-fg: #171717;
+  --color-canvas: #f4f4f5;
+  --color-surface: #ffffff;
+  /* Conversation titles, matched to stone-600 before the grayscale remap. */
+  --color-history: #57534e;
+
+  --shadow-input: 0 0 16px color-mix(in srgb, var(--color-fresh-sky) 45%, transparent);
+  --shadow-input-focus: 0 0 0 3px color-mix(in srgb, var(--color-fresh-sky) 35%, transparent), 0 0 18px color-mix(in srgb, var(--color-fresh-sky) 55%, transparent);
+
+  --color-stone-50: #fafafa;
+  --color-stone-100: #f5f5f5;
+  --color-stone-200: #e5e5e5;
+  --color-stone-300: #d4d4d4;
+  --color-stone-400: #a3a3a3;
+  --color-stone-500: #737373;
+  --color-stone-600: #525252;
+  --color-stone-700: #404040;
+  --color-stone-800: #262626;
+  --color-stone-900: #171717;
+  --color-stone-950: #0a0a0a;
+
+  --shadow-soft: 0 10px 30px rgb(0 0 0 / 0.06);
+}
+
+/* Dark surfaces. Accent hexes stay the same; only neutrals and Frozen Water washes shift. */
+html.dark {
+  --color-fg: #ececec;
+  --color-canvas: #121212;
+  --color-surface: #1c1c1c;
+  --color-history: #c8c8c8;
+  --color-frozen-water: color-mix(in srgb, #d1f2e3 18%, #141414);
+  --color-frozen-water-mountain-lake: color-mix(in srgb, #dbf1e7 22%, #121212);
+  --color-stone-50: #161616;
+  --color-stone-100: #1a1a1a;
+  --color-stone-200: #2c2c2c;
+  --color-stone-300: #3a3a3a;
+  --color-stone-400: #8d8d8d;
+  --color-stone-500: #a6a6a6;
+  --color-stone-600: #c2c2c2;
+  --color-stone-700: #d6d6d6;
+  --color-stone-800: #ececec;
+  --color-stone-900: #f5f5f5;
+  --color-stone-950: #fafafa;
+  --shadow-soft: 0 10px 30px rgb(0 0 0 / 0.45);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-fg);
+}
+#root { height: 100vh; }
+
+/* Markdown */
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.875rem; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--color-stone-200); padding: 6px 10px; text-align: left; }
+.markdown-body th { background: var(--color-stone-100); font-weight: 600; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.25rem; margin: 4px 0; }
+.markdown-body li { margin: 2px 0; }
+.markdown-body p { margin: 0 0 4px; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-size: 1rem; margin: 10px 0 4px; font-weight: 600; }
+.markdown-body a {
+  color: var(--color-ink);
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-fresh-sky);
+  text-underline-offset: 2px;
+}

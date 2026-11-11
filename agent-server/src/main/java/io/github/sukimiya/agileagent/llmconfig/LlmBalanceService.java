@@ -1,8 +1,9 @@
 package io.github.sukimiya.agileagent.llmconfig;
 
-import java.net.URI;
 import java.time.Duration;
+import java.util.List;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatusCode;
@@ -24,42 +25,35 @@ public class LlmBalanceService {
     private final AuthorizationService authorization;
     private final TenantLlmClientResolver resolver;
     private final WebClient.Builder webClientBuilder;
+    private final LlmBalanceProperties properties;
 
+    @Autowired
     public LlmBalanceService(AuthorizationService authorization, TenantLlmClientResolver resolver,
-                             WebClient.Builder webClientBuilder) {
+                             WebClient.Builder webClientBuilder, LlmBalanceProperties properties) {
         this.authorization = authorization;
         this.resolver = resolver;
         this.webClientBuilder = webClientBuilder;
+        this.properties = properties;
     }
 
-    public Mono<JsonNode> getBalance(IdentityContext identity) {
+    /** Tests that do not care about the configured currency default. */
+    public LlmBalanceService(AuthorizationService authorization, TenantLlmClientResolver resolver,
+                             WebClient.Builder webClientBuilder) {
+        this(authorization, resolver, webClientBuilder, new LlmBalanceProperties());
+    }
+
+    public Mono<List<BalanceAmount>> getBalance(IdentityContext identity) {
         return Mono.defer(() -> {
             String tenantId = authorization.requireTenant(identity);
             if (!identity.tenantAdmin() && !identity.platformAdmin()) {
                 return Mono.error(new ForbiddenException());
             }
-            return resolver.resolvePresetAndKey(tenantId).flatMap(this::requestBalance);
+            return resolver.resolveBalance(tenantId).flatMap(this::requestBalance);
         });
     }
 
-    private Mono<JsonNode> requestBalance(TenantLlmClientResolver.PresetAndKey resolved) {
-        var preset = resolved.preset();
-        if (preset.balancePath() == null || preset.balancePath().isBlank()) {
-            return Mono.error(LlmBalanceException.unsupported());
-        }
-        final URI target;
-        try {
-            URI base = URI.create(preset.baseUrl().endsWith("/") ? preset.baseUrl() : preset.baseUrl() + "/");
-            URI relative = URI.create(preset.balancePath());
-            if (relative.isAbsolute() || relative.getRawAuthority() != null || relative.getRawFragment() != null) {
-                return Mono.error(LlmBalanceException.providerError());
-            }
-            target = base.resolve(relative);
-            if (!sameAuthority(base, target)) return Mono.error(LlmBalanceException.providerError());
-        } catch (RuntimeException error) {
-            return Mono.error(LlmBalanceException.providerError());
-        }
-
+    private Mono<List<BalanceAmount>> requestBalance(TenantLlmClientResolver.BalanceCredentials resolved) {
+        final var target = BalanceEndpoint.resolve(resolved.preset(), resolved.teamId());
         WebClient client = webClientBuilder.clone().build();
         return client.get().uri(target)
                 .headers(headers -> headers.setBearerAuth(resolved.apiKey()))
@@ -71,17 +65,14 @@ public class LlmBalanceService {
                                 .then(Mono.error(LlmBalanceException.providerError()));
                     }
                     return response.bodyToMono(JsonNode.class)
-                            .switchIfEmpty(Mono.error(LlmBalanceException.providerError()));
+                            .switchIfEmpty(Mono.error(LlmBalanceException.providerError()))
+                            .map(body -> BalanceResponseReader.read(body, resolved.preset(), properties));
                 })
                 .timeout(REQUEST_TIMEOUT)
                 .onErrorMap(error -> error instanceof LlmBalanceException
                         ? error : LlmBalanceException.providerError());
     }
 
-    private static boolean sameAuthority(URI base, URI target) {
-        return base.getScheme().equalsIgnoreCase(target.getScheme())
-                && base.getHost().equalsIgnoreCase(target.getHost())
-                && base.getPort() == target.getPort()
-                && target.getUserInfo() == null;
-    }
+    /** One balance line shown to the caller. {@code balance} is already scaled. */
+    public record BalanceAmount(String currency, String balance) {}
 }

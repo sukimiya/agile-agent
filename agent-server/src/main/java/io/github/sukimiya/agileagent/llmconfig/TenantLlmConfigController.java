@@ -33,7 +33,8 @@ public class TenantLlmConfigController {
         if (request.hasTenantId()) {
             return Mono.error(LlmConfigValidationException.invalidInput());
         }
-        return service.save(user.identity(), new TenantLlmConfigService.ConfigInput(request.presetId(), request.apiKey()));
+        return service.save(user.identity(), new TenantLlmConfigService.ConfigInput(request.presetId(), request.apiKey(),
+                request.balanceApiKey(), request.balanceTeamId()));
     }
 
     @DeleteMapping
@@ -44,6 +45,8 @@ public class TenantLlmConfigController {
     public static final class ConfigRequest {
         private String presetId;
         private String apiKey;
+        private String balanceApiKey;
+        private String balanceTeamId;
         private boolean tenantIdPresent;
 
         public String presetId() {
@@ -62,6 +65,22 @@ public class TenantLlmConfigController {
             this.apiKey = apiKey;
         }
 
+        public String balanceApiKey() {
+            return balanceApiKey;
+        }
+
+        public void setBalanceApiKey(String balanceApiKey) {
+            this.balanceApiKey = balanceApiKey;
+        }
+
+        public String balanceTeamId() {
+            return balanceTeamId;
+        }
+
+        public void setBalanceTeamId(String balanceTeamId) {
+            this.balanceTeamId = balanceTeamId;
+        }
+
         @JsonAnySetter
         public void captureField(String name, Object value) {
             if ("tenantId".equals(name)) {
@@ -75,8 +94,9 @@ public class TenantLlmConfigController {
 
         @Override
         public String toString() {
-            return "ConfigRequest[presetId=" + presetId + ", apiKey=[REDACTED], tenantIdPresent="
-                    + tenantIdPresent + "]";
+            return "ConfigRequest[presetId=" + presetId + ", apiKey=[REDACTED], balanceApiKey="
+                    + (balanceApiKey == null ? "null" : "[REDACTED]") + ", balanceTeamId="
+                    + (balanceTeamId == null ? "null" : "[REDACTED]") + ", tenantIdPresent=" + tenantIdPresent + "]";
         }
     }
 }

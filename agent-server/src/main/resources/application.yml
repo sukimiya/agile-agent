@@ -20,6 +20,9 @@ server:
 llm:
   provider-preset:
     allow-http: false
+  balance:
+    default-currency: ${LLM_BALANCE_DEFAULT_CURRENCY:USD}
+    default-divisor: ${LLM_BALANCE_DEFAULT_DIVISOR:1}
   config:
     secret: ${LLM_CONFIG_SECRET:}
   client-cache:

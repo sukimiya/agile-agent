@@ -52,13 +52,13 @@ class LlmBalanceServiceTest {
 
     @Test
     void balanceUsesOnlyTenantBearerAndPresetRelativePath() throws Exception {
-        when(resolver.resolvePresetAndKey("tenant-1"))
-                .thenReturn(Mono.just(new TenantLlmClientResolver.PresetAndKey(preset("/balance"), "tenant-secret")));
+        when(resolver.resolveBalance("tenant-1"))
+                .thenReturn(Mono.just(new TenantLlmClientResolver.BalanceCredentials(preset("/balance"), "tenant-secret", null)));
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
-                .setBody("{\"remaining\":12}"));
+                .setBody("{\"currency\":\"USD\",\"balance\":\"12\"}"));
 
         StepVerifier.create(service.getBalance(tenantAdmin()))
-                .assertNext(body -> assertThat(body.path("remaining").asInt()).isEqualTo(12))
+                .assertNext(rows -> assertThat(rows).containsExactly(new LlmBalanceService.BalanceAmount("USD", "12")))
                 .verifyComplete();
 
         var request = server.takeRequest();
@@ -66,13 +66,13 @@ class LlmBalanceServiceTest {
         assertThat(request.getPath()).isEqualTo("/balance");
         assertThat(request.getHeader("Authorization")).isEqualTo("Bearer tenant-secret");
         assertThat(request.getRequestUrl().toString()).doesNotContain("tenant-secret");
-        verify(resolver).resolvePresetAndKey("tenant-1");
+        verify(resolver).resolveBalance("tenant-1");
     }
 
     @Test
     void unsupportedBalanceIsAStable404() {
-        when(resolver.resolvePresetAndKey("tenant-1"))
-                .thenReturn(Mono.just(new TenantLlmClientResolver.PresetAndKey(preset(null), "tenant-secret")));
+        when(resolver.resolveBalance("tenant-1"))
+                .thenReturn(Mono.just(new TenantLlmClientResolver.BalanceCredentials(preset(null), "tenant-secret", null)));
 
         StepVerifier.create(service.getBalance(tenantAdmin()))
                 .expectErrorSatisfies(error -> {
@@ -83,8 +83,8 @@ class LlmBalanceServiceTest {
 
     @Test
     void providerFailureIsSanitizedAs502() {
-        when(resolver.resolvePresetAndKey("tenant-1"))
-                .thenReturn(Mono.just(new TenantLlmClientResolver.PresetAndKey(preset("balance"), "tenant-secret")));
+        when(resolver.resolveBalance("tenant-1"))
+                .thenReturn(Mono.just(new TenantLlmClientResolver.BalanceCredentials(preset("balance"), "tenant-secret", null)));
         server.enqueue(new MockResponse().setResponseCode(503).setBody("tenant-secret echoed"));
 
         StepVerifier.create(service.getBalance(tenantAdmin()))
@@ -96,8 +96,8 @@ class LlmBalanceServiceTest {
 
     @Test
     void invalidJsonAndNetworkFailureAreSanitizedAs502() {
-        when(resolver.resolvePresetAndKey("tenant-1"))
-                .thenReturn(Mono.just(new TenantLlmClientResolver.PresetAndKey(preset("balance"), "tenant-secret")));
+        when(resolver.resolveBalance("tenant-1"))
+                .thenReturn(Mono.just(new TenantLlmClientResolver.BalanceCredentials(preset("balance"), "tenant-secret", null)));
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("not-json"));
         StepVerifier.create(service.getBalance(tenantAdmin()))
                 .expectErrorSatisfies(error -> assertThat(error).hasFieldOrPropertyWithValue("status", 502))
@@ -113,8 +113,8 @@ class LlmBalanceServiceTest {
 
     @Test
     void balancePathCannotReplaceProviderAuthority() {
-        when(resolver.resolvePresetAndKey("tenant-1"))
-                .thenReturn(Mono.just(new TenantLlmClientResolver.PresetAndKey(preset("//evil.example/balance"), "tenant-secret")));
+        when(resolver.resolveBalance("tenant-1"))
+                .thenReturn(Mono.just(new TenantLlmClientResolver.BalanceCredentials(preset("//evil.example/balance"), "tenant-secret", null)));
 
         StepVerifier.create(service.getBalance(tenantAdmin()))
                 .expectErrorSatisfies(error -> assertThat(error).hasFieldOrPropertyWithValue("status", 502))
@@ -132,5 +132,27 @@ class LlmBalanceServiceTest {
         StepVerifier.create(service.getBalance(regular)).expectError(io.github.sukimiya.agileagent.web.ForbiddenException.class).verify();
         StepVerifier.create(service.getBalance(tenantlessAdmin)).expectError(io.github.sukimiya.agileagent.web.ForbiddenException.class).verify();
         verifyNoInteractions(resolver);
+    }
+
+    @Test
+    void prepaidBalanceOnAnotherHostUsesTheBalanceKeyAndTeamPlaceholder() throws Exception {
+        var now = LocalDateTime.now();
+        String balanceBase = server.url("/").toString();
+        var preset = new LlmProviderPresetRow("preset-1", "Provider", "https://api.example.test/v1", "model-1",
+                "/v1/billing/teams/{teamId}/prepaid/balance", "admin", now, now, null, null,
+                balanceBase, "/total/val", null, "USD", 100, true);
+        when(resolver.resolveBalance("tenant-1")).thenReturn(Mono.just(
+                new TenantLlmClientResolver.BalanceCredentials(preset, "balance-secret", "team-1")));
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"changes\":[],\"total\":{\"val\":\"-1000\"}}"));
+
+        StepVerifier.create(service.getBalance(tenantAdmin()))
+                .assertNext(rows -> assertThat(rows).containsExactly(new LlmBalanceService.BalanceAmount("USD", "10.00")))
+                .verifyComplete();
+
+        var request = server.takeRequest();
+        assertThat(request.getPath()).isEqualTo("/v1/billing/teams/team-1/prepaid/balance");
+        assertThat(request.getHeader("Authorization")).isEqualTo("Bearer balance-secret");
+        assertThat(request.getRequestUrl().toString()).doesNotContain("balance-secret", "team-1-secret");
     }
 }

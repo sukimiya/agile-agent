@@ -294,7 +294,8 @@
 **恢复对象。**
 
 - MySQL：`sessions`（含删除标记）、`chat_turns`、`chat_messages`、`chat_tool_events`、`memory_jobs`、`service_instances`、M2a 的 `memory_summaries`、`memory_chunks`、`memory_index_progress`、`user_memory_settings`，以及 `tenant_llm_config` 等原有业务表。这是唯一的权威数据。
-- 密钥：`LLM_CONFIG_SECRET`。`tenant_llm_config` 中的租户 API key 用它加密，缺少对应版本的密钥就无法解密，只能让租户重新录入。
+- 密钥：`LLM_CONFIG_SECRET`。`tenant_llm_config` 中的租户对话 API key、余额 API key 和 team id 都用它加密，缺少对应版本的密钥就无法解密，只能让租户重新录入。
+- 迁移：V18 为模型预置增加余额主机和金额解析字段，并为租户配置增加余额 key 与 team id 密文。部署新版本时 Flyway 会执行该迁移；只更新前端不会改表。
 - Redis 只是可重建缓存，不备份，也不从生产复制。
 - 附件原件（`${app.upload.dir}`）**不在 M1 恢复范围内**，不保证长期可恢复。恢复后消息中的文件名仍在，原件可能不存在。
 
