@@ -14,6 +14,8 @@ The dev server listens on port 5173 and proxies `/api` to `VITE_API_PROXY_TARGET
 
 Sign-in is a full-page navigation to `/api/auth/oauth2/authorize`. After the identity provider returns, the server redirects to `OAUTH2_FRONTEND_REDIRECT_URI` (local default `http://localhost:5173/login/callback`) with `#token=...`. The app stores that token, removes the hash, and checks it with `GET /api/auth/me`.
 
+`/home` is a public landing page. `/` is unchanged: it is still the login screen, then the chat app. The landing page uses the same authorize URL, so a successful login still returns to the chat. The existing nginx `try_files` fallback already serves `/home` from `index.html`.
+
 `./start.sh` from the repository root starts this dev server when `web/node_modules` exists.
 
 ## Low energy palette
