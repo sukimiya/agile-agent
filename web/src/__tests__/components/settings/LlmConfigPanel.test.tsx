@@ -48,6 +48,8 @@ describe('LlmConfigPanel', () => {
     render(<LlmConfigPanel />);
     await waitFor(() => expect(screen.getByLabelText('API Key')).toBeInTheDocument());
 
+    expect(screen.getByLabelText('余额 API Key（可选）')).toBeInTheDocument();
+    expect(screen.getByLabelText('Team ID（可选）')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'p2' } });
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'sk-new' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));

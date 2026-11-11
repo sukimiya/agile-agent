@@ -40,6 +40,15 @@ describe('llmConfig api', () => {
       expect(JSON.parse(call[1].body)).toEqual({ presetId: 'p1', apiKey: 'sk-test' });
     });
 
+    it('sends a balance key and team id only when they are filled in', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
+
+      await saveLlmConfig('p1', 'sk-test', { balanceApiKey: '  ', balanceTeamId: ' team-1 ' });
+
+      const call = (globalThis.fetch as any).mock.calls[0];
+      expect(JSON.parse(call[1].body)).toEqual({ presetId: 'p1', apiKey: 'sk-test', balanceTeamId: 'team-1' });
+    });
+
     it('throws the backend message on 400', async () => {
       vi.stubGlobal('fetch', vi.fn(async () => ({
         ok: false, status: 400, json: async () => ({ message: '连通性校验失败: 401' }),

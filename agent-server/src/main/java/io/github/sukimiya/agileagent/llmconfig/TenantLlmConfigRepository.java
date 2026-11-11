@@ -63,36 +63,41 @@ public class TenantLlmConfigRepository {
     }
 
     private Mono<Long> updateByTenantId(TenantLlmConfigRow row) {
-        return db.sql("""
+        var spec = db.sql("""
                 UPDATE tenant_llm_config
-                SET preset_id = :presetId, api_key_encrypted = :apiKeyEncrypted, updated_at = :updatedAt
+                SET preset_id = :presetId, api_key_encrypted = :apiKeyEncrypted, updated_at = :updatedAt,
+                    balance_api_key_encrypted = :balanceApiKeyEncrypted,
+                    balance_team_id_encrypted = :balanceTeamIdEncrypted
                 WHERE tenant_id = :tenantId
                 """)
                 .bind("presetId", row.presetId())
                 .bind("apiKeyEncrypted", row.apiKeyEncrypted())
                 .bind("updatedAt", row.updatedAt())
-                .bind("tenantId", row.tenantId())
-                .fetch().rowsUpdated();
+                .bind("tenantId", row.tenantId());
+        return bindSecret(spec, row).fetch().rowsUpdated();
     }
 
     private Mono<Void> insert(TenantLlmConfigRow row) {
-        return db.sql("""
+        var spec = db.sql("""
                 INSERT INTO tenant_llm_config
-                    (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at)
-                VALUES (:id, :tenantId, :presetId, :apiKeyEncrypted, :createdAt, :updatedAt)
+                    (id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at,
+                     balance_api_key_encrypted, balance_team_id_encrypted)
+                VALUES (:id, :tenantId, :presetId, :apiKeyEncrypted, :createdAt, :updatedAt,
+                        :balanceApiKeyEncrypted, :balanceTeamIdEncrypted)
                 """)
                 .bind("id", row.id())
                 .bind("tenantId", row.tenantId())
                 .bind("presetId", row.presetId())
                 .bind("apiKeyEncrypted", row.apiKeyEncrypted())
                 .bind("createdAt", row.createdAt())
-                .bind("updatedAt", row.updatedAt())
-                .fetch().rowsUpdated().then();
+                .bind("updatedAt", row.updatedAt());
+        return bindSecret(spec, row).fetch().rowsUpdated().then();
     }
 
     public Mono<TenantLlmConfigRow> findByTenantId(String tenantId) {
         return db.sql("""
-                SELECT id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at
+                SELECT id, tenant_id, preset_id, api_key_encrypted, created_at, updated_at,
+                    balance_api_key_encrypted, balance_team_id_encrypted
                 FROM tenant_llm_config WHERE tenant_id = :tenantId
                 """)
                 .bind("tenantId", tenantId)
@@ -106,6 +111,16 @@ public class TenantLlmConfigRepository {
                 .fetch().rowsUpdated();
     }
 
+    private static DatabaseClient.GenericExecuteSpec bindSecret(DatabaseClient.GenericExecuteSpec spec,
+            TenantLlmConfigRow row) {
+        spec = row.balanceApiKeyEncrypted() == null
+                ? spec.bindNull("balanceApiKeyEncrypted", String.class)
+                : spec.bind("balanceApiKeyEncrypted", row.balanceApiKeyEncrypted());
+        return row.balanceTeamIdEncrypted() == null
+                ? spec.bindNull("balanceTeamIdEncrypted", String.class)
+                : spec.bind("balanceTeamIdEncrypted", row.balanceTeamIdEncrypted());
+    }
+
     private static TenantLlmConfigRow mapRow(Readable row) {
         return new TenantLlmConfigRow(
                 row.get("id", String.class),
@@ -113,7 +128,9 @@ public class TenantLlmConfigRepository {
                 row.get("preset_id", String.class),
                 row.get("api_key_encrypted", String.class),
                 row.get("created_at", LocalDateTime.class),
-                row.get("updated_at", LocalDateTime.class));
+                row.get("updated_at", LocalDateTime.class),
+                row.get("balance_api_key_encrypted", String.class),
+                row.get("balance_team_id_encrypted", String.class));
     }
 
     public record TenantLlmConfigRow(
@@ -122,6 +139,21 @@ public class TenantLlmConfigRepository {
             String presetId,
             String apiKeyEncrypted,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {
+            LocalDateTime updatedAt,
+            String balanceApiKeyEncrypted,
+            String balanceTeamIdEncrypted) {
+
+        public TenantLlmConfigRow(String id, String tenantId, String presetId, String apiKeyEncrypted,
+                LocalDateTime createdAt, LocalDateTime updatedAt) {
+            this(id, tenantId, presetId, apiKeyEncrypted, createdAt, updatedAt, null, null);
+        }
+
+        @Override
+        public String toString() {
+            return "TenantLlmConfigRow[id=" + id + ", tenantId=" + tenantId + ", presetId=" + presetId
+                    + ", apiKeyEncrypted=[REDACTED], balanceApiKeyEncrypted="
+                    + (balanceApiKeyEncrypted == null ? "null" : "[REDACTED]")
+                    + ", balanceTeamIdEncrypted=" + (balanceTeamIdEncrypted == null ? "null" : "[REDACTED]") + "]";
+        }
     }
 }

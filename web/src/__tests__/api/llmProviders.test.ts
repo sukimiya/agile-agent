@@ -53,10 +53,12 @@ describe('llmProviders api', () => {
   });
 
   it('updatePreset surfaces the backend message on 400', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ message: 'name 不能为空' }) })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, status: 400, json: async () => ({ message: 'name 不能为空', field: 'name' }),
+    })));
 
     await expect(updatePreset('p1', { name: '', baseUrl: 'b', model: 'm' })).rejects.toMatchObject({
-      message: 'name 不能为空',
+      message: 'name 不能为空', field: 'name',
     });
   });
 

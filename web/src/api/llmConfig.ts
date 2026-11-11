@@ -6,6 +6,8 @@ export interface LlmConfig {
   presetName: string;
   model: string;
   apiKeyMasked: string;
+  balanceKeyConfigured?: boolean;
+  balanceTeamIdConfigured?: boolean;
 }
 
 export interface Balance {
@@ -33,11 +35,18 @@ export async function fetchLlmConfig(): Promise<LlmConfig | null> {
   return res.json();
 }
 
-export async function saveLlmConfig(presetId: string, apiKey: string): Promise<void> {
+export async function saveLlmConfig(
+  presetId: string,
+  apiKey: string,
+  extras?: { balanceApiKey?: string; balanceTeamId?: string },
+): Promise<void> {
+  const payload: Record<string, string> = { presetId, apiKey };
+  if (extras?.balanceApiKey?.trim()) payload.balanceApiKey = extras.balanceApiKey.trim();
+  if (extras?.balanceTeamId?.trim()) payload.balanceTeamId = extras.balanceTeamId.trim();
   const res = await apiFetch('/api/llm-config', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ presetId, apiKey }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new LlmConfigError('SAVE_FAILED', await bodyMessage(res));
 }

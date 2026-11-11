@@ -57,7 +57,7 @@ public class AuthExceptionHandler {
     @ExceptionHandler(LlmProviderPresetValidationException.class)
     ResponseEntity<ApiError> handleInvalidProviderPreset(LlmProviderPresetValidationException exception) {
         return ResponseEntity.badRequest()
-                .body(new ApiError("INVALID_LLM_PROVIDER_PRESET", "Provider preset input is invalid"));
+                .body(new ApiError("INVALID_LLM_PROVIDER_PRESET", exception.getMessage(), exception.field()));
     }
 
     @ExceptionHandler(LlmProviderPresetNotFoundException.class)

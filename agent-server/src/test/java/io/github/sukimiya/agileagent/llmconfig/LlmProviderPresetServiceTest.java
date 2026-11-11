@@ -189,6 +189,37 @@ class LlmProviderPresetServiceTest {
         assertInvalid(new LlmProviderPresetService.PresetInput("P", url, "m", null, 8_000, 8_000));
     }
 
+    @Test
+    void validationNamesTheFieldThatFailed() {
+        assertField("name", new LlmProviderPresetService.PresetInput(" ", "https://api.example.test", "model", null));
+        assertField("baseUrl", new LlmProviderPresetService.PresetInput("Provider", "http://api.example.test/v1", "model", null));
+        assertField("balancePath", new LlmProviderPresetService.PresetInput(
+                "Provider", "https://api.example.test/v1", "model", "https://elsewhere.test/balance"));
+        assertField("balanceBaseUrl", new LlmProviderPresetService.PresetInput(
+                "Provider", "https://api.example.test/v1", "model", "/balance", null, null,
+                "http://billing.example", null, null, null, null, null));
+        assertField("balanceAmountPointer", new LlmProviderPresetService.PresetInput(
+                "Provider", "https://api.example.test/v1", "model", "/balance", null, null,
+                "https://billing.example", "total/val", null, null, null, null));
+        assertField("contextWindowTokens", new LlmProviderPresetService.PresetInput(
+                "Provider", "https://api.example.test/v1", "model", null, 512, null));
+
+        when(repository.insert(any())).thenReturn(Mono.empty());
+        var created = service.create(platformAdmin, new LlmProviderPresetService.PresetInput(
+                "Provider", "https://api.example.test/v1", "model", "/v1/billing/teams/{teamId}/prepaid/balance",
+                null, null, "https://billing.example", "/total/val", null, "USD", 100, true)).block();
+        assertThat(created.balanceBaseUrl()).isEqualTo("https://billing.example");
+        assertThat(created.balanceAmountPointer()).isEqualTo("/total/val");
+        assertThat(created.balanceDivisor()).isEqualTo(100);
+        assertThat(created.balanceNegate()).isTrue();
+    }
+
+    private void assertField(String field, LlmProviderPresetService.PresetInput input) {
+        assertThatThrownBy(() -> service.create(platformAdmin, input).block())
+                .isInstanceOf(LlmProviderPresetValidationException.class)
+                .extracting("field").isEqualTo(field);
+    }
+
     private void assertInvalid(LlmProviderPresetService.PresetInput input) {
         assertThatThrownBy(() -> service.create(platformAdmin, input).block())
                 .isInstanceOf(LlmProviderPresetValidationException.class);

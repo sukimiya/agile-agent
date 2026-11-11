@@ -91,7 +91,27 @@ HTTP 错误响应体统一为 `{"code": "...", "message": "..."}`；仅 `TURN_IN
 ## 上下文预算（M2a 起）
 
 - 每次模型调用（路由、能力、直接回答、汇总）都按模型窗口单独组装：可用输入 = 窗口 − 输出预留。估算沿用 M1 口径（中日韩 1 字 1 Token，其余 4 字符 1 Token）再乘 `app.memory.context.estimate-factor`（默认 1.3）。
-- 窗口来自租户使用的模型预设：`GET/POST/PUT /api/llm-providers` 的请求和响应新增可选字段 `contextWindowTokens`、`maxOutputTokens`。未填写时用 `app.memory.context.default-context-window-tokens`（默认 32768）和 `default-max-output-tokens`（默认 4096）。校验：窗口 ≥ 1024；输出预留 ≥ 1，且两者都填写时输出预留必须小于窗口；不合法返回既有的预设校验错误。生效的输出预留（见下一条的回退规则）作为 `max_tokens` 随每次模型调用（路由、能力、直接回答、汇总）发给服务商；关闭预算时不发送。
+- 窗口来自租户使用的模型预设：`GET/POST/PUT /api/llm-providers` 的请求和响应新增可选字段 `contextWindowTokens`、`maxOutputTokens`。未填写时用 `app.memory.context.default-context-window-tokens`（默认 32768）和 `default-max-output-tokens`（默认 4096）。校验：窗口 ≥ 1024；输出预留 ≥ 1，且两者都填写时输出预留必须小于窗口；不合法返回 400 `INVALID_LLM_PROVIDER_PRESET`，响应体带 `field`（出错的请求字段名）和可读的 `message`。生效的输出预留（见下一条的回退规则）作为 `max_tokens` 随每次模型调用（路由、能力、直接回答、汇总）发给服务商；关闭预算时不发送。
+
+## 余额查询
+
+`GET /api/llm-config/balance` 仍只允许平台管理员或租户管理员。成功时返回数组，元素为 `{"currency","balance"}`。`balance` 已按预置换算成展示用的十进制字符串。
+
+预置（`POST/PUT /api/llm-providers`，平台管理员）可选字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `balancePath` | 相对路径。空表示不支持余额，查询返回 404 `LLM_BALANCE_UNSUPPORTED`。不能是绝对地址，也不能带主机或片段。路径里的 `{teamId}` 和 `$TEAM_ID` 会换成该租户保存的 team id（URL 编码）。缺 team id 时返回 400 `LLM_BALANCE_TEAM_REQUIRED`。 |
+| `balanceBaseUrl` | 可选。设置后余额请求发到这个主机（必须是不带用户信息、查询或片段的 https 绝对地址，允许与对话 Base URL 不同主机）。未设置时仍拼到对话 `baseUrl` 上，并且必须同一主机。 |
+| `balanceAmountPointer` | 可选 JSON Pointer。设置后从响应里取一个金额。未设置时接受 `{"currency","balance"}` 对象，或这种对象的数组。 |
+| `balanceCurrencyPointer` | 可选 JSON Pointer，从响应里取货币代码。 |
+| `balanceCurrency` | 响应里没有货币字段时使用的货币代码。 |
+| `balanceDivisor` | 可选正整数。金额除以它。未设置时用 `llm.balance.default-divisor`（默认 1）。 |
+| `balanceNegate` | 可选布尔。为 true 时先把金额取反（供应商用负数表示可用余额时使用）。 |
+
+货币的最后回退是 `llm.balance.default-currency`（默认 `USD`，可用 `LLM_BALANCE_DEFAULT_CURRENCY` 覆盖）。指针缺失或金额不是数字时返回 502 `LLM_BALANCE_PROVIDER_ERROR`，响应体不包含供应商原文。
+
+租户配置（`PUT /api/llm-config`，租户管理员）增加两个只写字段：`balanceApiKey`、`balanceTeamId`。省略表示不修改已保存的值；空字符串表示清除。两者都用 `LLM_CONFIG_SECRET` 加密后写入 `tenant_llm_config`。`GET /api/llm-config` 只返回 `balanceKeyConfigured` 和 `balanceTeamIdConfigured`，不返回明文。未配置余额 key 时，余额请求使用对话 API key。
 - 先扣固定部分（系统提示词、当前问题、能力结果），再从最新到最旧按整轮加入已完成的历史，直到下一轮放不下为止。一轮不会被拆开，工具调用与工具结果始终成对出现。放不下的旧轮次不直接进入提示词，只记指标与日志；数据库中的历史不受影响。其中与当前问题相关的轮次由基础 Recall 以原文资料的形式带回（见“基础 Recall”）。
 - 工具结果或能力结果放不下时，模型看到的是一条占位说明（大小和引用 ID，不含原文），完整结果仍写入 `chat_tool_events`。每轮工具调用后重新检查。
 - 能力执行（M2a Task 3 起）：每个能力的调用依次带 `system(能力提示词) → 近期对话背景 → user(当前问题)`。背景是已完成的历史轮次（不含当前轮次），按整轮从新到旧加入，先扣能力提示词、当前问题和工具 schema，背景最多占剩余预算的 `app.memory.context.capability-background-share`（默认 0.5），留出空间给工具结果；最新两轮只要放得下总会保留。能力 SPI（`AgentCapabilityProvider`、`AgentExecutionContext`）不变。

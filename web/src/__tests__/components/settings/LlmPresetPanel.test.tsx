@@ -74,6 +74,63 @@ describe('LlmPresetPanel', () => {
     await waitFor(() => expect(del).toHaveBeenCalledWith('p1'));
   });
 
+  it('shows the supported-provider hint on hover and keyboard focus', async () => {
+    render(<LlmPresetPanel />);
+    await waitFor(() => expect(screen.getByText(/Example/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '新增预置' }));
+
+    const hint = screen.getByRole('button', { name: '支持 x.ai, qwen, deepseek' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(hint.parentElement!);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('支持 x.ai, qwen, deepseek');
+
+    fireEvent.mouseLeave(hint.parentElement!);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    fireEvent.focus(hint);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('支持 x.ai, qwen, deepseek');
+    fireEvent.blur(hint);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('shows a field error and does not submit an absolute balance path', async () => {
+    const create = vi.spyOn(llmProvidersApi, 'createPreset').mockResolvedValue();
+
+    render(<LlmPresetPanel />);
+    await waitFor(() => expect(screen.getByText(/Example/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '新增预置' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'x.ai' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://api.x.ai/v1' } });
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'grok-4.7' } });
+    fireEvent.change(screen.getByLabelText('余额接口路径（可选）'), {
+      target: { value: 'https://management-api.x.ai/v1/billing/teams/{teamId}/prepaid/balance' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('相对路径');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('shows a server field error next to that field', async () => {
+    vi.spyOn(llmProvidersApi, 'createPreset').mockRejectedValue(
+      new llmProvidersApi.PresetError('UNKNOWN', 'balance path must be a relative path without a host or fragment', 'balancePath'),
+    );
+
+    render(<LlmPresetPanel />);
+    await waitFor(() => expect(screen.getByText(/Example/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '新增预置' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Provider' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://api.example.test/v1' } });
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'model' } });
+    fireEvent.change(screen.getByLabelText('余额接口路径（可选）'), { target: { value: '/balance' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('relative path');
+  });
+
   it('shows 仅管理员可操作 on 403', async () => {
     vi.spyOn(llmProvidersApi, 'fetchPresets').mockRejectedValue(
       new llmProvidersApi.PresetError('FORBIDDEN', '仅管理员可操作'),

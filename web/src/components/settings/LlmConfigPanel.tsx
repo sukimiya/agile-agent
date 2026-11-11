@@ -13,6 +13,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
   const [editing, setEditing] = useState(false);
   const [presetId, setPresetId] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [balanceApiKey, setBalanceApiKey] = useState("");
+  const [balanceTeamId, setBalanceTeamId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -32,6 +34,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
   const startEdit = () => {
     setPresetId(config?.presetId ?? "");
     setApiKey("");
+    setBalanceApiKey("");
+    setBalanceTeamId("");
     setError("");
     setEditing(true);
   };
@@ -41,10 +45,20 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
     setIsSaving(true);
     setError("");
     try {
-      await saveLlmConfig(presetId, apiKey.trim());
+      const extras = {
+        balanceApiKey: balanceApiKey.trim(),
+        balanceTeamId: balanceTeamId.trim(),
+      };
+      if (extras.balanceApiKey || extras.balanceTeamId) {
+        await saveLlmConfig(presetId, apiKey.trim(), extras);
+      } else {
+        await saveLlmConfig(presetId, apiKey.trim());
+      }
       const cfg = await fetchLlmConfig();
       setConfig(cfg);
       setApiKey("");
+      setBalanceApiKey("");
+      setBalanceTeamId("");
       setEditing(false);
     } catch (err) {
       setError(err instanceof LlmConfigError ? err.message : "保存失败，请重试");
@@ -61,6 +75,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
       setConfig(null);
       setPresetId("");
       setApiKey("");
+      setBalanceApiKey("");
+      setBalanceTeamId("");
       setConfirmingDelete(false);
       setEditing(true);
     } catch {
@@ -99,6 +115,31 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           placeholder="输入你的 API Key"
+          disabled={isSaving || presets.length === 0}
+          className={inputCls}
+        />
+      </div>
+      <div>
+        <label htmlFor="llm-balance-key" className="block text-xs text-stone-500 mb-1">余额 API Key（可选）</label>
+        <input
+          id="llm-balance-key"
+          type="password"
+          value={balanceApiKey}
+          onChange={(e) => setBalanceApiKey(e.target.value)}
+          placeholder="留空表示不修改；未配置时使用上面的 API Key"
+          autoComplete="off"
+          disabled={isSaving || presets.length === 0}
+          className={inputCls}
+        />
+      </div>
+      <div>
+        <label htmlFor="llm-team-id" className="block text-xs text-stone-500 mb-1">Team ID（可选）</label>
+        <input
+          id="llm-team-id"
+          value={balanceTeamId}
+          onChange={(e) => setBalanceTeamId(e.target.value)}
+          placeholder="留空表示不修改；路径含 {teamId} 时必填"
+          autoComplete="off"
           disabled={isSaving || presets.length === 0}
           className={inputCls}
         />
@@ -155,6 +196,14 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
             <div className="flex items-center justify-between text-sm">
               <span className="text-stone-500">API Key</span>
               <span className="text-stone-800">{config.apiKeyMasked}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-stone-500">余额 API Key</span>
+              <span className="text-stone-800">{config.balanceKeyConfigured ? "已配置" : "未配置"}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-stone-500">Team ID</span>
+              <span className="text-stone-800">{config.balanceTeamIdConfigured ? "已配置" : "未配置"}</span>
             </div>
           </div>
           {canEdit && (

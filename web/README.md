@@ -37,6 +37,26 @@ Open Settings and choose 外观. The choices are 白天 (light), 夜晚 (dark), 
 
 Light mode is the palette above. Dark mode keeps those accent hexes and shifts the gray surfaces: near-black canvas and cards, light-gray text, and darkened Frozen Water washes so selected conversations and hint chips stay readable. History titles stay a neutral gray (`#57534e` in light, `#C8C8C8` in dark).
 
+## Balance lookup for a separate billing host
+
+Some providers keep chat and billing on different hosts and use a different key. In 模型预置管理 set:
+
+| Field | Example |
+| --- | --- |
+| 名称 | `x.ai` |
+| Base URL | `https://api.x.ai/v1` |
+| Model | `grok-4.7` |
+| 余额 Base URL | `https://management-api.x.ai` |
+| 余额接口路径 | `/v1/billing/teams/{teamId}/prepaid/balance` |
+| 高级 → 金额 JSON Pointer | `/total/val` |
+| 高级 → 货币 | `USD` |
+| 高级 → 除数 | `100` |
+| 高级 → 金额取反 | checked |
+
+`{teamId}` and `$TEAM_ID` are filled from the tenant Team ID. The billing response `total.val` is a string of USD cents; a negative value is remaining credit, so negate plus divisor 100 turns `-1000` into `10.00` USD.
+
+In LLM 设置, API Key is the chat key. 余额 API Key is the management key (leave it blank to reuse the chat key). Team ID is the team UUID. Both are write-only: a blank field does not change the stored value, and the API only reports whether each one is configured.
+
 ## Tests and production build
 
 ```bash
