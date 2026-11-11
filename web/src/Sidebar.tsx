@@ -95,6 +95,7 @@ export default function Sidebar({
 
   return (
     <div className="w-64 shrink-0 border-r border-stone-200 bg-stone-100 flex flex-col h-full">
+      <div className="px-4 pt-4 pb-1 text-base font-semibold tracking-tight text-primary">agile-agent</div>
       <div className="p-3 flex items-center gap-2">
         <button
           onClick={onNewChat}
@@ -121,7 +122,7 @@ export default function Sidebar({
                   key={c.id}
                   onClick={() => onSelect(c.id)}
                   className={`w-full flex items-start gap-2 text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer
-                    ${c.id === activeId ? "bg-primary-soft text-primary" : "hover:bg-stone-200 text-stone-600"}`}
+                    ${c.id === activeId ? "bg-neutral-soft text-primary" : "hover:bg-mist text-stone-700"}`}
                 >
                   <MessageIcon />
                   <div className="min-w-0">
@@ -142,7 +143,7 @@ export default function Sidebar({
           <div className="text-sm text-stone-700 truncate">{userName}</div>
           <button
             onClick={onLogout}
-            className="text-xs text-stone-400 hover:text-primary transition-colors cursor-pointer"
+            className="text-xs text-ink underline decoration-info decoration-2 underline-offset-2 hover:text-stone-600 transition-colors cursor-pointer"
           >
             退出登录
           </button>

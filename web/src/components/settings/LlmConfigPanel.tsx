@@ -134,7 +134,7 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">LLM 设置</h2>
 
-      {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -176,8 +176,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
                   type="button"
                   onClick={handleDelete}
                   disabled={isSaving}
-                  className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg
-                    hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed
+                  className="px-4 py-2 border border-ink text-ink text-sm rounded-lg
+                    hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors cursor-pointer"
                 >
                   确认删除

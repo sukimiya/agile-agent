@@ -286,7 +286,7 @@ export default function App() {
 
   if (bootstrapping) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#FBFAF7] text-sm text-stone-400">
+      <div className="flex h-screen items-center justify-center bg-canvas text-sm text-stone-400">
         加载中...
       </div>
     );
@@ -297,7 +297,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#FBFAF7]">
+    <div className="flex h-screen bg-canvas">
       <Sidebar
         activeId={convId}
         onSelect={(id) => setConvId(id)}

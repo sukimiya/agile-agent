@@ -74,7 +74,7 @@ export default function ReviewListPanel() {
         ))}
       </div>
 
-      {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -88,7 +88,7 @@ export default function ReviewListPanel() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-stone-800 truncate">{d.title}</p>
                   <p className="text-xs text-stone-400 flex items-center gap-1.5">
-                    <span className="inline-block px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 text-[11px]">
+                    <span className="inline-block px-1.5 py-0.5 rounded bg-neutral text-ink text-[11px]">
                       {d.scopeName || d.scopeType}
                     </span>
                     {d.uploaderUserId} · {formatTime(d.uploadedAt)}

@@ -20,8 +20,8 @@ interface Props {
 
 export function Attachment({ name, size, onRemove, error }: Props) {
   const borderClass = error
-    ? 'border-red-300 bg-red-50'
-    : 'border-slate-200 bg-slate-50';
+    ? 'border-warning bg-warning text-ink'
+    : 'border-stone-200 bg-mist text-ink';
   return (
     <div
       className={`inline-flex items-center gap-2 px-2 py-1 rounded-md border ${borderClass} text-xs`}
@@ -29,12 +29,12 @@ export function Attachment({ name, size, onRemove, error }: Props) {
     >
       <span>{iconFor(name)}</span>
       <span className="font-medium truncate max-w-[160px]">{name}</span>
-      <span className="text-slate-400">{formatSize(size)}</span>
+      <span className="text-stone-500">{formatSize(size)}</span>
       <button
         type="button"
         aria-label="移除附件"
         onClick={onRemove}
-        className="text-slate-400 hover:text-slate-600 cursor-pointer"
+        className="text-stone-500 hover:text-ink cursor-pointer"
       >
         ❌
       </button>

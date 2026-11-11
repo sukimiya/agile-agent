@@ -68,7 +68,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
       onClick={onClose}
     >
       <div
-        className="w-[90vw] max-w-6xl h-[85vh] bg-white rounded-xl shadow-sm border border-stone-100 flex overflow-hidden"
+        className="w-[90vw] max-w-6xl h-[85vh] bg-white rounded-2xl shadow-soft border border-stone-200 flex overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-44 shrink-0 border-r border-stone-200 bg-stone-50 p-2 space-y-1">
@@ -78,7 +78,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
               type="button"
               onClick={() => setMenu(item.key)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer
-                ${menu === item.key ? "bg-primary-soft text-primary" : "hover:bg-stone-200 text-stone-600"}`}
+                ${menu === item.key ? "bg-neutral-soft text-primary" : "hover:bg-mist text-stone-600"}`}
             >
               {item.label}
             </button>

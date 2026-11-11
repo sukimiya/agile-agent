@@ -86,7 +86,7 @@ export default function HintManagementPanel() {
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">提示语管理</h2>
 
-      {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>

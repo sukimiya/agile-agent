@@ -171,8 +171,8 @@ export default function Chat({
                 <button
                   key={h.id}
                   onClick={() => onSubmit(h.content)}
-                  className="px-4 py-2 rounded-full border border-stone-200 text-sm
-                    hover:border-primary hover:text-primary hover:bg-primary-soft
+                  className="px-4 py-2 rounded-full border border-stone-200 bg-mist text-sm text-ink
+                    hover:border-primary hover:text-primary
                     transition-colors cursor-pointer"
                 >
                   {h.content}
@@ -195,8 +195,8 @@ export default function Chat({
             <div
               className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed
                 ${m.role === "user"
-                  ? "bg-primary text-white"
-                  : "bg-white border border-stone-200"
+                  ? "bg-ink text-white"
+                  : "bg-white border border-stone-200 shadow-soft"
                 }`}
             >
               {m.role === "assistant" ? (
@@ -271,7 +271,7 @@ export default function Chat({
           </div>
         )}
         {fileError && (
-          <div className="px-4 pb-1 text-xs text-red-500">{fileError}</div>
+          <div className="px-4 pb-1"><p className="inline-block text-xs font-medium bg-warning text-ink rounded-md px-2 py-1">{fileError}</p></div>
         )}
 
         {/* Input */}
@@ -282,8 +282,8 @@ export default function Chat({
           }}
           className="p-4"
         >
-          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-stone-200 bg-white
-            focus-within:border-primary transition-colors">
+          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-stone-200 bg-white shadow-soft
+            focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-colors">
             <input
               type="file"
               multiple

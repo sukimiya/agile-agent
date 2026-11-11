@@ -29,7 +29,7 @@ export default function BalancePanel({ onGoToLlmConfig }: Props) {
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">我的余额</h2>
 
-      {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {notConfigured && onGoToLlmConfig && (
         <button

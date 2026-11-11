@@ -1,21 +1,56 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #2563eb;
-  --color-primary-light: #3b82f6;
-  --color-primary-soft: #dce7f9;
+  /* Accent. White text on primary is about 4.9:1. Hover is darker so it stays readable. */
+  --color-primary: #d21697;
+  --color-primary-light: #b0107c;
+  /* Soft highlight wash (neutral-soft). Not a magenta tint, so large surfaces stay gray. */
+  --color-primary-soft: #dbf1e7;
+
+  --color-ink: #171717;
+  --color-canvas: #f4f4f5;
+  --color-mist: #d1f2e3;
+  --color-warning: #aef016;
+  --color-info: #54b0de;
+  --color-neutral: #ebabd7;
+  --color-neutral-soft: #dbf1e7;
+
+  --color-stone-50: #fafafa;
+  --color-stone-100: #f5f5f5;
+  --color-stone-200: #e5e5e5;
+  --color-stone-300: #d4d4d4;
+  --color-stone-400: #a3a3a3;
+  --color-stone-500: #737373;
+  --color-stone-600: #525252;
+  --color-stone-700: #404040;
+  --color-stone-800: #262626;
+  --color-stone-900: #171717;
+  --color-stone-950: #0a0a0a;
+
+  --shadow-soft: 0 10px 30px rgb(0 0 0 / 0.06);
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #f5f4f0; }
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
 #root { height: 100vh; }
 
 /* Markdown */
 .markdown-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.875rem; }
-.markdown-body th, .markdown-body td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
-.markdown-body th { background: #f1f5f9; font-weight: 600; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--color-stone-200); padding: 6px 10px; text-align: left; }
+.markdown-body th { background: var(--color-stone-100); font-weight: 600; }
 .markdown-body ul, .markdown-body ol { padding-left: 1.25rem; margin: 4px 0; }
 .markdown-body li { margin: 2px 0; }
 .markdown-body p { margin: 0 0 4px; }
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-size: 1rem; margin: 10px 0 4px; font-weight: 600; }
+.markdown-body a {
+  color: var(--color-ink);
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-info);
+  text-underline-offset: 2px;
+}

@@ -103,7 +103,7 @@ export default function LlmPresetPanel() {
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">模型预置管理</h2>
 
-      {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -133,8 +133,8 @@ export default function LlmPresetPanel() {
                           type="button"
                           onClick={() => handleDelete(p.id)}
                           disabled={isSaving}
-                          className="px-3 py-1 text-xs rounded-full border border-red-300 text-red-600
-                            hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed
+                          className="px-3 py-1 text-xs rounded-full border border-ink text-ink
+                            hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
                             transition-colors cursor-pointer"
                         >
                           确认删除

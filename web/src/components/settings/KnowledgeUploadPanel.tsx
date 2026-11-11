@@ -128,7 +128,7 @@ export default function KnowledgeUploadPanel({ heading }: Props) {
         <p className="text-xs text-stone-400 mt-1">支持 .md / .markdown / .txt</p>
       </div>
 
-      {error && <p className="text-xs text-red-500 mb-4">{error}</p>}
+      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-4">{error}</p>}
       {result !== null && (
         <div className="text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg p-3 mb-4">
           <p className="font-medium text-stone-700 mb-1">

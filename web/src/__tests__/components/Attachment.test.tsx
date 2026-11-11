@@ -21,7 +21,7 @@ describe('Attachment', () => {
 
   it('error state has red ring', () => {
     const { container } = render(<Attachment name="x.png" size={100} onRemove={() => {}} error="too big" />);
-    expect(container.querySelector('[class*="border-red"]')).toBeTruthy();
+    expect(container.querySelector('[class*="border-warning"]')).toBeTruthy();
     expect(screen.getByTitle('too big')).toBeInTheDocument();
   });
 
