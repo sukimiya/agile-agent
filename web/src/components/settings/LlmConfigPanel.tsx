@@ -70,8 +70,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
     }
   };
 
-  const inputCls = `w-full px-3 py-2 border border-stone-200 rounded-lg text-sm
-    focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20
+  const inputCls = `w-full px-3 py-2 border border-fresh-sky rounded-lg text-sm shadow-input
+    focus:outline-none focus:border-fresh-sky focus:shadow-input-focus
     disabled:opacity-50 disabled:cursor-not-allowed`;
 
   const form = (
@@ -108,8 +108,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
           type="button"
           onClick={handleSave}
           disabled={isSaving || !presetId || !apiKey.trim()}
-          className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-            hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+          className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+            hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
             transition-colors cursor-pointer"
         >
           {isSaving ? "验证中…" : "保存"}
@@ -119,8 +119,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
             type="button"
             onClick={() => setEditing(false)}
             disabled={isSaving}
-            className="px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg
-              hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+            className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+              hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
               transition-colors cursor-pointer"
           >
             取消
@@ -134,7 +134,7 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">LLM 设置</h2>
 
-      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -163,8 +163,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
               type="button"
               onClick={startEdit}
               disabled={isSaving}
-              className="px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg
-                hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+              className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+                hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                 transition-colors cursor-pointer"
             >
               更换配置
@@ -176,8 +176,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
                   type="button"
                   onClick={handleDelete}
                   disabled={isSaving}
-                  className="px-4 py-2 border border-ink text-ink text-sm rounded-lg
-                    hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                  className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+                    hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors cursor-pointer"
                 >
                   确认删除
@@ -186,8 +186,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
                   disabled={isSaving}
-                  className="px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg
-                    hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                  className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+                    hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors cursor-pointer"
                 >
                   取消
@@ -198,8 +198,8 @@ export default function LlmConfigPanel({ canEdit = true }: { canEdit?: boolean }
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
                 disabled={isSaving}
-                className="px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg
-                  hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+                  hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                   transition-colors cursor-pointer"
               >
                 删除配置

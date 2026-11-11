@@ -1,19 +1,23 @@
 @import "tailwindcss";
 
+/* Low energy: grayscale surfaces, named accents below. */
 @theme {
-  /* Accent. White text on primary is about 4.9:1. Hover is darker so it stays readable. */
-  --color-primary: #d21697;
-  --color-primary-light: #b0107c;
-  /* Soft highlight wash (neutral-soft). Not a magenta tint, so large surfaces stay gray. */
-  --color-primary-soft: #dbf1e7;
+  --color-medium-violet-red: #d21697;
+  --color-fresh-sky: #54b0de;
+  /* Darker Fresh Sky for hover. Ink text stays above 4.5:1. */
+  --color-fresh-sky-dark: #3a96c4;
+  --color-blush-pop: #ebabd7;
+  --color-frozen-water-mountain-lake: #dbf1e7;
+  --color-slime-lime: #aef016;
+  --color-frozen-water: #d1f2e3;
 
   --color-ink: #171717;
   --color-canvas: #f4f4f5;
-  --color-mist: #d1f2e3;
-  --color-warning: #aef016;
-  --color-info: #54b0de;
-  --color-neutral: #ebabd7;
-  --color-neutral-soft: #dbf1e7;
+  /* Conversation titles, matched to stone-600 before the grayscale remap. */
+  --color-history: #57534e;
+
+  --shadow-input: 0 0 16px color-mix(in srgb, var(--color-fresh-sky) 45%, transparent);
+  --shadow-input-focus: 0 0 0 3px color-mix(in srgb, var(--color-fresh-sky) 35%, transparent), 0 0 18px color-mix(in srgb, var(--color-fresh-sky) 55%, transparent);
 
   --color-stone-50: #fafafa;
   --color-stone-100: #f5f5f5;
@@ -51,6 +55,6 @@ body {
 .markdown-body a {
   color: var(--color-ink);
   text-decoration-line: underline;
-  text-decoration-color: var(--color-info);
+  text-decoration-color: var(--color-fresh-sky);
   text-underline-offset: 2px;
 }

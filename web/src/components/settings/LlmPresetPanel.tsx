@@ -92,18 +92,18 @@ export default function LlmPresetPanel() {
     }
   };
 
-  const inputCls = `w-full px-3 py-2 border border-stone-200 rounded-lg text-sm
-    focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20
+  const inputCls = `w-full px-3 py-2 border border-fresh-sky rounded-lg text-sm shadow-input
+    focus:outline-none focus:border-fresh-sky focus:shadow-input-focus
     disabled:opacity-50 disabled:cursor-not-allowed`;
-  const btnCls = `px-3 py-1 text-xs rounded-full border border-stone-300 text-stone-600
-    hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+  const btnCls = `px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+    hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
     transition-colors cursor-pointer`;
 
   return (
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">模型预置管理</h2>
 
-      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -133,8 +133,8 @@ export default function LlmPresetPanel() {
                           type="button"
                           onClick={() => handleDelete(p.id)}
                           disabled={isSaving}
-                          className="px-3 py-1 text-xs rounded-full border border-ink text-ink
-                            hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                          className="px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+                            hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                             transition-colors cursor-pointer"
                         >
                           确认删除
@@ -168,8 +168,8 @@ export default function LlmPresetPanel() {
             <button
               type="button"
               onClick={startCreate}
-              className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-                hover:bg-primary-light transition-colors cursor-pointer"
+              className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+                hover:bg-fresh-sky-dark transition-colors cursor-pointer"
             >
               新增预置
             </button>
@@ -222,8 +222,8 @@ export default function LlmPresetPanel() {
                   type="button"
                   onClick={handleSave}
                   disabled={isSaving || !form.name.trim() || !form.baseUrl.trim() || !form.model.trim()}
-                  className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-                    hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+                  className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+                    hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors cursor-pointer"
                 >
                   保存
@@ -232,8 +232,8 @@ export default function LlmPresetPanel() {
                   type="button"
                   onClick={cancelEdit}
                   disabled={isSaving}
-                  className="px-4 py-2 border border-stone-300 text-stone-600 text-sm rounded-lg
-                    hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                  className="px-4 py-2 border border-fresh-sky text-fresh-sky text-sm rounded-lg
+                    hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                     transition-colors cursor-pointer"
                 >
                   取消

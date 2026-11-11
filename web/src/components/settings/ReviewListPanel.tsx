@@ -67,14 +67,14 @@ export default function ReviewListPanel() {
             type="button"
             onClick={() => setStatus(t.status)}
             className={`px-3 py-1.5 text-sm rounded-full transition-colors cursor-pointer
-              ${status === t.status ? "bg-primary-soft text-primary" : "hover:bg-stone-200 text-stone-600"}`}
+              ${status === t.status ? "bg-frozen-water-mountain-lake border border-fresh-sky text-fresh-sky" : "border border-transparent text-fresh-sky hover:bg-frozen-water"}`}
           >
             {t.label}
           </button>
         ))}
       </div>
 
-      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -88,7 +88,7 @@ export default function ReviewListPanel() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-stone-800 truncate">{d.title}</p>
                   <p className="text-xs text-stone-400 flex items-center gap-1.5">
-                    <span className="inline-block px-1.5 py-0.5 rounded bg-neutral text-ink text-[11px]">
+                    <span className="inline-block px-1.5 py-0.5 rounded bg-blush-pop text-ink text-[11px]">
                       {d.scopeName || d.scopeType}
                     </span>
                     {d.uploaderUserId} · {formatTime(d.uploadedAt)}
@@ -100,8 +100,8 @@ export default function ReviewListPanel() {
                       type="button"
                       onClick={() => handleAction(d.id, "approve")}
                       disabled={actioningId === d.id}
-                      className="px-3 py-1 text-xs rounded-full bg-primary text-white
-                        hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+                      className="px-3 py-1 text-xs rounded-full bg-fresh-sky text-ink
+                        hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
                         transition-colors cursor-pointer"
                     >
                       通过
@@ -110,8 +110,8 @@ export default function ReviewListPanel() {
                       type="button"
                       onClick={() => handleAction(d.id, "reject")}
                       disabled={actioningId === d.id}
-                      className="px-3 py-1 text-xs rounded-full border border-stone-300 text-stone-600
-                        hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                      className="px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+                        hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                         transition-colors cursor-pointer"
                     >
                       拒绝

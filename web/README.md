@@ -16,6 +16,21 @@ Sign-in is a full-page navigation to `/api/auth/oauth2/authorize`. After the ide
 
 `./start.sh` from the repository root starts this dev server when `web/node_modules` exists.
 
+## Low energy palette
+
+Surfaces stay black, white, and gray. Named accents live as Tailwind theme tokens in `src/index.css`:
+
+| Token | Name | Hex |
+| --- | --- | --- |
+| `medium-violet-red` | Medium Violet Red | `#D21697` |
+| `fresh-sky` | Fresh Sky | `#54B0DE` |
+| `blush-pop` | Blush Pop | `#EBABD7` |
+| `frozen-water` | Frozen Water | `#D1F2E3` |
+| `frozen-water-mountain-lake` | Frozen Water, Mountain Lake | `#DBF1E7` |
+| `slime-lime` | Slime Lime | `#AEF016` |
+
+Medium Violet Red is the logo and non-button highlights. Fresh Sky is input borders, input shadows, and button fill, border, and label chrome. Solid Fresh Sky buttons use dark `#171717` text because white on `#54B0DE` is about 2.5:1. Hover uses a darker Fresh Sky (`#3A96C4`) so that dark label stays above 4.5:1. Slime Lime is only a warning chip background, also with dark text. `#D1F2E3` and `#DBF1E7` are both Frozen Water; `#DBF1E7` leans Mountain Lake.
+
 ## Tests and production build
 
 ```bash

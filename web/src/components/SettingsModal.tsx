@@ -78,7 +78,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
               type="button"
               onClick={() => setMenu(item.key)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer
-                ${menu === item.key ? "bg-neutral-soft text-primary" : "hover:bg-mist text-stone-600"}`}
+                ${menu === item.key ? "bg-frozen-water-mountain-lake text-medium-violet-red" : "hover:bg-frozen-water text-stone-600"}`}
             >
               {item.label}
             </button>

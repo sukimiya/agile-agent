@@ -92,8 +92,8 @@ export default function KnowledgeUploadPanel({ heading }: Props) {
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         disabled={isLoading}
-        className="w-full px-3 py-2 mb-4 border border-stone-200 rounded-lg text-sm
-          focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+        className="w-full px-3 py-2 mb-4 border border-fresh-sky rounded-lg text-sm shadow-input
+          focus:outline-none focus:border-fresh-sky focus:shadow-input-focus"
       />
 
       <label htmlFor="knowledge-file" className="block text-sm text-stone-600 mb-1">选择文件</label>
@@ -110,7 +110,7 @@ export default function KnowledgeUploadPanel({ heading }: Props) {
         onDrop={handleDrop}
         className={`mb-4 border-2 border-dashed rounded-lg px-4 py-8 text-center cursor-pointer transition-colors
           ${isLoading ? "opacity-50 cursor-not-allowed" : ""}
-          ${isDragging ? "border-primary bg-primary-soft" : "border-stone-300 hover:border-primary hover:bg-stone-50"}`}
+          ${isDragging ? "border-fresh-sky bg-frozen-water-mountain-lake" : "border-fresh-sky hover:bg-frozen-water"}`}
       >
         <input
           id="knowledge-file"
@@ -128,7 +128,7 @@ export default function KnowledgeUploadPanel({ heading }: Props) {
         <p className="text-xs text-stone-400 mt-1">支持 .md / .markdown / .txt</p>
       </div>
 
-      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-4">{error}</p>}
+      {error && <p className="text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1 mb-4">{error}</p>}
       {result !== null && (
         <div className="text-xs text-stone-600 bg-stone-50 border border-stone-200 rounded-lg p-3 mb-4">
           <p className="font-medium text-stone-700 mb-1">
@@ -142,8 +142,8 @@ export default function KnowledgeUploadPanel({ heading }: Props) {
         type="button"
         onClick={handleUpload}
         disabled={!file || isLoading}
-        className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-          hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+        className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+          hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
           transition-colors cursor-pointer"
       >
         {isLoading ? "上传中..." : "上传"}

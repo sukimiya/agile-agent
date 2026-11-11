@@ -135,12 +135,12 @@ describe('KnowledgeUploadPanel', () => {
     render(<KnowledgeUploadPanel heading="知识库上传" />);
 
     const dropzone = screen.getByRole('button', { name: '拖拽或点击上传文件' });
-    expect(dropzone.className).not.toMatch(/bg-primary-soft/);
+    expect(dropzone.className).not.toMatch(/bg-frozen-water-mountain-lake/);
 
     fireEvent.dragOver(dropzone);
-    expect(dropzone.className).toMatch(/bg-primary-soft/);
+    expect(dropzone.className).toMatch(/bg-frozen-water-mountain-lake/);
 
     fireEvent.dragLeave(dropzone);
-    expect(dropzone.className).not.toMatch(/bg-primary-soft/);
+    expect(dropzone.className).not.toMatch(/bg-frozen-water-mountain-lake/);
   });
 });

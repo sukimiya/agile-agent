@@ -171,9 +171,8 @@ export default function Chat({
                 <button
                   key={h.id}
                   onClick={() => onSubmit(h.content)}
-                  className="px-4 py-2 rounded-full border border-stone-200 bg-mist text-sm text-ink
-                    hover:border-primary hover:text-primary
-                    transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-full border border-fresh-sky bg-white text-sm text-fresh-sky
+                    hover:bg-frozen-water transition-colors cursor-pointer"
                 >
                   {h.content}
                 </button>
@@ -188,7 +187,7 @@ export default function Chat({
             className={`flex gap-3 ${m.role === "user" ? "justify-end" : ""}`}
           >
             {m.role === "assistant" && (
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 bg-primary-soft text-primary">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 bg-frozen-water-mountain-lake text-medium-violet-red">
                 AI
               </div>
             )}
@@ -207,8 +206,8 @@ export default function Chat({
                       <button
                         type="button"
                         onClick={onOpenLlmSettings}
-                        className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-                          hover:bg-primary-light transition-colors cursor-pointer"
+                        className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+                          hover:bg-fresh-sky-dark transition-colors cursor-pointer"
                       >
                         去配置
                       </button>
@@ -245,7 +244,7 @@ export default function Chat({
 
         {isLoading && (
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 bg-primary-soft text-primary">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 bg-frozen-water-mountain-lake text-medium-violet-red">
               AI
             </div>
             <div className="bg-white border border-stone-200 px-4 py-3 rounded-2xl">
@@ -271,7 +270,7 @@ export default function Chat({
           </div>
         )}
         {fileError && (
-          <div className="px-4 pb-1"><p className="inline-block text-xs font-medium bg-warning text-ink rounded-md px-2 py-1">{fileError}</p></div>
+          <div className="px-4 pb-1"><p className="inline-block text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1">{fileError}</p></div>
         )}
 
         {/* Input */}
@@ -282,8 +281,8 @@ export default function Chat({
           }}
           className="p-4"
         >
-          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-stone-200 bg-white shadow-soft
-            focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-colors">
+          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-fresh-sky bg-white shadow-input
+            focus-within:border-fresh-sky focus-within:shadow-input-focus transition-colors">
             <input
               type="file"
               multiple
@@ -296,7 +295,7 @@ export default function Chat({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading || pendingFiles.length >= MAX_FILES}
-              className="p-2 text-stone-400 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shrink-0"
+              className="p-2 text-fresh-sky disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shrink-0"
               aria-label="上传文件"
             >
               <PaperclipIcon />
@@ -313,7 +312,7 @@ export default function Chat({
               disabled={isLoading || (!(input || "").trim() && pendingFiles.length === 0)}
               aria-label="发送"
               className="w-9 h-9 shrink-0 rounded-full flex items-center justify-center
-                bg-primary text-white hover:bg-primary-light disabled:bg-stone-200 disabled:text-stone-400
+                bg-fresh-sky text-ink hover:bg-fresh-sky-dark disabled:bg-stone-200 disabled:text-stone-400
                 disabled:cursor-not-allowed transition-colors cursor-pointer"
             >
               <ArrowIcon />

@@ -100,7 +100,7 @@ export function DownloadButton({ content }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setOpen(false)}
-              className="block px-3 py-1 text-xs text-ink underline decoration-info underline-offset-2 hover:bg-mist"
+              className="block px-3 py-1 text-xs text-ink underline decoration-fresh-sky underline-offset-2 hover:bg-frozen-water"
             >
               {l.label}
             </a>

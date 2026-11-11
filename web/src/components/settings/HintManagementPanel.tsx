@@ -86,7 +86,7 @@ export default function HintManagementPanel() {
     <div>
       <h2 className="text-base font-semibold text-stone-800 mb-4">提示语管理</h2>
 
-      {error && <p className="text-xs font-medium bg-warning text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
+      {error && <p className="text-xs font-medium bg-slime-lime text-ink rounded-md px-2 py-1 mb-3">{error}</p>}
 
       {isLoading ? (
         <p className="text-sm text-stone-400">加载中...</p>
@@ -101,15 +101,15 @@ export default function HintManagementPanel() {
                   <input
                     value={editingContent}
                     onChange={(e) => setEditingContent(e.target.value)}
-                    className="flex-1 px-2 py-1 border border-stone-200 rounded text-sm
-                      focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                    className="flex-1 px-2 py-1 border border-fresh-sky rounded text-sm shadow-input
+                      focus:outline-none focus:border-fresh-sky focus:shadow-input-focus"
                   />
                   <button
                     type="button"
                     onClick={() => handleSaveEdit(h.id)}
                     disabled={isSaving || !editingContent.trim()}
-                    className="px-3 py-1 text-xs rounded-full bg-primary text-white
-                      hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+                    className="px-3 py-1 text-xs rounded-full bg-fresh-sky text-ink
+                      hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
                       transition-colors cursor-pointer"
                   >
                     保存
@@ -118,8 +118,8 @@ export default function HintManagementPanel() {
                     type="button"
                     onClick={cancelEdit}
                     disabled={isSaving}
-                    className="px-3 py-1 text-xs rounded-full border border-stone-300 text-stone-600
-                      hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                    className="px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+                      hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                       transition-colors cursor-pointer"
                   >
                     取消
@@ -132,8 +132,8 @@ export default function HintManagementPanel() {
                     type="button"
                     onClick={() => startEdit(h)}
                     disabled={isSaving}
-                    className="px-3 py-1 text-xs rounded-full border border-stone-300 text-stone-600
-                      hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                    className="px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+                      hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                       transition-colors cursor-pointer"
                   >
                     编辑
@@ -142,8 +142,8 @@ export default function HintManagementPanel() {
                     type="button"
                     onClick={() => handleDelete(h.id)}
                     disabled={isSaving}
-                    className="px-3 py-1 text-xs rounded-full border border-stone-300 text-stone-600
-                      hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed
+                    className="px-3 py-1 text-xs rounded-full border border-fresh-sky text-fresh-sky
+                      hover:bg-frozen-water disabled:opacity-40 disabled:cursor-not-allowed
                       transition-colors cursor-pointer"
                   >
                     删除
@@ -161,15 +161,15 @@ export default function HintManagementPanel() {
           onChange={(e) => setNewContent(e.target.value)}
           placeholder="新提示语"
           disabled={isSaving}
-          className="flex-1 px-3 py-2 border border-stone-200 rounded-lg text-sm
-            focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+          className="flex-1 px-3 py-2 border border-fresh-sky rounded-lg text-sm shadow-input
+            focus:outline-none focus:border-fresh-sky focus:shadow-input-focus"
         />
         <button
           type="button"
           onClick={handleAdd}
           disabled={isSaving || !newContent.trim()}
-          className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg
-            hover:bg-primary-light disabled:opacity-40 disabled:cursor-not-allowed
+          className="px-4 py-2 bg-fresh-sky text-ink text-sm font-medium rounded-lg
+            hover:bg-fresh-sky-dark disabled:opacity-40 disabled:cursor-not-allowed
             transition-colors cursor-pointer"
         >
           添加

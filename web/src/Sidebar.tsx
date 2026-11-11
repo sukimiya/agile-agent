@@ -83,7 +83,7 @@ export default function Sidebar({
         <button
           onClick={onNewChat}
           aria-label="新对话"
-          className="w-8 h-8 rounded-full flex items-center justify-center text-primary hover:bg-primary-soft transition-colors cursor-pointer text-lg"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-fresh-sky border border-fresh-sky hover:bg-frozen-water transition-colors cursor-pointer text-lg"
         >
           +
         </button>
@@ -95,12 +95,12 @@ export default function Sidebar({
 
   return (
     <div className="w-64 shrink-0 border-r border-stone-200 bg-stone-100 flex flex-col h-full">
-      <div className="px-4 pt-4 pb-1 text-base font-semibold tracking-tight text-primary">agile-agent</div>
+      <div className="px-4 pt-4 pb-1 text-base font-semibold tracking-tight text-medium-violet-red">agile-agent</div>
       <div className="p-3 flex items-center gap-2">
         <button
           onClick={onNewChat}
-          className="flex-1 px-3 py-2 text-sm rounded-full border border-primary text-primary font-medium
-            hover:bg-primary-soft transition-colors cursor-pointer"
+          className="flex-1 px-3 py-2 text-sm rounded-full border border-fresh-sky text-fresh-sky font-medium
+            hover:bg-frozen-water transition-colors cursor-pointer"
         >
           + 新对话
         </button>
@@ -122,7 +122,7 @@ export default function Sidebar({
                   key={c.id}
                   onClick={() => onSelect(c.id)}
                   className={`w-full flex items-start gap-2 text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer
-                    ${c.id === activeId ? "bg-neutral-soft text-primary" : "hover:bg-mist text-stone-700"}`}
+                    ${c.id === activeId ? "bg-frozen-water-mountain-lake text-history" : "hover:bg-stone-200 text-history"}`}
                 >
                   <MessageIcon />
                   <div className="min-w-0">
@@ -136,14 +136,14 @@ export default function Sidebar({
         ))}
       </div>
       <div className="border-t border-stone-200 p-3 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-medium shrink-0">
+        <div className="w-8 h-8 rounded-full bg-medium-violet-red text-white flex items-center justify-center text-xs font-medium shrink-0">
           {userName.trim().slice(0, 2)}
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm text-stone-700 truncate">{userName}</div>
           <button
             onClick={onLogout}
-            className="text-xs text-ink underline decoration-info decoration-2 underline-offset-2 hover:text-stone-600 transition-colors cursor-pointer"
+            className="text-xs text-ink underline decoration-fresh-sky decoration-2 underline-offset-2 hover:text-stone-600 transition-colors cursor-pointer"
           >
             退出登录
           </button>
