@@ -33,7 +33,7 @@ Medium Violet Red is the logo and non-button highlights. Fresh Sky is input bord
 
 ## Day and night
 
-The theme control is 白天 (light), 夜晚 (dark), or 自动 (auto). Auto is the default when nothing is saved in `localStorage` (`theme-mode`). Auto follows `prefers-color-scheme` and updates if the OS setting changes. A manual choice stays until it is changed again. A short script in `index.html` applies the saved or system theme before the app paints.
+Open Settings and choose 外观. The choices are 白天 (light), 夜晚 (dark), and 自动 (auto). Auto is the default when nothing is saved in `localStorage` (`theme-mode`). Auto follows `prefers-color-scheme` and updates if the OS setting changes. A manual choice stays until it is changed again. A short script in `index.html` applies the saved or system theme before the app paints, including on the login page.
 
 Light mode is the palette above. Dark mode keeps those accent hexes and shifts the gray surfaces: near-black canvas and cards, light-gray text, and darkened Frozen Water washes so selected conversations and hint chips stay readable. History titles stay a neutral gray (`#57534e` in light, `#C8C8C8` in dark).
 

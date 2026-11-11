@@ -1,5 +1,4 @@
 import { authorizeUrl } from "./api/auth";
-import { ThemeSwitch } from "./components/ThemeSwitch";
 
 interface Props {
   error?: string | null;
@@ -7,10 +6,7 @@ interface Props {
 
 export default function Login({ error }: Props) {
   return (
-    <div className="relative flex items-center justify-center h-screen bg-canvas">
-      <div className="absolute top-4 right-4">
-        <ThemeSwitch />
-      </div>
+    <div className="flex items-center justify-center h-screen bg-canvas">
       <div className="w-full max-w-sm bg-surface p-8 rounded-2xl shadow-soft border border-stone-200">
         <h1 className="text-lg font-semibold mb-1 text-medium-violet-red">agile-agent</h1>
         <p className="text-sm text-stone-500 mb-6">使用 GitHub 账号登录</p>

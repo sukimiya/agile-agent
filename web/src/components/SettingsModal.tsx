@@ -6,8 +6,10 @@ import HintManagementPanel from "./settings/HintManagementPanel";
 import BalancePanel from "./settings/BalancePanel";
 import LlmConfigPanel from "./settings/LlmConfigPanel";
 import LlmPresetPanel from "./settings/LlmPresetPanel";
+import AppearancePanel from "./settings/AppearancePanel";
 
 export type MenuKey =
+  | "appearance"
   | "knowledge-upload"
   | "api-doc-upload"
   | "review-list"
@@ -53,6 +55,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
 
   const canManageTenant = platformAdmin || tenantAdmin;
   const menuItems: { key: MenuKey; label: string }[] = [
+    { key: "appearance", label: "外观" },
     { key: "knowledge-upload", label: "知识库上传" },
     ...(canManageTenant ? [{ key: "api-doc-upload" as MenuKey, label: "API文档上传" }] : []),
     { key: "review-list", label: "文件上传审核列表" },
@@ -95,6 +98,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
             <CloseIcon />
           </button>
 
+          {menu === "appearance" && <AppearancePanel />}
           {menu === "knowledge-upload" && <KnowledgeUploadPanel heading="知识库上传" />}
           {menu === "api-doc-upload" && canManageTenant && <KnowledgeUploadPanel heading="API文档上传" />}
           {menu === "review-list" && <ReviewListPanel />}
