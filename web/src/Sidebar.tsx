@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listConversations, type ConversationSummary } from "./api/conversations";
+import { ThemeSwitch } from "./components/ThemeSwitch";
 
 interface Props {
   activeId: string;
@@ -87,6 +88,7 @@ export default function Sidebar({
         >
           +
         </button>
+        <ThemeSwitch compact />
       </div>
     );
   }
@@ -95,7 +97,12 @@ export default function Sidebar({
 
   return (
     <div className="w-64 shrink-0 border-r border-stone-200 bg-stone-100 flex flex-col h-full">
-      <div className="px-4 pt-4 pb-1 text-base font-semibold tracking-tight text-medium-violet-red">agile-agent</div>
+      <div className="px-4 pt-4 pb-1">
+        <div className="text-base font-semibold tracking-tight text-medium-violet-red">agile-agent</div>
+        <div className="mt-2">
+          <ThemeSwitch />
+        </div>
+      </div>
       <div className="p-3 flex items-center gap-2">
         <button
           onClick={onNewChat}
@@ -143,7 +150,7 @@ export default function Sidebar({
           <div className="text-sm text-stone-700 truncate">{userName}</div>
           <button
             onClick={onLogout}
-            className="text-xs text-ink underline decoration-fresh-sky decoration-2 underline-offset-2 hover:text-stone-600 transition-colors cursor-pointer"
+            className="text-xs text-stone-700 underline decoration-fresh-sky decoration-2 underline-offset-2 hover:text-stone-500 transition-colors cursor-pointer"
           >
             退出登录
           </button>

@@ -5,6 +5,18 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>agile-agent</title>
+    <script>
+      (function () {
+        var key = 'theme-mode';
+        var stored = localStorage.getItem(key);
+        var mode = stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : 'auto';
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var resolved = mode === 'auto' ? (prefersDark ? 'dark' : 'light') : mode;
+        if (resolved === 'dark') document.documentElement.classList.add('dark');
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.style.colorScheme = resolved;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

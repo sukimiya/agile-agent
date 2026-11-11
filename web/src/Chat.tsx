@@ -171,7 +171,7 @@ export default function Chat({
                 <button
                   key={h.id}
                   onClick={() => onSubmit(h.content)}
-                  className="px-4 py-2 rounded-full border border-fresh-sky bg-white text-sm text-fresh-sky
+                  className="px-4 py-2 rounded-full border border-fresh-sky bg-surface text-sm text-fresh-sky
                     hover:bg-frozen-water transition-colors cursor-pointer"
                 >
                   {h.content}
@@ -195,7 +195,7 @@ export default function Chat({
               className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed
                 ${m.role === "user"
                   ? "bg-ink text-white"
-                  : "bg-white border border-stone-200 shadow-soft"
+                  : "bg-surface border border-stone-200 shadow-soft"
                 }`}
             >
               {m.role === "assistant" ? (
@@ -247,7 +247,7 @@ export default function Chat({
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0 bg-frozen-water-mountain-lake text-medium-violet-red">
               AI
             </div>
-            <div className="bg-white border border-stone-200 px-4 py-3 rounded-2xl">
+            <div className="bg-surface border border-stone-200 px-4 py-3 rounded-2xl">
               <span className="text-stone-400 text-sm">思考中...</span>
             </div>
           </div>
@@ -281,7 +281,7 @@ export default function Chat({
           }}
           className="p-4"
         >
-          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-fresh-sky bg-white shadow-input
+          <div className="flex gap-2 items-center px-2 py-1.5 rounded-full border border-fresh-sky bg-surface shadow-input
             focus-within:border-fresh-sky focus-within:shadow-input-focus transition-colors">
             <input
               type="file"

@@ -68,7 +68,7 @@ export default function SettingsModal({ isOpen, onClose, platformAdmin, tenantAd
       onClick={onClose}
     >
       <div
-        className="w-[90vw] max-w-6xl h-[85vh] bg-white rounded-2xl shadow-soft border border-stone-200 flex overflow-hidden"
+        className="w-[90vw] max-w-6xl h-[85vh] bg-surface rounded-2xl shadow-soft border border-stone-200 flex overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="w-44 shrink-0 border-r border-stone-200 bg-stone-50 p-2 space-y-1">

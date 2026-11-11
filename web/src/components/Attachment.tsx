@@ -21,7 +21,7 @@ interface Props {
 export function Attachment({ name, size, onRemove, error }: Props) {
   const borderClass = error
     ? 'border-slime-lime bg-slime-lime text-ink'
-    : 'border-stone-200 bg-frozen-water text-ink';
+    : 'border-stone-200 bg-frozen-water text-stone-800';
   return (
     <div
       className={`inline-flex items-center gap-2 px-2 py-1 rounded-md border ${borderClass} text-xs`}

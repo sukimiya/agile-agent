@@ -92,7 +92,7 @@ export function DownloadButton({ content }: Props) {
         <UploadIcon />
       </button>
       {open && links.length > 1 && (
-        <div className="absolute right-0 mt-1 bg-white border border-stone-200 rounded shadow-md py-1 min-w-[160px] z-10">
+        <div className="absolute right-0 mt-1 bg-surface border border-stone-200 rounded shadow-md py-1 min-w-[160px] z-10">
           {links.map((l, i) => (
             <a
               key={i}
@@ -100,7 +100,7 @@ export function DownloadButton({ content }: Props) {
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setOpen(false)}
-              className="block px-3 py-1 text-xs text-ink underline decoration-fresh-sky underline-offset-2 hover:bg-frozen-water"
+              className="block px-3 py-1 text-xs text-stone-700 underline decoration-fresh-sky underline-offset-2 hover:bg-frozen-water"
             >
               {l.label}
             </a>

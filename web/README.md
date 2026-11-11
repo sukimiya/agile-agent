@@ -31,6 +31,12 @@ Surfaces stay black, white, and gray. Named accents live as Tailwind theme token
 
 Medium Violet Red is the logo and non-button highlights. Fresh Sky is input borders, input shadows, and button fill, border, and label chrome. Solid Fresh Sky buttons use dark `#171717` text because white on `#54B0DE` is about 2.5:1. Hover uses a darker Fresh Sky (`#3A96C4`) so that dark label stays above 4.5:1. Slime Lime is only a warning chip background, also with dark text. `#D1F2E3` and `#DBF1E7` are both Frozen Water; `#DBF1E7` leans Mountain Lake.
 
+## Day and night
+
+The theme control is 白天 (light), 夜晚 (dark), or 自动 (auto). Auto is the default when nothing is saved in `localStorage` (`theme-mode`). Auto follows `prefers-color-scheme` and updates if the OS setting changes. A manual choice stays until it is changed again. A short script in `index.html` applies the saved or system theme before the app paints.
+
+Light mode is the palette above. Dark mode keeps those accent hexes and shifts the gray surfaces: near-black canvas and cards, light-gray text, and darkened Frozen Water washes so selected conversations and hint chips stay readable. History titles stay a neutral gray (`#57534e` in light, `#C8C8C8` in dark).
+
 ## Tests and production build
 
 ```bash
