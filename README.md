@@ -104,7 +104,7 @@ To stop the stack, press Ctrl-C. Remove local development databases and uploaded
 docker compose -f docker/docker-compose.yml --profile local-mock down -v
 ```
 
-> A web frontend is planned and will live in the `web/` directory; `start.sh` already starts it when `web/node_modules` is present.
+The web frontend lives in [`web/`](web/README.md). `start.sh` starts it when `web/node_modules` is present. Build and static hosting, including the SPA fallback for `/login/callback`, are described in [local development](docs/local-development.md#frontend).
 
 
 ## Write your own capability adapter

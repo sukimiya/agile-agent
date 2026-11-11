@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2563eb;
+  --color-primary-light: #3b82f6;
+  --color-primary-soft: #dce7f9;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #f5f4f0; }
+#root { height: 100vh; }
+
+/* Markdown */
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 0.875rem; }
+.markdown-body th, .markdown-body td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+.markdown-body th { background: #f1f5f9; font-weight: 600; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.25rem; margin: 4px 0; }
+.markdown-body li { margin: 2px 0; }
+.markdown-body p { margin: 0 0 4px; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-size: 1rem; margin: 10px 0 4px; font-weight: 600; }
