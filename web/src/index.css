@@ -37,7 +37,8 @@
 }
 
 /* Dark surfaces. Accent hexes stay the same; only neutrals and Frozen Water washes shift. */
-html.dark {
+html.dark,
+.home-root {
   --color-fg: #ececec;
   --color-canvas: #121212;
   --color-surface: #1c1c1c;
@@ -70,12 +71,11 @@ body {
 
 /* /home. The hero stage matches the approved preview; the rest follows the theme tokens. */
 .home-root {
-  --page-bg: #f4f6f5;
+  --page-bg: #07080a;
   background: var(--page-bg);
   min-height: 100vh;
   color: var(--color-fg);
 }
-html.dark .home-root { --page-bg: #0a0a0b; }
 
 .home-header {
   display: flex;
@@ -83,18 +83,24 @@ html.dark .home-root { --page-bg: #0a0a0b; }
   align-items: center;
   gap: 16px;
   padding: 20px 40px;
+  width: 100%;
   max-width: 1120px;
   margin: 0 auto;
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 .home-header-actions { display: flex; align-items: center; gap: 16px; }
+@media (max-width: 520px) {
+  .home-header { padding: 16px 20px; }
+  .home-header-actions { gap: 10px; }
+}
 .home-logo {
   color: #d21697;
   font-weight: 650;
   font-size: 15px;
   letter-spacing: -0.02em;
   text-decoration: none;
+  white-space: nowrap;
 }
 .home-lang {
   display: inline-flex;
@@ -102,7 +108,7 @@ html.dark .home-root { --page-bg: #0a0a0b; }
   gap: 6px;
   font-size: 12px;
   letter-spacing: 0.04em;
-  color: var(--color-stone-500);
+  color: rgba(255,255,255,0.55);
 }
 .home-lang button {
   background: none;
@@ -152,59 +158,45 @@ html.dark .home-root { --page-bg: #0a0a0b; }
   100% { transform: translateX(130%); }
 }
 
-.home-stage {
+/* Full-bleed dark hero. The canvas sits behind the header and copy and fades into the page below. */
+.home-hero {
   position: relative;
-  margin: 8px auto 40px;
-  width: min(1080px, calc(100vw - 48px));
-  height: 640px;
-  overflow: visible;
-  background: transparent;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: clamp(640px, 100vh, 1000px);
+  display: flex;
+  flex-direction: column;
+  background: #07080a;
 }
-.home-stage::after {
+.home-hero::after {
   content: "";
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 180px;
   pointer-events: none;
   z-index: 2;
-  background:
-    linear-gradient(to right, var(--page-bg) 0%, transparent 30%, transparent 70%, var(--page-bg) 100%),
-    linear-gradient(to bottom, var(--page-bg) 0%, transparent 30%, transparent 70%, var(--page-bg) 100%);
+  background: linear-gradient(to bottom, transparent, var(--page-bg));
 }
-.home-stage canvas {
+.home-hero-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
-}
-.home-grain {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0.18;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 180px 180px;
-  animation: home-grain-shift 0.8s steps(2) infinite;
-}
-@keyframes home-grain-shift {
-  0% { transform: translate(0, 0); }
-  25% { transform: translate(-8px, 4px); }
-  50% { transform: translate(6px, -10px); }
-  75% { transform: translate(-4px, 8px); }
-  100% { transform: translate(0, 0); }
+  z-index: 0;
 }
 .home-copy {
   position: relative;
   z-index: 3;
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 48px 32px;
+  padding: 48px 32px 160px;
   color: #fff;
   pointer-events: none;
 }
@@ -223,23 +215,24 @@ html.dark .home-root { --page-bg: #0a0a0b; }
 }
 .home-copy a { pointer-events: auto; }
 .home-copy h1 {
-  font-size: clamp(22px, 3.15vw, 40px);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
+  margin: 0;
+  font-size: clamp(30px, 4.6vw, 64px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  max-width: 14em;
   text-shadow: 0 2px 24px rgba(0,0,0,0.55);
 }
 .home-copy p {
   margin-top: 14px;
-  max-width: 480px;
-  font-size: 14px;
-  line-height: 1.75;
-  letter-spacing: 0.02em;
-  color: rgba(255,255,255,0.68);
+  max-width: 520px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.78);
 }
 .home-welcome { color: rgba(255,255,255,0.86); }
 @media (prefers-reduced-motion: reduce) {
-  .home-btn, .home-btn::after, .home-grain { animation: none; }
+  .home-btn, .home-btn::after { animation: none; }
 }
 
 /* Markdown */

@@ -35,33 +35,32 @@ export default function HomePage() {
 
   return (
     <div className="home-root">
-      <header className="home-header">
-        <a href="/home" className="home-logo">agile-agent</a>
-        <div className="home-header-actions">
-          <div className="home-lang" role="group" aria-label={copy.languageLabel}>
-            <button type="button" aria-pressed={locale === 'en'} onClick={() => choose('en')}>EN</button>
-            <span aria-hidden="true">/</span>
-            <button type="button" aria-pressed={locale === 'zh'} onClick={() => choose('zh')}>中文</button>
+      <div className="home-hero">
+        <canvas ref={canvasRef} className="home-hero-canvas" aria-hidden="true" />
+        <header className="home-header">
+          <a href="/home" className="home-logo">agile-agent</a>
+          <div className="home-header-actions">
+            <div className="home-lang" role="group" aria-label={copy.languageLabel}>
+              <button type="button" aria-pressed={locale === 'en'} onClick={() => choose('en')}>EN</button>
+              <span aria-hidden="true">/</span>
+              <button type="button" aria-pressed={locale === 'zh'} onClick={() => choose('zh')}>中文</button>
+            </div>
+            <Cta signedIn={signedIn} label={signedIn ? copy.openChat : copy.signIn} className="home-btn home-btn--login" />
           </div>
-          <Cta signedIn={signedIn} label={signedIn ? copy.openChat : copy.signIn} className="home-btn home-btn--login" />
+        </header>
+
+        <div className="home-copy">
+          <h1>{copy.title}</h1>
+          <p>
+            {lead}
+            {tail ? <><br />{tail}</> : null}
+          </p>
+          {signedIn && userName ? <p className="home-welcome">{copy.welcome(userName)}</p> : null}
+          <Cta signedIn={signedIn} label={signedIn ? copy.openChat : copy.signIn} className="home-btn home-btn--cta" />
         </div>
-      </header>
+      </div>
 
       <main>
-        <div className="home-stage">
-          <canvas ref={canvasRef} />
-          <div className="home-grain" aria-hidden="true" />
-          <div className="home-copy">
-            <h1>{copy.title}</h1>
-            <p>
-              {lead}
-              {tail ? <><br />{tail}</> : null}
-            </p>
-            {signedIn && userName ? <p className="home-welcome">{copy.welcome(userName)}</p> : null}
-            <Cta signedIn={signedIn} label={signedIn ? copy.openChat : copy.signIn} className="home-btn home-btn--cta" />
-          </div>
-        </div>
-
         <section className="mx-auto max-w-6xl px-6 py-8">
           <ul className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             {copy.features.map((feature) => (
