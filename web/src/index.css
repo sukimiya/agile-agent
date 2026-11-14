@@ -171,13 +171,13 @@ body {
 .home-hero::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 180px;
+  inset: 0;
   pointer-events: none;
   z-index: 2;
-  background: linear-gradient(to bottom, transparent, var(--page-bg));
+  background:
+    linear-gradient(to bottom, #07080a20 0%, #07080a20 90%, var(--page-bg) 100%),
+    linear-gradient(to left, transparent, var(--page-bg)) top left / 5% 100% no-repeat,
+    linear-gradient(to right, transparent, var(--page-bg)) top right / 5% 100% no-repeat;
 }
 .home-hero-canvas {
   position: absolute;
