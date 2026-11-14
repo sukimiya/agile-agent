@@ -163,6 +163,7 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
   const grain = new ShaderPass(grainShader);
   composer.addPass(grain);
 
+  let redrawOnResize = false;
   const resize = () => {
     const dpr = Math.min(1.75, window.devicePixelRatio || 1);
     const w = Math.max(canvas.clientWidth, 1);
@@ -175,6 +176,7 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
     camera.aspect = w / h;
     camera.fov = w / h < 1 ? 42 : 30;
     camera.updateProjectionMatrix();
+    if (redrawOnResize) frame(INTRO_SECONDS, 1);
   };
   const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize);
   resizeObserver?.observe(canvas);
@@ -242,6 +244,7 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
   let t = 0;
   let last = performance.now();
   if (reduced) {
+    redrawOnResize = true;
     frame(INTRO_SECONDS, 1);
   } else {
     renderer.setAnimationLoop((now) => {
