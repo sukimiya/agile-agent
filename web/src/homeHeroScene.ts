@@ -8,11 +8,13 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 const BG = 0x07080a;
 const PINK = new THREE.Color(0xd21697);
-const SLAT_COUNT = 11;
-const SLAT_GAP = 1.95;
+const HOT_PINK = new THREE.Color(0xff6fbf);
+const COOL = new THREE.Color(0x2b5f93);
+const SLAT_COUNT = 17;
+const SLAT_GAP = 1.32;
 const INTRO_SECONDS = 2.6;
-const REST_TILT = -0.48;
-const OPEN_TILT = -0.18;
+const REST_TILT = -0.34;
+const OPEN_TILT = -0.12;
 
 /** Glowing light field behind the slats: a soft pink hotspot that drifts and follows the pointer. */
 const backdropShader = {
@@ -41,6 +43,51 @@ const backdropShader = {
       float glow = exp(-dot(p * vec2(0.62, 0.75), p * vec2(0.62, 0.75)));
       float core = exp(-dot(p, p) * 0.9);
       vec3 col = uColor * (glow * (0.5 + 0.5 * flow) + core * 0.35) * uPower;
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+};
+
+/** Slat surface: lit by a moving hotspot, saturated in the core and cooling to blue where the light falls off. */
+const slatShader = {
+  uniforms: {
+    uLight: { value: new THREE.Vector2(0, 0) },
+    uPower: { value: 0 },
+    uColor: { value: PINK.clone() },
+    uCool: { value: COOL.clone() },
+  },
+  vertexShader: /* glsl */ `
+    varying vec3 vWorld;
+    varying vec3 vNormal;
+    varying float vAcross;
+    void main() {
+      vAcross = position.x / 0.56;
+      vec4 world = modelMatrix * vec4(position, 1.0);
+      vWorld = world.xyz;
+      vNormal = normalize(mat3(modelMatrix) * normal);
+      gl_Position = projectionMatrix * viewMatrix * world;
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform vec2 uLight;
+    uniform float uPower;
+    uniform vec3 uColor;
+    uniform vec3 uCool;
+    varying vec3 vWorld;
+    varying vec3 vNormal;
+    varying float vAcross;
+    void main() {
+      vec2 d = (vWorld.xy - uLight) * vec2(0.36, 0.42);
+      float fall = exp(-dot(d, d));
+      vec3 n = normalize(vNormal);
+      vec3 l = normalize(vec3(uLight, 6.0) - vWorld);
+      float lambert = max(dot(n, l), 0.0);
+      float rim = pow(1.0 - abs(n.z), 3.0);
+      vec3 hue = mix(uCool, uColor, smoothstep(0.12, 0.55, fall));
+      hue = mix(hue, vec3(1.0, 0.55, 0.8), smoothstep(0.85, 1.0, fall) * 0.12);
+      float across = smoothstep(-1.1, 1.0, vAcross);
+      float shade = (0.2 + 0.8 * lambert) * (0.35 + 0.65 * across) + rim * 0.4;
+      vec3 col = hue * pow(fall, 0.85) * shade * uPower;
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -76,11 +123,11 @@ const grainShader = {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float n = hash(floor(vUv * uResolution) + floor(uTime * 24.0));
       float lum = dot(col, vec3(0.299, 0.587, 0.114));
-      float keep = smoothstep(n * 0.2, n * 0.2 + 0.05, lum);
+      float keep = smoothstep(n * 0.18, n * 0.18 + 0.08, lum);
       col = mix(uBg, col, keep);
-      col += (n - 0.5) * 0.03;
+      col += (n - 0.5) * 0.045;
       vec2 c = (vUv - 0.5) * vec2(uResolution.x / uResolution.y, 1.0);
-      float fade = smoothstep(0.7, 0.18, length(c * vec2(0.9, 1.0)));
+      float fade = smoothstep(0.95, 0.3, length(c * vec2(0.8, 1.0)));
       gl_FragColor = vec4(mix(uBg, col, fade), 1.0);
     }
   `,
@@ -118,46 +165,29 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
   backdrop.position.z = -3.2;
   scene.add(backdrop);
 
-  const ambient = new THREE.AmbientLight(0xffffff, 0.02);
-  scene.add(ambient);
-  const key = new THREE.PointLight(PINK, 0, 11, 2);
-  key.position.set(0, 0, 4);
-  scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffd6ef, 0);
-  rim.position.set(-6, 8, 6);
-  scene.add(rim);
-
-  const glass = new THREE.MeshPhysicalMaterial({
-    color: 0xe0329f,
-    roughness: 0.5,
-    metalness: 0,
-    transmission: 0.45,
-    thickness: 0.9,
-    ior: 1.45,
-    clearcoat: 0.2,
-    clearcoatRoughness: 0.4,
-    attenuationColor: PINK,
-    attenuationDistance: 1.1,
-    specularIntensity: 1,
+  const slatMat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.clone(slatShader.uniforms),
+    vertexShader: slatShader.vertexShader,
+    fragmentShader: slatShader.fragmentShader,
   });
 
-  const slatGeo = new RoundedBoxGeometry(1.5, 22, 0.34, 4, 0.1);
+  const slatGeo = new RoundedBoxGeometry(1.12, 26, 0.26, 4, 0.08);
   const rack = new THREE.Group();
   rack.rotation.z = Math.PI / 4;
   scene.add(rack);
   const slats: THREE.Mesh[] = [];
   const half = (SLAT_COUNT - 1) / 2;
   for (let i = 0; i < SLAT_COUNT; i++) {
-    const slat = new THREE.Mesh(slatGeo, glass);
+    const slat = new THREE.Mesh(slatGeo, slatMat);
     slat.position.x = (i - half) * SLAT_GAP;
-    slat.position.z = -Math.abs(i - half) * 0.08;
+    slat.position.z = -Math.abs(i - half) * 0.05;
     rack.add(slat);
     slats.push(slat);
   }
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.6, 0.45);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.7, 0.55);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const grain = new ShaderPass(grainShader);
@@ -227,15 +257,15 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
     rack.position.y = easedScroll * 3.2;
     rack.position.z = easedScroll * 1.5 - (1 - intro) * 2;
 
-    const lx = eased.x * 3.2 + Math.sin(t * 0.23) * 1.2;
-    const ly = eased.y * 2.2 + Math.cos(t * 0.19) * 0.8 + easedScroll * 2.5;
+    const lx = eased.x * 2.6 + Math.sin(t * 0.23) * 0.9;
+    const ly = eased.y * 1.8 + Math.cos(t * 0.19) * 0.6 + easedScroll * 2.5;
     backdropMat.uniforms.uLight.value.set(lx, ly);
     backdropMat.uniforms.uTime.value = t;
-    backdropMat.uniforms.uPower.value = intro * (1.1 + easedScroll * 0.9);
-    backdropMat.uniforms.uColor.value.copy(PINK).lerp(new THREE.Color(0xff7fc8), easedScroll * 0.6);
-    key.position.set(lx * 0.8, ly * 0.8, 3.2);
-    key.intensity = intro * (90 + easedScroll * 60);
-    rim.intensity = intro * 0.5;
+    const power = intro * (1 + easedScroll * 0.6);
+    backdropMat.uniforms.uPower.value = power * 0.22;
+    slatMat.uniforms.uLight.value.set(lx, ly);
+    slatMat.uniforms.uPower.value = power * 1.05;
+    slatMat.uniforms.uColor.value.copy(PINK).lerp(HOT_PINK, easedScroll * 0.5);
 
     grain.uniforms.uTime.value = t;
     composer.render(dt);
@@ -263,7 +293,7 @@ export function mountHomeHero(canvas: HTMLCanvasElement): () => void {
     resizeObserver?.disconnect();
     intersection?.disconnect();
     slatGeo.dispose();
-    glass.dispose();
+    slatMat.dispose();
     backdrop.geometry.dispose();
     backdropMat.dispose();
     bloom.dispose();
