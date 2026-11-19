@@ -269,7 +269,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('输入您的问题...')).toBeInTheDocument());
     expect(localStorage.getItem('auth-token')).toBe('app-tok');
     expect(window.location.hash).toBe('');
-    expect(window.location.pathname).toBe('/');
+    expect(window.location.pathname).toBe('/chat');
     expect(screen.getByText('周琳琳')).toBeInTheDocument();
     const meCall = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/auth/me');
     expect(new Headers(meCall?.[1]?.headers).get('Authorization')).toBe('Bearer app-tok');
@@ -284,7 +284,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: '使用 GitHub 登录' })).toBeInTheDocument();
     expect(localStorage.getItem('auth-token')).toBeNull();
     expect(window.location.hash).toBe('');
-    expect(window.location.pathname).toBe('/');
+    expect(window.location.pathname).toBe('/chat');
   });
 
   it('returns to login when the callback token is rejected by /api/auth/me', async () => {

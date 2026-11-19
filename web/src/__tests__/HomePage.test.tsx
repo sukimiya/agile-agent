@@ -6,8 +6,8 @@ import { useStore } from '../store';
 const AUTHORIZE = '/api/auth/oauth2/authorize';
 const REPO = 'https://github.com/sukimiya/agile-agent';
 const EN_TITLE = 'She remembers, and she can forget';
-const EN_SUBTITLE = "An open-source conversation assistant. It will recall what matters when you need it; if you'd rather not keep something, just say so in the chat, and it will forget.";
-const ZH_SUBTITLE = '开源的对话助手。需要时会找回相关往事；不想留的，在聊天里说一声就可以忘掉。';
+const EN_SUBTITLE = 'An open-source conversation assistant. It recalls relevant history when you need it. Tell it in the chat what to forget.';
+const ZH_SUBTITLE = '开源的对话助手。需要时会找回相关往事。不想留的，在聊天里说一声就可以忘掉。';
 
 function paragraphText(text: string) {
   return screen.getByText((_, node) => node?.tagName === 'P' && node.textContent === text);
@@ -40,7 +40,7 @@ describe('HomePage', () => {
     for (const link of logins) expect(link).toHaveAttribute('href', AUTHORIZE);
     expect(screen.getByRole('link', { name: 'Source on GitHub' })).toHaveAttribute('href', REPO);
     expect(screen.getByRole('heading', { level: 2, name: 'Why agile-agent' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 3, name: 'Relevant history is brought back' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Search brings back relevant history' })).toBeInTheDocument();
   });
 
   it('switches to the existing Chinese copy and remembers the choice', () => {
@@ -73,12 +73,12 @@ describe('HomePage', () => {
     expect(screen.queryByRole('link', { name: 'Sign in with GitHub' })).not.toBeInTheDocument();
     const enter = screen.getAllByRole('link', { name: 'Open chat' });
     expect(enter.length).toBeGreaterThanOrEqual(2);
-    for (const link of enter) expect(link).toHaveAttribute('href', '/');
+    for (const link of enter) expect(link).toHaveAttribute('href', '/chat');
 
     fireEvent.click(screen.getByRole('button', { name: '中文' }));
     expect(screen.getByText('欢迎回来，周琳琳')).toBeInTheDocument();
     const zhEnter = screen.getAllByRole('link', { name: '进入聊天' });
     expect(zhEnter.length).toBeGreaterThanOrEqual(2);
-    for (const link of zhEnter) expect(link).toHaveAttribute('href', '/');
+    for (const link of zhEnter) expect(link).toHaveAttribute('href', '/chat');
   });
 });
