@@ -1,0 +1,1371 @@
+{
+  "version": 1,
+  "created_at": "2026-11-19T08:57:05Z",
+  "updated_at": "2026-11-19T08:57:05Z",
+  "files": {
+    ".gitattributes": {
+      "role": "index",
+      "sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476",
+      "size": 291,
+      "normalized_sha256": "21fa16a2122e2b0360b47502c577428b645437e08e9e87ffba661f84853cb476"
+    },
+    ".gitignore": {
+      "role": "index",
+      "sha256": "55aa2db443e6cf3ed59aada6dd26871d2f0bfe9f7bfd01c52506d7c200d63fab",
+      "size": 340,
+      "normalized_sha256": "55aa2db443e6cf3ed59aada6dd26871d2f0bfe9f7bfd01c52506d7c200d63fab"
+    },
+    ".superpowers/sdd/2026-10-09-phase-2-portable-oauth2-identity/final-fix-report.md": {
+      "role": "index",
+      "sha256": "153b450f34bb1bde6258c4361c74a8d76a2c15d420f4e2edd0fe0915c3c945bf",
+      "size": 3986,
+      "normalized_sha256": "153b450f34bb1bde6258c4361c74a8d76a2c15d420f4e2edd0fe0915c3c945bf"
+    },
+    ".superpowers/sdd/2026-10-09-phase-2-portable-oauth2-identity/task-3-report.md": {
+      "role": "index",
+      "sha256": "b6528c001a75eedf54d6ad2b832d20236093956402e1808f5c23c41f79e8aae9",
+      "size": 28859,
+      "normalized_sha256": "b6528c001a75eedf54d6ad2b832d20236093956402e1808f5c23c41f79e8aae9"
+    },
+    ".superpowers/sdd/2026-10-09-phase-2-portable-oauth2-identity/task-5-report.md": {
+      "role": "index",
+      "sha256": "cdd4e79fb3894acdb5e020ec649302587c3af7c515f1100e67f1285d3dfbfb81",
+      "size": 3740,
+      "normalized_sha256": "cdd4e79fb3894acdb5e020ec649302587c3af7c515f1100e67f1285d3dfbfb81"
+    },
+    ".superpowers/sdd/2026-10-09-phase-2-portable-oauth2-identity/task-6-report.md": {
+      "role": "index",
+      "sha256": "aab39816846b1b211e84bb035622ce3d56c839799f3b90523a4a5fdc63c4279c",
+      "size": 8154,
+      "normalized_sha256": "aab39816846b1b211e84bb035622ce3d56c839799f3b90523a4a5fdc63c4279c"
+    },
+    ".superpowers/sdd/2026-10-09-phase-3-tenant-llm-and-hints/task-1-report.md": {
+      "role": "index",
+      "sha256": "dfbac554e8c6a9d1fe6ddd858b5bc97c21d68ba8019072852e1158cd9b779f3d",
+      "size": 3396,
+      "normalized_sha256": "dfbac554e8c6a9d1fe6ddd858b5bc97c21d68ba8019072852e1158cd9b779f3d"
+    },
+    "AGENTS.md": {
+      "role": "index",
+      "sha256": "80dfeb8e4aa20657a11c9216bd67c249eadf6798f7454a88fc85211324d85a7c",
+      "size": 16554,
+      "normalized_sha256": "80dfeb8e4aa20657a11c9216bd67c249eadf6798f7454a88fc85211324d85a7c"
+    },
+    "Jenkinsfile": {
+      "role": "index",
+      "sha256": "df76cf06a3e142fa47a84f6ce04f8022c9f3a90dd9dacd36ac25f85f1484a59a",
+      "size": 1272,
+      "normalized_sha256": "df76cf06a3e142fa47a84f6ce04f8022c9f3a90dd9dacd36ac25f85f1484a59a"
+    },
+    "README.md": {
+      "role": "index",
+      "sha256": "9ab1806fa8bbf7b81ef6de307d8ca37f85b86cd752cc8a46810219d9dba42edc",
+      "size": 5876,
+      "normalized_sha256": "9ab1806fa8bbf7b81ef6de307d8ca37f85b86cd752cc8a46810219d9dba42edc"
+    },
+    "agent-server/pom.xml": {
+      "role": "index",
+      "sha256": "7e5766cbb8e5692dc4f1b060615838a98f4b88ed21c6037b5a6c39d6bc56640d",
+      "size": 3791,
+      "normalized_sha256": "7e5766cbb8e5692dc4f1b060615838a98f4b88ed21c6037b5a6c39d6bc56640d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/AgentApplication.java": {
+      "role": "index",
+      "sha256": "95c39425f97f3328d1035b395858dc5fe00134f923c87bebd8b4fd623d41632f",
+      "size": 525,
+      "normalized_sha256": "95c39425f97f3328d1035b395858dc5fe00134f923c87bebd8b4fd623d41632f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/AgentEvent.java": {
+      "role": "index",
+      "sha256": "a4b89d5d05dbeced424341f91496db52315478f6fdfa900a555c4f6d5341c7cc",
+      "size": 810,
+      "normalized_sha256": "a4b89d5d05dbeced424341f91496db52315478f6fdfa900a555c4f6d5341c7cc"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/DomainAgent.java": {
+      "role": "index",
+      "sha256": "3f5ff6f23ca2ebdefcf7fec5c37c719284852dda75c7c752ae5bf8ec3f450f8f",
+      "size": 6137,
+      "normalized_sha256": "3f5ff6f23ca2ebdefcf7fec5c37c719284852dda75c7c752ae5bf8ec3f450f8f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/DomainTask.java": {
+      "role": "index",
+      "sha256": "1399622805b943cd010162d0e13cbcf714b757dad97c4d2b5372b25623a4ae03",
+      "size": 1001,
+      "normalized_sha256": "1399622805b943cd010162d0e13cbcf714b757dad97c4d2b5372b25623a4ae03"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/InProcessTaskDispatcher.java": {
+      "role": "index",
+      "sha256": "c7d559936bcf3a4b9c96b8959f83b7f1db329e57d4cacac2ef17c63d229450b1",
+      "size": 2210,
+      "normalized_sha256": "c7d559936bcf3a4b9c96b8959f83b7f1db329e57d4cacac2ef17c63d229450b1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/Orchestrator.java": {
+      "role": "index",
+      "sha256": "b5942893f9fd3a20706b99f8e1fa85fa681408bb002308c746d6ffc7c40407e0",
+      "size": 14206,
+      "normalized_sha256": "b5942893f9fd3a20706b99f8e1fa85fa681408bb002308c746d6ffc7c40407e0"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/TaskDispatcher.java": {
+      "role": "index",
+      "sha256": "84a1ef808e210f22e10c55757662aae57e1b428ca21709d504e68b04c599f6a5",
+      "size": 586,
+      "normalized_sha256": "84a1ef808e210f22e10c55757662aae57e1b428ca21709d504e68b04c599f6a5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/AuthorizationService.java": {
+      "role": "index",
+      "sha256": "ea2e71e4f3523f7d4e90384925db2f63df879d1f954fd55d9b20d18977c889b4",
+      "size": 1966,
+      "normalized_sha256": "ea2e71e4f3523f7d4e90384925db2f63df879d1f954fd55d9b20d18977c889b4"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/IdentityMappingException.java": {
+      "role": "index",
+      "sha256": "a509491a3b78aed1bea4f68f4cfc660ae5066cfe4338242120493218ae3e37b0",
+      "size": 548,
+      "normalized_sha256": "a509491a3b78aed1bea4f68f4cfc660ae5066cfe4338242120493218ae3e37b0"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/JsonPointerOAuth2IdentityMapper.java": {
+      "role": "index",
+      "sha256": "081406a4a2b51fd702dabb013236f705386a32a72b9d9f76b80ac622cd3efa47",
+      "size": 4131,
+      "normalized_sha256": "081406a4a2b51fd702dabb013236f705386a32a72b9d9f76b80ac622cd3efa47"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/OAuth2IdentityMapper.java": {
+      "role": "index",
+      "sha256": "9d829a6cfa5a7b4c18e52c2332c5c7a54ada571ce539d1c01f5bc23681ec6a80",
+      "size": 321,
+      "normalized_sha256": "9d829a6cfa5a7b4c18e52c2332c5c7a54ada571ce539d1c01f5bc23681ec6a80"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/capability/CapabilityRegistry.java": {
+      "role": "index",
+      "sha256": "7c5dcb351752f9680ecdcf933abbb087f5ed833375f498cbe205bb5e629b7a2d",
+      "size": 3612,
+      "normalized_sha256": "7c5dcb351752f9680ecdcf933abbb087f5ed833375f498cbe205bb5e629b7a2d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/AgentConfig.java": {
+      "role": "index",
+      "sha256": "51c8a27ff53f4c5fffce7f5fabd83a6bc4ee1599b185ceddf43704fca10117c9",
+      "size": 520,
+      "normalized_sha256": "51c8a27ff53f4c5fffce7f5fabd83a6bc4ee1599b185ceddf43704fca10117c9"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/KnowledgeProperties.java": {
+      "role": "index",
+      "sha256": "740e0df02bd39fb39b185bc7bf875f6a610dd30a8e8946104b40392601716583",
+      "size": 4490,
+      "normalized_sha256": "740e0df02bd39fb39b185bc7bf875f6a610dd30a8e8946104b40392601716583"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/LlmSecretProperties.java": {
+      "role": "index",
+      "sha256": "48b8dc70f192447d0ab68edbcb1d1177c4aa4cb0ee872debe808494c0aa3ce3f",
+      "size": 390,
+      "normalized_sha256": "48b8dc70f192447d0ab68edbcb1d1177c4aa4cb0ee872debe808494c0aa3ce3f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/MdcContextConfig.java": {
+      "role": "index",
+      "sha256": "d7362c5878d1d4c97ec0398da5b8513e084b80f7d024f089893ca403f9848639",
+      "size": 1308,
+      "normalized_sha256": "d7362c5878d1d4c97ec0398da5b8513e084b80f7d024f089893ca403f9848639"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/OAuth2ClaimProperties.java": {
+      "role": "index",
+      "sha256": "3de2ae134eaf9df82aa83389f1825bd6b77462a9dac9c19723f182ae7852e5cf",
+      "size": 1334,
+      "normalized_sha256": "3de2ae134eaf9df82aa83389f1825bd6b77462a9dac9c19723f182ae7852e5cf"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/OAuth2Properties.java": {
+      "role": "index",
+      "sha256": "fe5db9f2a04678ed5d9c59c5d7e0f60a264a8e51322f8d2d6a11d5c03b29adf1",
+      "size": 1839,
+      "normalized_sha256": "fe5db9f2a04678ed5d9c59c5d7e0f60a264a8e51322f8d2d6a11d5c03b29adf1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/config/UploadProperties.java": {
+      "role": "index",
+      "sha256": "152ae8da5a1faad97de72d08b6bdcb6cb59f8f8b48587e3237a514255cd84704",
+      "size": 1265,
+      "normalized_sha256": "152ae8da5a1faad97de72d08b6bdcb6cb59f8f8b48587e3237a514255cd84704"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/AuthController.java": {
+      "role": "index",
+      "sha256": "0cc685275dc6cf08d3bc901f0cfd996d997912260bbe1ac5b08236e6294ec918",
+      "size": 8395,
+      "normalized_sha256": "0cc685275dc6cf08d3bc901f0cfd996d997912260bbe1ac5b08236e6294ec918"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/AuthorizeController.java": {
+      "role": "index",
+      "sha256": "fd6666f8ad125ce60c34d3f24ec5af5ea25c800df485f95e3dc8b8d2f5cc91ec",
+      "size": 783,
+      "normalized_sha256": "fd6666f8ad125ce60c34d3f24ec5af5ea25c800df485f95e3dc8b8d2f5cc91ec"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/ChatController.java": {
+      "role": "index",
+      "sha256": "0d16b8245be275286b1381ad7eb395140609a85b321698ca05e9e6e988991ebb",
+      "size": 9912,
+      "normalized_sha256": "0d16b8245be275286b1381ad7eb395140609a85b321698ca05e9e6e988991ebb"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/UploadController.java": {
+      "role": "index",
+      "sha256": "f09b73774298815d9681e585d86e36f73f72045775ca30dfb400f6bdc9ebe1d4",
+      "size": 4848,
+      "normalized_sha256": "f09b73774298815d9681e585d86e36f73f72045775ca30dfb400f6bdc9ebe1d4"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintController.java": {
+      "role": "index",
+      "sha256": "258f4a3ab0e8aadcddde605e3132b498b3e9f891ebb878b8a6a359f16e6529ae",
+      "size": 2272,
+      "normalized_sha256": "258f4a3ab0e8aadcddde605e3132b498b3e9f891ebb878b8a6a359f16e6529ae"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintNotFoundException.java": {
+      "role": "index",
+      "sha256": "b436e84259290bab817618b21c0bfbf5b26572544bc1a2f87317527d456d81b8",
+      "size": 115,
+      "normalized_sha256": "b436e84259290bab817618b21c0bfbf5b26572544bc1a2f87317527d456d81b8"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintRepository.java": {
+      "role": "index",
+      "sha256": "76a602ec118cf6061ab0a9985d8e14f1d84b6365e87391c389e697763eb677ca",
+      "size": 2409,
+      "normalized_sha256": "76a602ec118cf6061ab0a9985d8e14f1d84b6365e87391c389e697763eb677ca"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintService.java": {
+      "role": "index",
+      "sha256": "05e3126095f922ac5b8a84a44c1ae7fd94b1db8412342600abc42e2384e46a4e",
+      "size": 2933,
+      "normalized_sha256": "05e3126095f922ac5b8a84a44c1ae7fd94b1db8412342600abc42e2384e46a4e"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintValidationException.java": {
+      "role": "index",
+      "sha256": "e96e426227004597721ded3938389071a1d644dcf63f2ec3791e6d4ebe9e4614",
+      "size": 117,
+      "normalized_sha256": "e96e426227004597721ded3938389071a1d644dcf63f2ec3791e6d4ebe9e4614"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeAccessPolicy.java": {
+      "role": "index",
+      "sha256": "45581e44ec0deb5d4e99f86b217b6c6e43b4b54a0f5253445e3e2f7c93825c96",
+      "size": 4805,
+      "normalized_sha256": "45581e44ec0deb5d4e99f86b217b6c6e43b4b54a0f5253445e3e2f7c93825c96"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeCapabilityProvider.java": {
+      "role": "index",
+      "sha256": "2851ad51c998881d85182f8f7cef191a88a7b83104a68b5910c0d2111f672eee",
+      "size": 4166,
+      "normalized_sha256": "2851ad51c998881d85182f8f7cef191a88a7b83104a68b5910c0d2111f672eee"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeCatalog.java": {
+      "role": "index",
+      "sha256": "0b2f01b94d01ee6a918444666debadb98ab64eaf670745ff9b5e781d55770c0c",
+      "size": 7841,
+      "normalized_sha256": "0b2f01b94d01ee6a918444666debadb98ab64eaf670745ff9b5e781d55770c0c"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeController.java": {
+      "role": "index",
+      "sha256": "2fd73e2c8c5b0f8951224fdb8129c5b71228dd94522b3d1d54233a50a689b170",
+      "size": 7031,
+      "normalized_sha256": "2fd73e2c8c5b0f8951224fdb8129c5b71228dd94522b3d1d54233a50a689b170"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentRepository.java": {
+      "role": "index",
+      "sha256": "03685d69effe6cf1376aab254bb0c3d572620c2dcf2c34d5ae72095d283d78e4",
+      "size": 14341,
+      "normalized_sha256": "03685d69effe6cf1376aab254bb0c3d572620c2dcf2c34d5ae72095d283d78e4"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentService.java": {
+      "role": "index",
+      "sha256": "b49f1b89c3ded0aba366197e6c3ab22aba3bba060a0e4f7667a6a5b1e37e5e36",
+      "size": 26118,
+      "normalized_sha256": "b49f1b89c3ded0aba366197e6c3ab22aba3bba060a0e4f7667a6a5b1e37e5e36"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/knowledge/KnowledgeFileStorage.java": {
+      "role": "index",
+      "sha256": "c77c6265567d934e5ef39d7ad13866be7f1db5daef4e4f3199216e910e30ab64",
+      "size": 12847,
+      "normalized_sha256": "c77c6265567d934e5ef39d7ad13866be7f1db5daef4e4f3199216e910e30ab64"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/ApiKeyCrypto.java": {
+      "role": "index",
+      "sha256": "c0d98d6f97c489c0f51af69b2ec4a483c5d6ddfd933eb31ca03b18fb8d53bb82",
+      "size": 3862,
+      "normalized_sha256": "c0d98d6f97c489c0f51af69b2ec4a483c5d6ddfd933eb31ca03b18fb8d53bb82"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceController.java": {
+      "role": "index",
+      "sha256": "4e48472786e39eb41069341351cb7dfa4e2596c89f6538dc66c3f39983b45f52",
+      "size": 836,
+      "normalized_sha256": "4e48472786e39eb41069341351cb7dfa4e2596c89f6538dc66c3f39983b45f52"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceException.java": {
+      "role": "index",
+      "sha256": "0e75f1b06c9e1ab6f64ac036772b8b7842728126781e094810e01557a37a0834",
+      "size": 775,
+      "normalized_sha256": "0e75f1b06c9e1ab6f64ac036772b8b7842728126781e094810e01557a37a0834"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceService.java": {
+      "role": "index",
+      "sha256": "7250c45cbb454bd0cae2ba8f1319cabf5b1b4ce4d9d98a60d1c6d1a20bf051ed",
+      "size": 3971,
+      "normalized_sha256": "7250c45cbb454bd0cae2ba8f1319cabf5b1b4ce4d9d98a60d1c6d1a20bf051ed"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmConfigValidationException.java": {
+      "role": "index",
+      "sha256": "b12bc5c908c6b01d9a3bdd4ef3709d298d57c11ae3a7c2a2648387902f3b67b1",
+      "size": 2002,
+      "normalized_sha256": "b12bc5c908c6b01d9a3bdd4ef3709d298d57c11ae3a7c2a2648387902f3b67b1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetController.java": {
+      "role": "index",
+      "sha256": "5a3935dab5f17a164985594d6e5c0ba1e678aee54f9d8c0e1e43b157a18dee54",
+      "size": 3141,
+      "normalized_sha256": "5a3935dab5f17a164985594d6e5c0ba1e678aee54f9d8c0e1e43b157a18dee54"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetNotFoundException.java": {
+      "role": "index",
+      "sha256": "04fbad59ca985b63bf8c3f3af9f31b5db63acac32e6fcb427fc88ec028b0fe86",
+      "size": 133,
+      "normalized_sha256": "04fbad59ca985b63bf8c3f3af9f31b5db63acac32e6fcb427fc88ec028b0fe86"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetRepository.java": {
+      "role": "index",
+      "sha256": "430bd30e6aa40030297fccff287aa20d310e6d7ee795be6cdf9000daa134c7f5",
+      "size": 4070,
+      "normalized_sha256": "430bd30e6aa40030297fccff287aa20d310e6d7ee795be6cdf9000daa134c7f5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetService.java": {
+      "role": "index",
+      "sha256": "4f4984a695399c7ccea08d95420e115c7e3660656ad0fc35b376e56ca6b1d62d",
+      "size": 5799,
+      "normalized_sha256": "4f4984a695399c7ccea08d95420e115c7e3660656ad0fc35b376e56ca6b1d62d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetValidationException.java": {
+      "role": "index",
+      "sha256": "1522a3be38ccffbbc2d08c5b04b45068dcd9248676a1d0f116a60ea779702b04",
+      "size": 135,
+      "normalized_sha256": "1522a3be38ccffbbc2d08c5b04b45068dcd9248676a1d0f116a60ea779702b04"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigController.java": {
+      "role": "index",
+      "sha256": "7f5880dba2f8abf1518b6a83afc1e14ffa55f5c03c768ea4b36f332eee5d2eef",
+      "size": 2700,
+      "normalized_sha256": "7f5880dba2f8abf1518b6a83afc1e14ffa55f5c03c768ea4b36f332eee5d2eef"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigRepository.java": {
+      "role": "index",
+      "sha256": "b5631ae8ac74e332095a845cbeba0f873b26cdf579defe90d6c4836c736870f6",
+      "size": 4920,
+      "normalized_sha256": "b5631ae8ac74e332095a845cbeba0f873b26cdf579defe90d6c4836c736870f6"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigService.java": {
+      "role": "index",
+      "sha256": "21e67729d995e67d1bc20dc663272a6dce511b319e3e95f6014b2d3f7dd34df6",
+      "size": 7640,
+      "normalized_sha256": "21e67729d995e67d1bc20dc663272a6dce511b319e3e95f6014b2d3f7dd34df6"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/repository/SessionRepository.java": {
+      "role": "index",
+      "sha256": "2bdc7040b3380d3c8d6d9ac33e551e9a6dd0516024436976b01b13ef4a5f1251",
+      "size": 2200,
+      "normalized_sha256": "2bdc7040b3380d3c8d6d9ac33e551e9a6dd0516024436976b01b13ef4a5f1251"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/AuthSessionStore.java": {
+      "role": "index",
+      "sha256": "c7f947dd2777d795ee18087e8bc92d5beace46db613d481ff7a1701cb7f16f35",
+      "size": 10467,
+      "normalized_sha256": "c7f947dd2777d795ee18087e8bc92d5beace46db613d481ff7a1701cb7f16f35"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/ChatMemory.java": {
+      "role": "index",
+      "sha256": "f78ee5aa7e6f59c7c8eeadacc5ab4e842a6570cfe1e7f859ba181793e6397d96",
+      "size": 2052,
+      "normalized_sha256": "f78ee5aa7e6f59c7c8eeadacc5ab4e842a6570cfe1e7f859ba181793e6397d96"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/FileStorageService.java": {
+      "role": "index",
+      "sha256": "b73ce7ce9e5a22fb4beb6c1a6a8952b66a9e326b4be20d1cee28c4b8f33604c7",
+      "size": 3973,
+      "normalized_sha256": "b73ce7ce9e5a22fb4beb6c1a6a8952b66a9e326b4be20d1cee28c4b8f33604c7"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/LlmClient.java": {
+      "role": "index",
+      "sha256": "799ba4caa89c4539405ca7bb40619fe5ff8c28577a0c48852447f15e15316410",
+      "size": 2753,
+      "normalized_sha256": "799ba4caa89c4539405ca7bb40619fe5ff8c28577a0c48852447f15e15316410"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OAuth2Client.java": {
+      "role": "index",
+      "sha256": "7e22128a87c82870faa0f19e4c8886ac021778a67e37141a06cf2133fdeac3ee",
+      "size": 9043,
+      "normalized_sha256": "7e22128a87c82870faa0f19e4c8886ac021778a67e37141a06cf2133fdeac3ee"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OAuth2StateStore.java": {
+      "role": "index",
+      "sha256": "8f89cbda6394aa19d6d4f16cc3b31fc1ee9c9cfa92db46d47d75a620617b3058",
+      "size": 1202,
+      "normalized_sha256": "8f89cbda6394aa19d6d4f16cc3b31fc1ee9c9cfa92db46d47d75a620617b3058"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OpenAiCompatibleLlmClient.java": {
+      "role": "index",
+      "sha256": "a75d2686246191457f439036fda1b8e2a7b3723f6d02e2a7289f7c995fa59de8",
+      "size": 6355,
+      "normalized_sha256": "a75d2686246191457f439036fda1b8e2a7b3723f6d02e2a7289f7c995fa59de8"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/Pkce.java": {
+      "role": "index",
+      "sha256": "07d12fcdfc2439f24be4c30a886134f369ff5a75c1b7d54c59b0550a38d2f72e",
+      "size": 986,
+      "normalized_sha256": "07d12fcdfc2439f24be4c30a886134f369ff5a75c1b7d54c59b0550a38d2f72e"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/SessionService.java": {
+      "role": "index",
+      "sha256": "8783a11749b550adeb565a67c7537df1ed9c5fab6f6dd65d311fd63a5e8be17e",
+      "size": 1699,
+      "normalized_sha256": "8783a11749b550adeb565a67c7537df1ed9c5fab6f6dd65d311fd63a5e8be17e"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/TenantLlmClientResolver.java": {
+      "role": "index",
+      "sha256": "99541230f432fe1b70ff074fb1eb6a26d8ee49fc013b3e52c6440f4adede1c2d",
+      "size": 6156,
+      "normalized_sha256": "99541230f432fe1b70ff074fb1eb6a26d8ee49fc013b3e52c6440f4adede1c2d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/TenantLlmConfigRequiredException.java": {
+      "role": "index",
+      "sha256": "833d8efade0e04ed6c9adc160955e1f63912f1c522927cd673624ce2685294d9",
+      "size": 283,
+      "normalized_sha256": "833d8efade0e04ed6c9adc160955e1f63912f1c522927cd673624ce2685294d9"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/TtlCache.java": {
+      "role": "index",
+      "sha256": "2eb2dc4a38e6c2c9c9cd73a8ed7c5dc1a486cfc16aeec636d32f3b23e070aaa9",
+      "size": 2219,
+      "normalized_sha256": "2eb2dc4a38e6c2c9c9cd73a8ed7c5dc1a486cfc16aeec636d32f3b23e070aaa9"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/service/UploadCleanupTask.java": {
+      "role": "index",
+      "sha256": "142c8a5395312f42bb0ae966e699017c42a9b6d7b26952ca4eb6034b8d9278ed",
+      "size": 1963,
+      "normalized_sha256": "142c8a5395312f42bb0ae966e699017c42a9b6d7b26952ca4eb6034b8d9278ed"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/util/NonBlockingIds.java": {
+      "role": "index",
+      "sha256": "424f28b75f590b3d13332f218ffac67ab1e287b1eb556619588ec64eb21016e7",
+      "size": 1117,
+      "normalized_sha256": "424f28b75f590b3d13332f218ffac67ab1e287b1eb556619588ec64eb21016e7"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/ApiError.java": {
+      "role": "index",
+      "sha256": "16570525f4d14b946f78da4b75ed5980745d68f401c3d0114b76a616913148d8",
+      "size": 158,
+      "normalized_sha256": "16570525f4d14b946f78da4b75ed5980745d68f401c3d0114b76a616913148d8"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/AuthExceptionHandler.java": {
+      "role": "index",
+      "sha256": "8b93cc975a5009584de3ddaf1f3edcd4c1c88b02a07025f8d1374a451b61d088",
+      "size": 4300,
+      "normalized_sha256": "8b93cc975a5009584de3ddaf1f3edcd4c1c88b02a07025f8d1374a451b61d088"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/CurrentUser.java": {
+      "role": "index",
+      "sha256": "9fd634f2fbead0b0c01ffa8ff0a19661ecbee7c74ae35590f38d9500688f99da",
+      "size": 306,
+      "normalized_sha256": "9fd634f2fbead0b0c01ffa8ff0a19661ecbee7c74ae35590f38d9500688f99da"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/CurrentUserArgumentResolver.java": {
+      "role": "index",
+      "sha256": "e4a3d983dcf70d16879b88ae6ef08efae6fef4937cbf351f29abe94e9128ac19",
+      "size": 12907,
+      "normalized_sha256": "e4a3d983dcf70d16879b88ae6ef08efae6fef4937cbf351f29abe94e9128ac19"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/ForbiddenException.java": {
+      "role": "index",
+      "sha256": "3c228e43d1375c8b33c1c48561ccd3ccf7ab2990a0fb194c315c535fb3bd3743",
+      "size": 189,
+      "normalized_sha256": "3c228e43d1375c8b33c1c48561ccd3ccf7ab2990a0fb194c315c535fb3bd3743"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/UnauthorizedException.java": {
+      "role": "index",
+      "sha256": "acb5374d44e3ede94e38b224754a4292b405024ff8538a91d7ee8ae75c4b473b",
+      "size": 107,
+      "normalized_sha256": "acb5374d44e3ede94e38b224754a4292b405024ff8538a91d7ee8ae75c4b473b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/WebConfig.java": {
+      "role": "index",
+      "sha256": "0553188425835b1f313d88c644b5856db65eef484f2047b57a02f9c38224e65a",
+      "size": 743,
+      "normalized_sha256": "0553188425835b1f313d88c644b5856db65eef484f2047b57a02f9c38224e65a"
+    },
+    "agent-server/src/main/resources/application-local-mock.yml": {
+      "role": "index",
+      "sha256": "a4d28ec0e27f1a049b5530d4e1423c8f5e2e47b11f171051fe4467fc0d7c2bd0",
+      "size": 1421,
+      "normalized_sha256": "a4d28ec0e27f1a049b5530d4e1423c8f5e2e47b11f171051fe4467fc0d7c2bd0"
+    },
+    "agent-server/src/main/resources/application.yml": {
+      "role": "index",
+      "sha256": "f9bd35e0b0e77a3f68f30abc15306091bb04577031c20d98e1c8040a2ea8447b",
+      "size": 2895,
+      "normalized_sha256": "f9bd35e0b0e77a3f68f30abc15306091bb04577031c20d98e1c8040a2ea8447b"
+    },
+    "agent-server/src/main/resources/db/migration/V1__create_sessions_table.sql": {
+      "role": "index",
+      "sha256": "33024f48a6bf04f1b61e40474257ea4a066a57e67096c487fd28d15838df5f56",
+      "size": 283,
+      "normalized_sha256": "33024f48a6bf04f1b61e40474257ea4a066a57e67096c487fd28d15838df5f56"
+    },
+    "agent-server/src/main/resources/db/migration/V2__create_knowledge_documents_table.sql": {
+      "role": "index",
+      "sha256": "1f386d21ccb2512cb724092cc0bea8a061aeff465199b2a65e0d82e1e28bf587",
+      "size": 482,
+      "normalized_sha256": "1f386d21ccb2512cb724092cc0bea8a061aeff465199b2a65e0d82e1e28bf587"
+    },
+    "agent-server/src/main/resources/db/migration/V3__create_chat_hints_table.sql": {
+      "role": "index",
+      "sha256": "9ff0a753f22359ae5cb90be877c0cd7585b564a0db85e686fdffa98cfa62186f",
+      "size": 254,
+      "normalized_sha256": "9ff0a753f22359ae5cb90be877c0cd7585b564a0db85e686fdffa98cfa62186f"
+    },
+    "agent-server/src/main/resources/db/migration/V4__create_llm_provider_presets.sql": {
+      "role": "index",
+      "sha256": "5ba3397e8845faac339397679c4ec8c5e2448839b467c5a6e96aa6c292ee346d",
+      "size": 404,
+      "normalized_sha256": "5ba3397e8845faac339397679c4ec8c5e2448839b467c5a6e96aa6c292ee346d"
+    },
+    "agent-server/src/main/resources/db/migration/V5__create_tenant_llm_config.sql": {
+      "role": "index",
+      "sha256": "1031d7fe1b306a90246ec7f825e80a289e73045c88a913636556d909dc279cc0",
+      "size": 406,
+      "normalized_sha256": "1031d7fe1b306a90246ec7f825e80a289e73045c88a913636556d909dc279cc0"
+    },
+    "agent-server/src/main/resources/db/migration/V6__add_knowledge_scope.sql": {
+      "role": "index",
+      "sha256": "d32f0703173435c2457bc6849b14c441fc894b032fd38d6447a8504074c6b0b2",
+      "size": 570,
+      "normalized_sha256": "d32f0703173435c2457bc6849b14c441fc894b032fd38d6447a8504074c6b0b2"
+    },
+    "agent-server/src/main/resources/db/migration/V7__add_knowledge_approval_claim_lease.sql": {
+      "role": "index",
+      "sha256": "822fabe4357c6b70fcabdaaa28e06efa0e4265d928c851e11fce558d029ae704",
+      "size": 796,
+      "normalized_sha256": "822fabe4357c6b70fcabdaaa28e06efa0e4265d928c851e11fce558d029ae704"
+    },
+    "agent-server/src/main/resources/logback-spring.xml": {
+      "role": "index",
+      "sha256": "2404f986e9d2e6c1286bb7927909ea7ba56231b86c27fbfd5a3f6498cad350e1",
+      "size": 1082,
+      "normalized_sha256": "2404f986e9d2e6c1286bb7927909ea7ba56231b86c27fbfd5a3f6498cad350e1"
+    },
+    "agent-server/src/test/java/com/alibaba/nacos/shaded/io/grpc/netty/shaded/io/netty/util/internal/Hidden.java": {
+      "role": "index",
+      "sha256": "2adad0d4cf7924bf6da6ea6acdc5216ea4dc526ca059c5838c281f1337b08ac1",
+      "size": 895,
+      "normalized_sha256": "2adad0d4cf7924bf6da6ea6acdc5216ea4dc526ca059c5838c281f1337b08ac1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/LocalRedisTestServer.java": {
+      "role": "index",
+      "sha256": "afa3d6f0df9850d93339e95a310be0a25dbc47a7f460786adcc3d0c2ac827203",
+      "size": 5036,
+      "normalized_sha256": "afa3d6f0df9850d93339e95a310be0a25dbc47a7f460786adcc3d0c2ac827203"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/OpenSourceBoundaryTest.java": {
+      "role": "index",
+      "sha256": "6f60ba0d71b6ef16684eab6210bcac2c5ccaa6ff17492805e12916cda55f751a",
+      "size": 17617,
+      "normalized_sha256": "6f60ba0d71b6ef16684eab6210bcac2c5ccaa6ff17492805e12916cda55f751a"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/ReactiveChainBlockHoundTest.java": {
+      "role": "index",
+      "sha256": "817786a883098ea146372ea8f84d2890aa173c6e3f5928d53c31eee183b7b13f",
+      "size": 4921,
+      "normalized_sha256": "817786a883098ea146372ea8f84d2890aa173c6e3f5928d53c31eee183b7b13f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/TestAuthUsers.java": {
+      "role": "index",
+      "sha256": "02a7d6454c6e3f2136d4df320b4796a4bda7877a0689b3ab1c918e270f82689a",
+      "size": 1384,
+      "normalized_sha256": "02a7d6454c6e3f2136d4df320b4796a4bda7877a0689b3ab1c918e270f82689a"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/AgentLoggingTest.java": {
+      "role": "index",
+      "sha256": "ab39e60f9f469fa5a121a92b3334a8c9d95fb335094672753ebe42160d2dc5e5",
+      "size": 6058,
+      "normalized_sha256": "ab39e60f9f469fa5a121a92b3334a8c9d95fb335094672753ebe42160d2dc5e5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/DomainAgentTest.java": {
+      "role": "index",
+      "sha256": "79d730bb4d6062659cad95ba06d3ca085c350c2ab60438516e2daa45e0ae7bb4",
+      "size": 9563,
+      "normalized_sha256": "79d730bb4d6062659cad95ba06d3ca085c350c2ab60438516e2daa45e0ae7bb4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/InProcessTaskDispatcherTest.java": {
+      "role": "index",
+      "sha256": "665b5a6bbc2b67d3228d2cc437392ddc401cbd85531a57e8356b369bbac7784b",
+      "size": 3906,
+      "normalized_sha256": "665b5a6bbc2b67d3228d2cc437392ddc401cbd85531a57e8356b369bbac7784b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/OrchestratorTest.java": {
+      "role": "index",
+      "sha256": "a5ddc13f4365efd5d77e7eb420e503b576fd7d204e518f2586633f72879f6c78",
+      "size": 9599,
+      "normalized_sha256": "a5ddc13f4365efd5d77e7eb420e503b576fd7d204e518f2586633f72879f6c78"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/AuthorizationServiceTest.java": {
+      "role": "index",
+      "sha256": "c25e39198091a946c30751541f2328a7aaacf8a80ad8a5876f0d18f723797bfe",
+      "size": 4413,
+      "normalized_sha256": "c25e39198091a946c30751541f2328a7aaacf8a80ad8a5876f0d18f723797bfe"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/JsonPointerOAuth2IdentityMapperTest.java": {
+      "role": "index",
+      "sha256": "af25a842c2955347d4cb49567a7f6949d2aa3e6bbe0ef2ac251842027c3594a3",
+      "size": 10539,
+      "normalized_sha256": "af25a842c2955347d4cb49567a7f6949d2aa3e6bbe0ef2ac251842027c3594a3"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/MockOAuth2EndToEndTest.java": {
+      "role": "index",
+      "sha256": "a3e8cdf7983270fb292402f3a88f2b500730e4ccb5543b9834c20229dfaab172",
+      "size": 26678,
+      "normalized_sha256": "a3e8cdf7983270fb292402f3a88f2b500730e4ccb5543b9834c20229dfaab172"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/CapabilityRegistryTest.java": {
+      "role": "index",
+      "sha256": "3fc20047d056ee9156b8a08226a863d75fad1cc5e9be0a74e2f132084f5df6a3",
+      "size": 7698,
+      "normalized_sha256": "3fc20047d056ee9156b8a08226a863d75fad1cc5e9be0a74e2f132084f5df6a3"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/ExternalCapabilityIntegrationTest.java": {
+      "role": "index",
+      "sha256": "6b60ab1c01006a5910be6d44018114e02347ce1078b13c28d802df515ab994ad",
+      "size": 6394,
+      "normalized_sha256": "6b60ab1c01006a5910be6d44018114e02347ce1078b13c28d802df515ab994ad"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/fixture/ExternalFixtureCapabilityProvider.java": {
+      "role": "index",
+      "sha256": "f94b0b12cee48f932927f7e3adc27826915c2c79667e7e64cea7a970f3d69e60",
+      "size": 2402,
+      "normalized_sha256": "f94b0b12cee48f932927f7e3adc27826915c2c79667e7e64cea7a970f3d69e60"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/config/OAuth2PropertiesTest.java": {
+      "role": "index",
+      "sha256": "a36b29a4f454ae65c719f14397be438ec6599d5572048540069bc81448e90dd5",
+      "size": 3811,
+      "normalized_sha256": "a36b29a4f454ae65c719f14397be438ec6599d5572048540069bc81448e90dd5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/AuthControllerTest.java": {
+      "role": "index",
+      "sha256": "067d5ec38de8408e3b7f9d6376a40561e99f04233773d9d9c860d78ce6c6a41e",
+      "size": 22748,
+      "normalized_sha256": "067d5ec38de8408e3b7f9d6376a40561e99f04233773d9d9c860d78ce6c6a41e"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/AuthorizeControllerTest.java": {
+      "role": "index",
+      "sha256": "a9a8c6e47f71ac14d7fc2ecc21433208db2df5750d3cb831b7777f24d50debc0",
+      "size": 2026,
+      "normalized_sha256": "a9a8c6e47f71ac14d7fc2ecc21433208db2df5750d3cb831b7777f24d50debc0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/ChatControllerTest.java": {
+      "role": "index",
+      "sha256": "73efec09f41b83fc72af16ac4f58aad40f673e7996d5692c64af1f50d4c9f898",
+      "size": 10470,
+      "normalized_sha256": "73efec09f41b83fc72af16ac4f58aad40f673e7996d5692c64af1f50d4c9f898"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/FileStorageServiceTestData.java": {
+      "role": "index",
+      "sha256": "ac3c7740f0b374b2c89038931921a2e245672f58ecae8340ff1f4efa4e6586c5",
+      "size": 653,
+      "normalized_sha256": "ac3c7740f0b374b2c89038931921a2e245672f58ecae8340ff1f4efa4e6586c5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/UploadControllerTest.java": {
+      "role": "index",
+      "sha256": "406b60b66042c0c18be12219456e685f13d85c31563f1509133434a4fdc99f88",
+      "size": 6633,
+      "normalized_sha256": "406b60b66042c0c18be12219456e685f13d85c31563f1509133434a4fdc99f88"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintControllerTest.java": {
+      "role": "index",
+      "sha256": "395362390893e5747736aead4bad903e16524a05a48b08497732e5dd4f813cf6",
+      "size": 11814,
+      "normalized_sha256": "395362390893e5747736aead4bad903e16524a05a48b08497732e5dd4f813cf6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintRepositoryTest.java": {
+      "role": "index",
+      "sha256": "a450c8787db687da987a104b2638b42aec8ee8baa586b49c4633fc9d4599c9f9",
+      "size": 3100,
+      "normalized_sha256": "a450c8787db687da987a104b2638b42aec8ee8baa586b49c4633fc9d4599c9f9"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintServiceTest.java": {
+      "role": "index",
+      "sha256": "92a7ac9e72e14e946b192f3f853dbff203ad3ffe673cc98da4749f09b3af30a4",
+      "size": 5368,
+      "normalized_sha256": "92a7ac9e72e14e946b192f3f853dbff203ad3ffe673cc98da4749f09b3af30a4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeAccessPolicyTest.java": {
+      "role": "index",
+      "sha256": "3c47e26124272178ae8cc7c64bd9e5feccc33aa2ab60b77245009c75c9e01d88",
+      "size": 11188,
+      "normalized_sha256": "3c47e26124272178ae8cc7c64bd9e5feccc33aa2ab60b77245009c75c9e01d88"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeCapabilityProviderTest.java": {
+      "role": "index",
+      "sha256": "a4e29680d075da80deb569d410479e459832ea6e268ce741b31d8b2efe55790f",
+      "size": 5081,
+      "normalized_sha256": "a4e29680d075da80deb569d410479e459832ea6e268ce741b31d8b2efe55790f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeCatalogTest.java": {
+      "role": "index",
+      "sha256": "515590e192f0616808867a44eea7fbbfb75d7b1be6492f5a3b236efe479d7cb5",
+      "size": 15368,
+      "normalized_sha256": "515590e192f0616808867a44eea7fbbfb75d7b1be6492f5a3b236efe479d7cb5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeControllerIntegrationTest.java": {
+      "role": "index",
+      "sha256": "aaf4c0fefa6d9102917123ef025f758f9c46da6a1fabef30992ebb67977228c7",
+      "size": 23955,
+      "normalized_sha256": "aaf4c0fefa6d9102917123ef025f758f9c46da6a1fabef30992ebb67977228c7"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeControllerTest.java": {
+      "role": "index",
+      "sha256": "3920a004744759d80aa5abf8d2ec48f664c819eea9fb32f5be05d689929c62cd",
+      "size": 10850,
+      "normalized_sha256": "3920a004744759d80aa5abf8d2ec48f664c819eea9fb32f5be05d689929c62cd"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentRepositoryTest.java": {
+      "role": "index",
+      "sha256": "da81d721d33b19a3b06b10d0d12a6b588d9a603edae4f4de01a4ab9d95b26876",
+      "size": 19347,
+      "normalized_sha256": "da81d721d33b19a3b06b10d0d12a6b588d9a603edae4f4de01a4ab9d95b26876"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentServiceTest.java": {
+      "role": "index",
+      "sha256": "dbdcd748cfcf3932aa84edb5c2d671aaadbd5755a913fb42f68e884c2f121c0d",
+      "size": 69464,
+      "normalized_sha256": "dbdcd748cfcf3932aa84edb5c2d671aaadbd5755a913fb42f68e884c2f121c0d"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeFileStorageTest.java": {
+      "role": "index",
+      "sha256": "45305b8bf267930f60495fb914b668e737085003c54fc08ed0b068d25889c249",
+      "size": 8953,
+      "normalized_sha256": "45305b8bf267930f60495fb914b668e737085003c54fc08ed0b068d25889c249"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeScopeMigrationTest.java": {
+      "role": "index",
+      "sha256": "fb0e65c9d3c47aaf1ec32850a4fd11a92b473e96a28b1bf6a8a5e637e8149680",
+      "size": 7962,
+      "normalized_sha256": "fb0e65c9d3c47aaf1ec32850a4fd11a92b473e96a28b1bf6a8a5e637e8149680"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/ApiKeyCryptoTest.java": {
+      "role": "index",
+      "sha256": "b43314f2486d5ccf9eb4caaec1c9906c3def06ed8596a880f093975b2543d5be",
+      "size": 5672,
+      "normalized_sha256": "b43314f2486d5ccf9eb4caaec1c9906c3def06ed8596a880f093975b2543d5be"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceControllerTest.java": {
+      "role": "index",
+      "sha256": "5aaf5fba52a5d03f4b0bdc9cc9c1393dd17fc3474e732ec52c9a7192b208a052",
+      "size": 2930,
+      "normalized_sha256": "5aaf5fba52a5d03f4b0bdc9cc9c1393dd17fc3474e732ec52c9a7192b208a052"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceServiceTest.java": {
+      "role": "index",
+      "sha256": "a616532f412c28fdfbc541224e2a814a3483f4b9449701d19e5f988cf4af2c43",
+      "size": 6279,
+      "normalized_sha256": "a616532f412c28fdfbc541224e2a814a3483f4b9449701d19e5f988cf4af2c43"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmMigrationTest.java": {
+      "role": "index",
+      "sha256": "5e5e40c604ff760f6d054298182f060dda51968d1cd096fb770c15292574c886",
+      "size": 4283,
+      "normalized_sha256": "5e5e40c604ff760f6d054298182f060dda51968d1cd096fb770c15292574c886"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetControllerTest.java": {
+      "role": "index",
+      "sha256": "860a95b3d98ca6df51088880679ddd6929cd1a8aded98f535624867897c87947",
+      "size": 10082,
+      "normalized_sha256": "860a95b3d98ca6df51088880679ddd6929cd1a8aded98f535624867897c87947"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetRepositoryTest.java": {
+      "role": "index",
+      "sha256": "40012fa979b0e651662b5d414b6478db3d9991dfc2c9148f5554b06448e3a8c8",
+      "size": 3444,
+      "normalized_sha256": "40012fa979b0e651662b5d414b6478db3d9991dfc2c9148f5554b06448e3a8c8"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetServiceTest.java": {
+      "role": "index",
+      "sha256": "6daf12d2bedab56111f28067095850a9476a61ebe931a38de5ebee93b78477c3",
+      "size": 8990,
+      "normalized_sha256": "6daf12d2bedab56111f28067095850a9476a61ebe931a38de5ebee93b78477c3"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigControllerTest.java": {
+      "role": "index",
+      "sha256": "35bc5793f4d014bf122fbb5b16a6d5f12c6f28ed75d8d9f00eb0ac736ce7f472",
+      "size": 5815,
+      "normalized_sha256": "35bc5793f4d014bf122fbb5b16a6d5f12c6f28ed75d8d9f00eb0ac736ce7f472"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigRepositoryTest.java": {
+      "role": "index",
+      "sha256": "1b451526c8babee2189a203b4262cc114acd06fa0694506fbef6c939fff00a49",
+      "size": 6643,
+      "normalized_sha256": "1b451526c8babee2189a203b4262cc114acd06fa0694506fbef6c939fff00a49"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigServiceTest.java": {
+      "role": "index",
+      "sha256": "58437791799827b66db9438db2b9c72b5aa9176804cc6c4587142a6774f273bf",
+      "size": 15692,
+      "normalized_sha256": "58437791799827b66db9438db2b9c72b5aa9176804cc6c4587142a6774f273bf"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/repository/SessionRepositoryTest.java": {
+      "role": "index",
+      "sha256": "39a548d9e0a627486a12a52b335a11fec8bd55403fe41787fce23f03663a7022",
+      "size": 3000,
+      "normalized_sha256": "39a548d9e0a627486a12a52b335a11fec8bd55403fe41787fce23f03663a7022"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/AuthSessionStoreTest.java": {
+      "role": "index",
+      "sha256": "7a8e2239bb5e0a550989a25439bc9b035aef68411ffe7397e2861f99361275d5",
+      "size": 7388,
+      "normalized_sha256": "7a8e2239bb5e0a550989a25439bc9b035aef68411ffe7397e2861f99361275d5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/ChatMemoryTest.java": {
+      "role": "index",
+      "sha256": "d6d62641d89005f370e9da1ebb0df6151fbd062314e47e09b1ad98a110f079d9",
+      "size": 2705,
+      "normalized_sha256": "d6d62641d89005f370e9da1ebb0df6151fbd062314e47e09b1ad98a110f079d9"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/FileStorageServiceTest.java": {
+      "role": "index",
+      "sha256": "0cb678a8dbb5242757b859f127eda4c75b1e0e7d3c6c53f07eb5a8d3fe51d7d2",
+      "size": 4507,
+      "normalized_sha256": "0cb678a8dbb5242757b859f127eda4c75b1e0e7d3c6c53f07eb5a8d3fe51d7d2"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/LlmClientSummarizeTest.java": {
+      "role": "index",
+      "sha256": "4d8bd1388de5766e2bc3a83867422e815304d7433cb322d01299409dbb708018",
+      "size": 1407,
+      "normalized_sha256": "4d8bd1388de5766e2bc3a83867422e815304d7433cb322d01299409dbb708018"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OAuth2ClientTest.java": {
+      "role": "index",
+      "sha256": "4c285e45c7e699b139a4871f500768a79d422ca7f99f487db0b39330372987d4",
+      "size": 15037,
+      "normalized_sha256": "4c285e45c7e699b139a4871f500768a79d422ca7f99f487db0b39330372987d4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OAuth2StateStoreTest.java": {
+      "role": "index",
+      "sha256": "4581d7367e67f79ba0a31ac510f7bb3a429a605b89b4038621f0404b1e084636",
+      "size": 1884,
+      "normalized_sha256": "4581d7367e67f79ba0a31ac510f7bb3a429a605b89b4038621f0404b1e084636"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OpenAiCompatibleLlmClientStreamTest.java": {
+      "role": "index",
+      "sha256": "7d57205046bb7da1160b28f42bb2fd0399df20e9c3ee3a8b5fbee3b91ac1a144",
+      "size": 8341,
+      "normalized_sha256": "7d57205046bb7da1160b28f42bb2fd0399df20e9c3ee3a8b5fbee3b91ac1a144"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OpenAiCompatibleLlmClientTest.java": {
+      "role": "index",
+      "sha256": "617b42793faf5a99bfe2c565860f27c1d25a5f00b60bf0f0d65427f23451ae61",
+      "size": 4848,
+      "normalized_sha256": "617b42793faf5a99bfe2c565860f27c1d25a5f00b60bf0f0d65427f23451ae61"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/PkceTest.java": {
+      "role": "index",
+      "sha256": "135f7880554b63ba874174bad397ce2b6cceb8ec94a8c26c0d0601d4b48ffb95",
+      "size": 992,
+      "normalized_sha256": "135f7880554b63ba874174bad397ce2b6cceb8ec94a8c26c0d0601d4b48ffb95"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/SessionServiceTest.java": {
+      "role": "index",
+      "sha256": "fbd5f0c70f949f5f16e6a7e8d1194a8c34267978e4b82596cd74d2a896420b64",
+      "size": 3915,
+      "normalized_sha256": "fbd5f0c70f949f5f16e6a7e8d1194a8c34267978e4b82596cd74d2a896420b64"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/TenantLlmClientResolverTest.java": {
+      "role": "index",
+      "sha256": "c2419d0d2d5f83afddd93a8fc2ebd74c95bee2c749248b0062161694cc2ffc45",
+      "size": 16618,
+      "normalized_sha256": "c2419d0d2d5f83afddd93a8fc2ebd74c95bee2c749248b0062161694cc2ffc45"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/TtlCacheTest.java": {
+      "role": "index",
+      "sha256": "26d54ec5e36e8d4443a3b232113bdf0e183db1e0f463f505fb024d922178ad86",
+      "size": 1589,
+      "normalized_sha256": "26d54ec5e36e8d4443a3b232113bdf0e183db1e0f463f505fb024d922178ad86"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/service/UploadCleanupTaskTest.java": {
+      "role": "index",
+      "sha256": "0a3b186527bdf235f1ca78edf3fb0a1071c5f03c2d62d3d14f066769ba234323",
+      "size": 1429,
+      "normalized_sha256": "0a3b186527bdf235f1ca78edf3fb0a1071c5f03c2d62d3d14f066769ba234323"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/util/NonBlockingIdsTest.java": {
+      "role": "index",
+      "sha256": "18a18f8faca935ebd53bc713c8a35d2366c906dd0bb3e5f1fbdf2c89b95c7c83",
+      "size": 913,
+      "normalized_sha256": "18a18f8faca935ebd53bc713c8a35d2366c906dd0bb3e5f1fbdf2c89b95c7c83"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/web/AuthExceptionHandlerTest.java": {
+      "role": "index",
+      "sha256": "9eb9ced70de310ba3fb634ec7addb004b2a06df06561e78602f4264b27bad2d1",
+      "size": 2758,
+      "normalized_sha256": "9eb9ced70de310ba3fb634ec7addb004b2a06df06561e78602f4264b27bad2d1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/web/CurrentUserArgumentResolverTest.java": {
+      "role": "index",
+      "sha256": "94f4a8c80bb9015136d7578145fa6cb944a07a3c3d81937364b8254a343a373f",
+      "size": 46084,
+      "normalized_sha256": "94f4a8c80bb9015136d7578145fa6cb944a07a3c3d81937364b8254a343a373f"
+    },
+    "agent-spi/pom.xml": {
+      "role": "index",
+      "sha256": "722ed19f5be4de288a3ed1ee9a18c181c13c96b41bff94b9be7d81f1a3019467",
+      "size": 1043,
+      "normalized_sha256": "722ed19f5be4de288a3ed1ee9a18c181c13c96b41bff94b9be7d81f1a3019467"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/AgentCapabilityProvider.java": {
+      "role": "index",
+      "sha256": "d7098a06b02ee951bbd096be6bb9e550e06e91f68625e4403ab0bac45fd3ec53",
+      "size": 458,
+      "normalized_sha256": "d7098a06b02ee951bbd096be6bb9e550e06e91f68625e4403ab0bac45fd3ec53"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/AgentExecutionContext.java": {
+      "role": "index",
+      "sha256": "08bc27c0b28f7b2068c2db114109eb45f3118ff3f8e2479eb2255436434a1f59",
+      "size": 1011,
+      "normalized_sha256": "08bc27c0b28f7b2068c2db114109eb45f3118ff3f8e2479eb2255436434a1f59"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/CapabilityDefinition.java": {
+      "role": "index",
+      "sha256": "ffee7cbe858cc598e512979453b40f5c4026d160659c5eaedaa440a3aae8de75",
+      "size": 419,
+      "normalized_sha256": "ffee7cbe858cc598e512979453b40f5c4026d160659c5eaedaa440a3aae8de75"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/JsonSnapshots.java": {
+      "role": "index",
+      "sha256": "30f33ee02f084c1a5ccc17ddd60e7c3e01521183baa9a586fe1d092b00a31d4a",
+      "size": 1073,
+      "normalized_sha256": "30f33ee02f084c1a5ccc17ddd60e7c3e01521183baa9a586fe1d092b00a31d4a"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/ToolDefinition.java": {
+      "role": "index",
+      "sha256": "5f7b09653d67806325d0fb8956aa607bc50009e44ed6bb21fcb3608bf5751d34",
+      "size": 756,
+      "normalized_sha256": "5f7b09653d67806325d0fb8956aa607bc50009e44ed6bb21fcb3608bf5751d34"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/ToolInvocation.java": {
+      "role": "index",
+      "sha256": "b233607cbd2b3f0ae096af427d039b80ae41f1e0723cb56a93cd1fe8d098042a",
+      "size": 751,
+      "normalized_sha256": "b233607cbd2b3f0ae096af427d039b80ae41f1e0723cb56a93cd1fe8d098042a"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/capability/ToolResult.java": {
+      "role": "index",
+      "sha256": "8806d8e1dc3f166796f5bb65b7d15bda53a74f74a829cab5f8554c775f173f35",
+      "size": 346,
+      "normalized_sha256": "8806d8e1dc3f166796f5bb65b7d15bda53a74f74a829cab5f8554c775f173f35"
+    },
+    "agent-spi/src/main/java/io/github/sukimiya/agileagent/spi/identity/IdentityContext.java": {
+      "role": "index",
+      "sha256": "59b90aa83a320f612478390791dbde8ba78f193c3942f97f75d4e220afbd3949",
+      "size": 839,
+      "normalized_sha256": "59b90aa83a320f612478390791dbde8ba78f193c3942f97f75d4e220afbd3949"
+    },
+    "agent-spi/src/test/java/io/github/sukimiya/agileagent/spi/capability/CapabilityContractsTest.java": {
+      "role": "index",
+      "sha256": "6a74227e0644feadd1547a776a90d9be8d1d6e0f6b3362fcb67d80c75bd90c95",
+      "size": 9786,
+      "normalized_sha256": "6a74227e0644feadd1547a776a90d9be8d1d6e0f6b3362fcb67d80c75bd90c95"
+    },
+    "agent-spi/src/test/java/io/github/sukimiya/agileagent/spi/identity/IdentityContextTest.java": {
+      "role": "index",
+      "sha256": "e1dac87c6d8531d21d89e8e59ac8e56007f64b40a499b04bd94481fd250d62dc",
+      "size": 2553,
+      "normalized_sha256": "e1dac87c6d8531d21d89e8e59ac8e56007f64b40a499b04bd94481fd250d62dc"
+    },
+    "aoci.code.txt": {
+      "role": "index",
+      "sha256": "12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2",
+      "size": 21,
+      "normalized_sha256": "12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2"
+    },
+    "aoci.meta.txt": {
+      "role": "index",
+      "sha256": "4e847b2679814f2d38ff8f9c44b03e026619f84d724be83634539eb369fe0199",
+      "size": 2534,
+      "normalized_sha256": "4e847b2679814f2d38ff8f9c44b03e026619f84d724be83634539eb369fe0199"
+    },
+    "aoci.txt": {
+      "role": "index",
+      "sha256": "629752119853ed615dcd82a5de29e67d15f753f55bfbcc952b9dab165eda2318",
+      "size": 300,
+      "normalized_sha256": "629752119853ed615dcd82a5de29e67d15f753f55bfbcc952b9dab165eda2318"
+    },
+    "docker/Dockerfile": {
+      "role": "index",
+      "sha256": "bf19b1ee8a92737044945a3b608b6483bbd4a0c6faa75683dbbc9b133cbb275e",
+      "size": 740,
+      "normalized_sha256": "bf19b1ee8a92737044945a3b608b6483bbd4a0c6faa75683dbbc9b133cbb275e"
+    },
+    "docker/docker-compose.yml": {
+      "role": "index",
+      "sha256": "a64249781392bce33fd40d2ecf9dcdb20ffd5016f53e03a99b1b47ef0f29e6e3",
+      "size": 4162,
+      "normalized_sha256": "a64249781392bce33fd40d2ecf9dcdb20ffd5016f53e03a99b1b47ef0f29e6e3"
+    },
+    "docs/capability-adapters.md": {
+      "role": "index",
+      "sha256": "ef8e988b90633db49df5b6c6d02d6080be36a7630a341ef98fb077154f1f9a5a",
+      "size": 5932,
+      "normalized_sha256": "ef8e988b90633db49df5b6c6d02d6080be36a7630a341ef98fb077154f1f9a5a"
+    },
+    "docs/oauth2-provider-integration.md": {
+      "role": "index",
+      "sha256": "acec7efd32e780cbe02f141d872debd645cdd3c00652355a8cdcf73cc1d931ac",
+      "size": 6194,
+      "normalized_sha256": "acec7efd32e780cbe02f141d872debd645cdd3c00652355a8cdcf73cc1d931ac"
+    },
+    "docs/spec/2026-10-09-open-source-multimodule-migration.md": {
+      "role": "index",
+      "sha256": "2d1205dc718d7b73690b5c45bf35f0f11d83e979640dee306f138d4464fb6c98",
+      "size": 17109,
+      "normalized_sha256": "2d1205dc718d7b73690b5c45bf35f0f11d83e979640dee306f138d4464fb6c98"
+    },
+    "docs/spec/migration-from-single-module.md": {
+      "role": "index",
+      "sha256": "dfcb40cd17a3f4481e0c7c7b2b6ba3e633237f866c54c766ca1e9e21e81792a5",
+      "size": 6638,
+      "normalized_sha256": "dfcb40cd17a3f4481e0c7c7b2b6ba3e633237f866c54c766ca1e9e21e81792a5"
+    },
+    "docs/superpowers/plans/2026-06-16-frontend-file-upload.md": {
+      "role": "index",
+      "sha256": "dae019826ecb36a832ea6f5bf19e024109ca71f347819dbd8e4dc66b627ed4bc",
+      "size": 58669,
+      "normalized_sha256": "dae019826ecb36a832ea6f5bf19e024109ca71f347819dbd8e4dc66b627ed4bc"
+    },
+    "docs/superpowers/plans/2026-07-01-openclaw-instance-provisioning.md": {
+      "role": "index",
+      "sha256": "54f230f22ad656a710726ea71b6e4ce1d16fec8b874fe4dc41bf046dc44aa6b4",
+      "size": 29539,
+      "normalized_sha256": "54f230f22ad656a710726ea71b6e4ce1d16fec8b874fe4dc41bf046dc44aa6b4"
+    },
+    "docs/superpowers/plans/2026-07-02-multi-instance-routing 2.md": {
+      "role": "index",
+      "sha256": "9c83f7cc0ed9878b642c7553cc4a16f06e5b415e9c068d4af6d9cc5cfce577f1",
+      "size": 77362,
+      "normalized_sha256": "9c83f7cc0ed9878b642c7553cc4a16f06e5b415e9c068d4af6d9cc5cfce577f1"
+    },
+    "docs/superpowers/plans/2026-07-02-multi-instance-routing.md": {
+      "role": "index",
+      "sha256": "9c83f7cc0ed9878b642c7553cc4a16f06e5b415e9c068d4af6d9cc5cfce577f1",
+      "size": 77362,
+      "normalized_sha256": "9c83f7cc0ed9878b642c7553cc4a16f06e5b415e9c068d4af6d9cc5cfce577f1"
+    },
+    "docs/superpowers/plans/2026-07-06-in-backend-agent.md": {
+      "role": "index",
+      "sha256": "b025bd384cdbe1db6ba0f22bbffeea187ed0bea1988bdb30c0f0c772919bd57e",
+      "size": 99568,
+      "normalized_sha256": "b025bd384cdbe1db6ba0f22bbffeea187ed0bea1988bdb30c0f0c772919bd57e"
+    },
+    "docs/superpowers/plans/2026-07-07-api-docs-refresh.md": {
+      "role": "index",
+      "sha256": "1cf6f3b80effce1b5ced75ec4b4f9fe27e35bb9c8c487023ff96cdf9211eab48",
+      "size": 13817,
+      "normalized_sha256": "1cf6f3b80effce1b5ced75ec4b4f9fe27e35bb9c8c487023ff96cdf9211eab48"
+    },
+    "docs/superpowers/plans/2026-07-07-nacos-config-integration.md": {
+      "role": "index",
+      "sha256": "20422cdc53ced0561549c59a7f3f143a92baf2101778c15115d0a865410c0ba5",
+      "size": 16103,
+      "normalized_sha256": "20422cdc53ced0561549c59a7f3f143a92baf2101778c15115d0a865410c0ba5"
+    },
+    "docs/superpowers/plans/2026-07-08-chatmemory-redis-persistence.md": {
+      "role": "index",
+      "sha256": "53b6a5a2ba599f33bf329d0f5148a330a0f80916f86bc7822145873813faa0e3",
+      "size": 18639,
+      "normalized_sha256": "53b6a5a2ba599f33bf329d0f5148a330a0f80916f86bc7822145873813faa0e3"
+    },
+    "docs/superpowers/plans/2026-07-08-smartlink-login-sessions.md": {
+      "role": "index",
+      "sha256": "3c34a2e85075c9c0140a02ec91ffa6dffb34f827b5fb29d8529183cad20dd404",
+      "size": 111841,
+      "normalized_sha256": "3c34a2e85075c9c0140a02ec91ffa6dffb34f827b5fb29d8529183cad20dd404"
+    },
+    "docs/superpowers/plans/2026-07-15-phase1-reactive-migration.md": {
+      "role": "index",
+      "sha256": "ce1a9546f2330f14e5e4ae064e9742746442e040c265a590d017bf35fba29151",
+      "size": 84576,
+      "normalized_sha256": "ce1a9546f2330f14e5e4ae064e9742746442e040c265a590d017bf35fba29151"
+    },
+    "docs/superpowers/plans/2026-07-27-knowledge-base-upload-review-plan.md": {
+      "role": "index",
+      "sha256": "88091749b3e7c095810156172b28013adfcab9ff7acb1a8a6ee8f2f02b162a51",
+      "size": 71555,
+      "normalized_sha256": "88091749b3e7c095810156172b28013adfcab9ff7acb1a8a6ee8f2f02b162a51"
+    },
+    "docs/superpowers/plans/2026-07-28-oauth2-login-migration.md": {
+      "role": "index",
+      "sha256": "9a3c9c34712accd9a9ccc468a7117f1cfa23a17f244e525751f8f037da8f306a",
+      "size": 72625,
+      "normalized_sha256": "9a3c9c34712accd9a9ccc468a7117f1cfa23a17f244e525751f8f037da8f306a"
+    },
+    "docs/superpowers/plans/2026-10-09-phase-1-open-source-core.md": {
+      "role": "index",
+      "sha256": "c8ca9c29dc92d8f69280bf8416a53db4aab1b1d8d363ba8fee67f0b8b27cb001",
+      "size": 17730,
+      "normalized_sha256": "c8ca9c29dc92d8f69280bf8416a53db4aab1b1d8d363ba8fee67f0b8b27cb001"
+    },
+    "docs/superpowers/plans/2026-10-09-phase-2-portable-oauth2-identity.md": {
+      "role": "index",
+      "sha256": "f61d08b8e1c69990043a59e24851068a30383d7d1f8440e1bd1c72d3a7992876",
+      "size": 13367,
+      "normalized_sha256": "f61d08b8e1c69990043a59e24851068a30383d7d1f8440e1bd1c72d3a7992876"
+    },
+    "docs/superpowers/plans/2026-10-09-phase-3-tenant-llm-and-hints.md": {
+      "role": "index",
+      "sha256": "016ff9d4a78d7eae53685640a6e1a7789c4340949891cbf89eef20e7118352ba",
+      "size": 14514,
+      "normalized_sha256": "016ff9d4a78d7eae53685640a6e1a7789c4340949891cbf89eef20e7118352ba"
+    },
+    "docs/superpowers/plans/2026-10-09-phase-4-scoped-knowledge-and-release.md": {
+      "role": "index",
+      "sha256": "452ea7dc99f1023aeb2a8f069c353ec9b9eebee0f9682611e76e6cdde789828e",
+      "size": 13044,
+      "normalized_sha256": "452ea7dc99f1023aeb2a8f069c353ec9b9eebee0f9682611e76e6cdde789828e"
+    },
+    "docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md": {
+      "role": "index",
+      "sha256": "b99b3d5ecac6405d22b75549ed6db9e671a74ffa32a16a30b5f0bb042e432e49",
+      "size": 44661,
+      "normalized_sha256": "b99b3d5ecac6405d22b75549ed6db9e671a74ffa32a16a30b5f0bb042e432e49"
+    },
+    "docs/superpowers/specs/2026-06-16-frontend-file-upload-design.md": {
+      "role": "index",
+      "sha256": "c6dc0847f19b4c7f5905c7d837064f07cd762ee51734dd2932d0a5b19ec9bf5f",
+      "size": 11127,
+      "normalized_sha256": "c6dc0847f19b4c7f5905c7d837064f07cd762ee51734dd2932d0a5b19ec9bf5f"
+    },
+    "docs/superpowers/specs/2026-07-01-openclaw-instance-provisioning-design.md": {
+      "role": "index",
+      "sha256": "f5198a623c2225d7745f6adc98ec73f75bf9d5e463c8baaf94511849348ece01",
+      "size": 7242,
+      "normalized_sha256": "f5198a623c2225d7745f6adc98ec73f75bf9d5e463c8baaf94511849348ece01"
+    },
+    "docs/superpowers/specs/2026-07-02-multi-instance-routing-design.md": {
+      "role": "index",
+      "sha256": "f9779b2f6bd46690b2064262406ce11ea680e2c4325d663b1c4599843f33136b",
+      "size": 10873,
+      "normalized_sha256": "f9779b2f6bd46690b2064262406ce11ea680e2c4325d663b1c4599843f33136b"
+    },
+    "docs/superpowers/specs/2026-07-06-in-backend-agent-design.md": {
+      "role": "index",
+      "sha256": "dd1d46e0bada82744457300b60615b101244d2b96ef193de955e57ed4e4a6983",
+      "size": 10703,
+      "normalized_sha256": "dd1d46e0bada82744457300b60615b101244d2b96ef193de955e57ed4e4a6983"
+    },
+    "docs/superpowers/specs/2026-07-07-api-docs-refresh-design.md": {
+      "role": "index",
+      "sha256": "7a16380b93a83a5f03166be9317bf17ef8ebe6e766dc40be19ccbaad91a7e1cb",
+      "size": 5529,
+      "normalized_sha256": "7a16380b93a83a5f03166be9317bf17ef8ebe6e766dc40be19ccbaad91a7e1cb"
+    },
+    "docs/superpowers/specs/2026-07-07-nacos-config-integration-design.md": {
+      "role": "index",
+      "sha256": "918679a0c540a40c6efc80e09f36532b6623100aac5a67b4418d27184695efd7",
+      "size": 8715,
+      "normalized_sha256": "918679a0c540a40c6efc80e09f36532b6623100aac5a67b4418d27184695efd7"
+    },
+    "docs/superpowers/specs/2026-07-08-chatmemory-redis-persistence-design.md": {
+      "role": "index",
+      "sha256": "64643788fa716ba2c248dee24b912a96995a2df6921f90e221c26f1e41ddde06",
+      "size": 6033,
+      "normalized_sha256": "64643788fa716ba2c248dee24b912a96995a2df6921f90e221c26f1e41ddde06"
+    },
+    "docs/superpowers/specs/2026-07-08-smartlink-login-sessions-design.md": {
+      "role": "index",
+      "sha256": "badceb63d7df10cc70affc19f43a2888a8e2da20a8714c6542fc6d0f09c80e5f",
+      "size": 11065,
+      "normalized_sha256": "badceb63d7df10cc70affc19f43a2888a8e2da20a8714c6542fc6d0f09c80e5f"
+    },
+    "docs/superpowers/specs/2026-07-27-knowledge-base-upload-review-design.md": {
+      "role": "index",
+      "sha256": "5a47d4a7fba14c9610d3fa024dc60a45b8e6dcbb8e1a08bafd0468e77275e445",
+      "size": 8565,
+      "normalized_sha256": "5a47d4a7fba14c9610d3fa024dc60a45b8e6dcbb8e1a08bafd0468e77275e445"
+    },
+    "docs/superpowers/specs/2026-07-28-orchestrator-domain-agent-design.md": {
+      "role": "index",
+      "sha256": "ad34ea7ea45b04ee89871c60ac60978ac30c8849875c43adf850474f46fcd9aa",
+      "size": 6160,
+      "normalized_sha256": "ad34ea7ea45b04ee89871c60ac60978ac30c8849875c43adf850474f46fcd9aa"
+    },
+    "docs/superpowers/specs/2026-10-21-memory-runtime-design.md": {
+      "role": "index",
+      "sha256": "43c11457ade79151ad25032ee42d18f3352768f88fc34cefe61d1b5b9a54743d",
+      "size": 45108,
+      "normalized_sha256": "43c11457ade79151ad25032ee42d18f3352768f88fc34cefe61d1b5b9a54743d"
+    },
+    "mock-oauth2/pom.xml": {
+      "role": "index",
+      "sha256": "f3f15db3a0e62acc6d4a4e3f3eab9e4afec5c92c4278d45e3fddde05037b2aed",
+      "size": 1197,
+      "normalized_sha256": "f3f15db3a0e62acc6d4a4e3f3eab9e4afec5c92c4278d45e3fddde05037b2aed"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/AuthorizationCodeStore.java": {
+      "role": "index",
+      "sha256": "b2edbae5d07ff6d5728bee6c53b4d6ad33bbc249dbe4e8743300564f847793ae",
+      "size": 3504,
+      "normalized_sha256": "b2edbae5d07ff6d5728bee6c53b4d6ad33bbc249dbe4e8743300564f847793ae"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/LoginPageController.java": {
+      "role": "index",
+      "sha256": "99a5b14cf8d1b4cc5e36e8f0350ba6cede74cf21fac623e7ba65f3ea21f2638d",
+      "size": 4337,
+      "normalized_sha256": "99a5b14cf8d1b4cc5e36e8f0350ba6cede74cf21fac623e7ba65f3ea21f2638d"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/MockIdentityCatalog.java": {
+      "role": "index",
+      "sha256": "98df32ae4cd37258207f744484addaa887eae5fff064c1526591ce34150c6e8a",
+      "size": 4439,
+      "normalized_sha256": "98df32ae4cd37258207f744484addaa887eae5fff064c1526591ce34150c6e8a"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/MockOAuth2Application.java": {
+      "role": "index",
+      "sha256": "4fd24657ef6b709e0edf7e554dcd9aa5b841a5b1c511ad87a90be82d35a52f4c",
+      "size": 2095,
+      "normalized_sha256": "4fd24657ef6b709e0edf7e554dcd9aa5b841a5b1c511ad87a90be82d35a52f4c"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/OAuth2Controller.java": {
+      "role": "index",
+      "sha256": "9aa6261333c5e6fe6666980a35d6ea3cb126ae014832baa2189f29070b269f5b",
+      "size": 10304,
+      "normalized_sha256": "9aa6261333c5e6fe6666980a35d6ea3cb126ae014832baa2189f29070b269f5b"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/PkceVerifier.java": {
+      "role": "index",
+      "sha256": "9d3e92b8c81cf76a6f63f1ef2f3988e7abb8c15a767288959bfebb3a528d1623",
+      "size": 2018,
+      "normalized_sha256": "9d3e92b8c81cf76a6f63f1ef2f3988e7abb8c15a767288959bfebb3a528d1623"
+    },
+    "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/TokenStore.java": {
+      "role": "index",
+      "sha256": "3ac447b20d883c9c94e3da0e9cad807c86ba8f6b003e2825417d95060eb0f624",
+      "size": 6236,
+      "normalized_sha256": "3ac447b20d883c9c94e3da0e9cad807c86ba8f6b003e2825417d95060eb0f624"
+    },
+    "mock-oauth2/src/main/resources/application.yml": {
+      "role": "index",
+      "sha256": "a793b715ddecd4a8c179848025958ad397629a400e7cd690a42f0ab68784d5dd",
+      "size": 281,
+      "normalized_sha256": "a793b715ddecd4a8c179848025958ad397629a400e7cd690a42f0ab68784d5dd"
+    },
+    "mock-oauth2/src/main/resources/templates/login.html": {
+      "role": "index",
+      "sha256": "e11669f2048e485481676f9f1802484b2a65de1b551e5e77fb93600195e434e1",
+      "size": 1480,
+      "normalized_sha256": "e11669f2048e485481676f9f1802484b2a65de1b551e5e77fb93600195e434e1"
+    },
+    "mock-oauth2/src/test/java/io/github/sukimiya/agileagent/mockoauth/AuthorizationCodeStoreTest.java": {
+      "role": "index",
+      "sha256": "a5efaaca96e347464af69d316ab84f5c242cb9a3af2749e3d2c484e2bdffb31b",
+      "size": 4368,
+      "normalized_sha256": "a5efaaca96e347464af69d316ab84f5c242cb9a3af2749e3d2c484e2bdffb31b"
+    },
+    "mock-oauth2/src/test/java/io/github/sukimiya/agileagent/mockoauth/MutableClock.java": {
+      "role": "index",
+      "sha256": "2684ee362300d8b8289b15fa436c3c62fd5f6bbc441db5612f95e1fec2386b2a",
+      "size": 611,
+      "normalized_sha256": "2684ee362300d8b8289b15fa436c3c62fd5f6bbc441db5612f95e1fec2386b2a"
+    },
+    "mock-oauth2/src/test/java/io/github/sukimiya/agileagent/mockoauth/OAuth2ControllerTest.java": {
+      "role": "index",
+      "sha256": "d427e95cf4c4c1a468b74d00668fd9330017f495792564ab02a92a9e1eea09d5",
+      "size": 19317,
+      "normalized_sha256": "d427e95cf4c4c1a468b74d00668fd9330017f495792564ab02a92a9e1eea09d5"
+    },
+    "mock-oauth2/src/test/java/io/github/sukimiya/agileagent/mockoauth/PkceVerifierTest.java": {
+      "role": "index",
+      "sha256": "ccabc92b4468b528a96b231dd4c82cc4c6ec85daf28f7f3d206a689c3b38e0dd",
+      "size": 840,
+      "normalized_sha256": "ccabc92b4468b528a96b231dd4c82cc4c6ec85daf28f7f3d206a689c3b38e0dd"
+    },
+    "mock-oauth2/src/test/java/io/github/sukimiya/agileagent/mockoauth/TokenStoreTest.java": {
+      "role": "index",
+      "sha256": "f2215e8cf0fb55e011fa3029e31120ff8316a5e1cacfda05b9bf84ebe662a64b",
+      "size": 7722,
+      "normalized_sha256": "f2215e8cf0fb55e011fa3029e31120ff8316a5e1cacfda05b9bf84ebe662a64b"
+    },
+    "pom.xml": {
+      "role": "index",
+      "sha256": "0d1e7cec73a0036216ab740f35036794456846d9b9a0e2df2b5243ff7d8c5330",
+      "size": 2336,
+      "normalized_sha256": "0d1e7cec73a0036216ab740f35036794456846d9b9a0e2df2b5243ff7d8c5330"
+    },
+    "start.sh": {
+      "role": "index",
+      "sha256": "42eebbd5a32eae1a9d0d397a86cb02d54e6eb79cb51631f0da062a7b87c8a163",
+      "size": 1381,
+      "normalized_sha256": "42eebbd5a32eae1a9d0d397a86cb02d54e6eb79cb51631f0da062a7b87c8a163"
+    }
+  },
+  "managed_scope": {
+    "version": "managed-scope-baseline/v1",
+    "policy_identity": "e0f548d87fe5462c412a1c54409871a60ddf2ae5c30609258ff8739fdfcc8e76",
+    "observe_change_policy": "review_required",
+    "budget_policy_identity": "15e9b37a6c57e9bf03c9df3d0d049eb5b9a7f5540f9d34960408114e2538a32d",
+    "budget_policy": {
+      "version": "cognition-budget-policy/v1",
+      "mode": "enforce",
+      "whole_index": {
+        "target_tokens": 200000,
+        "warning_tokens": 300000,
+        "max_tokens": 400000
+      },
+      "r": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 25,
+          "max_tokens": 50
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 45,
+          "max_tokens": 90
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 90,
+          "max_tokens": 180
+        }
+      ],
+      "s": [
+        {
+          "min_c": 1,
+          "max_c": 4,
+          "target_tokens": 20,
+          "max_tokens": 40
+        },
+        {
+          "min_c": 5,
+          "max_c": 7,
+          "target_tokens": 40,
+          "max_tokens": 80
+        },
+        {
+          "min_c": 8,
+          "max_c": 8,
+          "target_tokens": 70,
+          "max_tokens": 140
+        },
+        {
+          "min_c": 9,
+          "max_c": 9,
+          "target_tokens": 100,
+          "max_tokens": 200
+        }
+      ]
+    },
+    "apply_authorization_mode": "auto"
+  }
+}
