@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-19T08:57:05Z",
-  "updated_at": "2026-11-19T08:57:05Z",
+  "updated_at": "2026-11-24T09:03:50Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -53,21 +53,33 @@
     },
     "Jenkinsfile": {
       "role": "index",
-      "sha256": "df76cf06a3e142fa47a84f6ce04f8022c9f3a90dd9dacd36ac25f85f1484a59a",
-      "size": 1272,
-      "normalized_sha256": "df76cf06a3e142fa47a84f6ce04f8022c9f3a90dd9dacd36ac25f85f1484a59a"
+      "sha256": "75469f1c2e17cbc93cdfd721826d3630d27e997d7d0407d23b970a828f8a9742",
+      "size": 1019,
+      "normalized_sha256": "75469f1c2e17cbc93cdfd721826d3630d27e997d7d0407d23b970a828f8a9742"
+    },
+    "LICENSE": {
+      "role": "index",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358,
+      "normalized_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
     },
     "README.md": {
       "role": "index",
-      "sha256": "9ab1806fa8bbf7b81ef6de307d8ca37f85b86cd752cc8a46810219d9dba42edc",
-      "size": 5876,
-      "normalized_sha256": "9ab1806fa8bbf7b81ef6de307d8ca37f85b86cd752cc8a46810219d9dba42edc"
+      "sha256": "56fc73ab6b94482cf10a660d5d68429bbf80cae08036e2c88bf86c6e734245ba",
+      "size": 16965,
+      "normalized_sha256": "56fc73ab6b94482cf10a660d5d68429bbf80cae08036e2c88bf86c6e734245ba"
+    },
+    "README.zh-CN.md": {
+      "role": "index",
+      "sha256": "6ae5122c76f1ee1711b43cd242e49851e3a7dd1d1b7e03dc68f6a5a924b444be",
+      "size": 15835,
+      "normalized_sha256": "6ae5122c76f1ee1711b43cd242e49851e3a7dd1d1b7e03dc68f6a5a924b444be"
     },
     "agent-server/pom.xml": {
       "role": "index",
-      "sha256": "7e5766cbb8e5692dc4f1b060615838a98f4b88ed21c6037b5a6c39d6bc56640d",
-      "size": 3791,
-      "normalized_sha256": "7e5766cbb8e5692dc4f1b060615838a98f4b88ed21c6037b5a6c39d6bc56640d"
+      "sha256": "bf6abe35debad2c50e8c279ea63772355f48240f9d16e26b353277c71a058324",
+      "size": 7947,
+      "normalized_sha256": "bf6abe35debad2c50e8c279ea63772355f48240f9d16e26b353277c71a058324"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/AgentApplication.java": {
       "role": "index",
@@ -83,27 +95,27 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/DomainAgent.java": {
       "role": "index",
-      "sha256": "3f5ff6f23ca2ebdefcf7fec5c37c719284852dda75c7c752ae5bf8ec3f450f8f",
-      "size": 6137,
-      "normalized_sha256": "3f5ff6f23ca2ebdefcf7fec5c37c719284852dda75c7c752ae5bf8ec3f450f8f"
+      "sha256": "1be910a70e1454a22b641dbaa9b05b2a8b3e6c31ab36244d535b92f8cbfd53ce",
+      "size": 13197,
+      "normalized_sha256": "1be910a70e1454a22b641dbaa9b05b2a8b3e6c31ab36244d535b92f8cbfd53ce"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/DomainTask.java": {
       "role": "index",
-      "sha256": "1399622805b943cd010162d0e13cbcf714b757dad97c4d2b5372b25623a4ae03",
-      "size": 1001,
-      "normalized_sha256": "1399622805b943cd010162d0e13cbcf714b757dad97c4d2b5372b25623a4ae03"
+      "sha256": "87a0a231165b01b3bf5a2cb72030c3c59d2d247cd3876f1173c2af0194bf6f2e",
+      "size": 2867,
+      "normalized_sha256": "87a0a231165b01b3bf5a2cb72030c3c59d2d247cd3876f1173c2af0194bf6f2e"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/InProcessTaskDispatcher.java": {
       "role": "index",
-      "sha256": "c7d559936bcf3a4b9c96b8959f83b7f1db329e57d4cacac2ef17c63d229450b1",
-      "size": 2210,
-      "normalized_sha256": "c7d559936bcf3a4b9c96b8959f83b7f1db329e57d4cacac2ef17c63d229450b1"
+      "sha256": "1f7409015e1941c41e5274978ab9bbe39652e4395beecdbfc914a990d6740ecf",
+      "size": 2732,
+      "normalized_sha256": "1f7409015e1941c41e5274978ab9bbe39652e4395beecdbfc914a990d6740ecf"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/Orchestrator.java": {
       "role": "index",
-      "sha256": "b5942893f9fd3a20706b99f8e1fa85fa681408bb002308c746d6ffc7c40407e0",
-      "size": 14206,
-      "normalized_sha256": "b5942893f9fd3a20706b99f8e1fa85fa681408bb002308c746d6ffc7c40407e0"
+      "sha256": "ff17690d503956a0c34043f3b00fe85610cf7fbba9376b241a70c00f349aae0a",
+      "size": 27083,
+      "normalized_sha256": "ff17690d503956a0c34043f3b00fe85610cf7fbba9376b241a70c00f349aae0a"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/agent/TaskDispatcher.java": {
       "role": "index",
@@ -125,9 +137,9 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/JsonPointerOAuth2IdentityMapper.java": {
       "role": "index",
-      "sha256": "081406a4a2b51fd702dabb013236f705386a32a72b9d9f76b80ac622cd3efa47",
-      "size": 4131,
-      "normalized_sha256": "081406a4a2b51fd702dabb013236f705386a32a72b9d9f76b80ac622cd3efa47"
+      "sha256": "d2fac064776e759865c84468d7f8a6e60414971a52b30aa5ad466dd9827ebec4",
+      "size": 7429,
+      "normalized_sha256": "d2fac064776e759865c84468d7f8a6e60414971a52b30aa5ad466dd9827ebec4"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/auth/OAuth2IdentityMapper.java": {
       "role": "index",
@@ -167,15 +179,15 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/config/OAuth2ClaimProperties.java": {
       "role": "index",
-      "sha256": "3de2ae134eaf9df82aa83389f1825bd6b77462a9dac9c19723f182ae7852e5cf",
-      "size": 1334,
-      "normalized_sha256": "3de2ae134eaf9df82aa83389f1825bd6b77462a9dac9c19723f182ae7852e5cf"
+      "sha256": "5827a58eb3e0e973ead8e496c7b5b48a38295fda2b522a77dccd4e0f4f7362ad",
+      "size": 2418,
+      "normalized_sha256": "5827a58eb3e0e973ead8e496c7b5b48a38295fda2b522a77dccd4e0f4f7362ad"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/config/OAuth2Properties.java": {
       "role": "index",
-      "sha256": "fe5db9f2a04678ed5d9c59c5d7e0f60a264a8e51322f8d2d6a11d5c03b29adf1",
-      "size": 1839,
-      "normalized_sha256": "fe5db9f2a04678ed5d9c59c5d7e0f60a264a8e51322f8d2d6a11d5c03b29adf1"
+      "sha256": "03f9846b5cee115d52e5f75f04d34c5bfc38ea49d0a38ded9eae911a76739bca",
+      "size": 5892,
+      "normalized_sha256": "03f9846b5cee115d52e5f75f04d34c5bfc38ea49d0a38ded9eae911a76739bca"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/config/UploadProperties.java": {
       "role": "index",
@@ -197,15 +209,27 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/ChatController.java": {
       "role": "index",
-      "sha256": "0d16b8245be275286b1381ad7eb395140609a85b321698ca05e9e6e988991ebb",
-      "size": 9912,
-      "normalized_sha256": "0d16b8245be275286b1381ad7eb395140609a85b321698ca05e9e6e988991ebb"
+      "sha256": "9c47d1ab8f57961450b9832b142f71fe26a4e0432398491e99181734cc00f840",
+      "size": 13836,
+      "normalized_sha256": "9c47d1ab8f57961450b9832b142f71fe26a4e0432398491e99181734cc00f840"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/MemoryAdminController.java": {
+      "role": "index",
+      "sha256": "7a29f41b89048398ed3eeda1e5428a7c6017af35a6258a13042efd9eef5fd4cf",
+      "size": 4281,
+      "normalized_sha256": "7a29f41b89048398ed3eeda1e5428a7c6017af35a6258a13042efd9eef5fd4cf"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/MemoryController.java": {
+      "role": "index",
+      "sha256": "b6a6d8ad382ec66a5f767c5e3b5f5749337b4f615b0d64a144544477f59a04bf",
+      "size": 12792,
+      "normalized_sha256": "b6a6d8ad382ec66a5f767c5e3b5f5749337b4f615b0d64a144544477f59a04bf"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/controller/UploadController.java": {
       "role": "index",
-      "sha256": "f09b73774298815d9681e585d86e36f73f72045775ca30dfb400f6bdc9ebe1d4",
-      "size": 4848,
-      "normalized_sha256": "f09b73774298815d9681e585d86e36f73f72045775ca30dfb400f6bdc9ebe1d4"
+      "sha256": "acbbe423e6e477d15e1475168a7c598405f8f1d8c16c4a135a55bd42cf5fc0dd",
+      "size": 7797,
+      "normalized_sha256": "acbbe423e6e477d15e1475168a7c598405f8f1d8c16c4a135a55bd42cf5fc0dd"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/hint/HintController.java": {
       "role": "index",
@@ -285,23 +309,47 @@
       "size": 3862,
       "normalized_sha256": "c0d98d6f97c489c0f51af69b2ec4a483c5d6ddfd933eb31ca03b18fb8d53bb82"
     },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/BalanceEndpoint.java": {
+      "role": "index",
+      "sha256": "19cb9163c7e0e4d82931670dbd2788d37985047ed097b11d8fe6db455e8d6969",
+      "size": 1598,
+      "normalized_sha256": "19cb9163c7e0e4d82931670dbd2788d37985047ed097b11d8fe6db455e8d6969"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/BalancePlaceholders.java": {
+      "role": "index",
+      "sha256": "c731c22f9cae293bbf1bd4ecaaa3c450ca7f1ecda3f8656dfb4c32a2b0891996",
+      "size": 966,
+      "normalized_sha256": "c731c22f9cae293bbf1bd4ecaaa3c450ca7f1ecda3f8656dfb4c32a2b0891996"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/BalanceResponseReader.java": {
+      "role": "index",
+      "sha256": "a04159be8e3e5649ba306ac4899f9a51c31c93f3586308c46ab1d752ceb98968",
+      "size": 4204,
+      "normalized_sha256": "a04159be8e3e5649ba306ac4899f9a51c31c93f3586308c46ab1d752ceb98968"
+    },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceController.java": {
       "role": "index",
-      "sha256": "4e48472786e39eb41069341351cb7dfa4e2596c89f6538dc66c3f39983b45f52",
-      "size": 836,
-      "normalized_sha256": "4e48472786e39eb41069341351cb7dfa4e2596c89f6538dc66c3f39983b45f52"
+      "sha256": "999acc88ac306e2af0a788d991d84bef551cffa19f1a2a47b650ebe24a9340e2",
+      "size": 841,
+      "normalized_sha256": "999acc88ac306e2af0a788d991d84bef551cffa19f1a2a47b650ebe24a9340e2"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceException.java": {
       "role": "index",
-      "sha256": "0e75f1b06c9e1ab6f64ac036772b8b7842728126781e094810e01557a37a0834",
-      "size": 775,
-      "normalized_sha256": "0e75f1b06c9e1ab6f64ac036772b8b7842728126781e094810e01557a37a0834"
+      "sha256": "5aa6535c30a71081481223a78fafb8b20cbf4922d1c0b4c737beb9c6b476b5a5",
+      "size": 946,
+      "normalized_sha256": "5aa6535c30a71081481223a78fafb8b20cbf4922d1c0b4c737beb9c6b476b5a5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceProperties.java": {
+      "role": "index",
+      "sha256": "4999175ec819b733ab4f78731539a218dc705e321b6ec125c0fc0e70b6ae3a33",
+      "size": 755,
+      "normalized_sha256": "4999175ec819b733ab4f78731539a218dc705e321b6ec125c0fc0e70b6ae3a33"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceService.java": {
       "role": "index",
-      "sha256": "7250c45cbb454bd0cae2ba8f1319cabf5b1b4ce4d9d98a60d1c6d1a20bf051ed",
-      "size": 3971,
-      "normalized_sha256": "7250c45cbb454bd0cae2ba8f1319cabf5b1b4ce4d9d98a60d1c6d1a20bf051ed"
+      "sha256": "d797be192d2afae8ffdf06e9a0d047ffd5dee25bed2fd81937f98109a0516dc4",
+      "size": 3686,
+      "normalized_sha256": "d797be192d2afae8ffdf06e9a0d047ffd5dee25bed2fd81937f98109a0516dc4"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmConfigValidationException.java": {
       "role": "index",
@@ -311,9 +359,9 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetController.java": {
       "role": "index",
-      "sha256": "5a3935dab5f17a164985594d6e5c0ba1e678aee54f9d8c0e1e43b157a18dee54",
-      "size": 3141,
-      "normalized_sha256": "5a3935dab5f17a164985594d6e5c0ba1e678aee54f9d8c0e1e43b157a18dee54"
+      "sha256": "3131136fb1076df24a7eafe2f90dd1b5a6786dd759e193b0d7a66846ee780d20",
+      "size": 4164,
+      "normalized_sha256": "3131136fb1076df24a7eafe2f90dd1b5a6786dd759e193b0d7a66846ee780d20"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetNotFoundException.java": {
       "role": "index",
@@ -323,45 +371,567 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetRepository.java": {
       "role": "index",
-      "sha256": "430bd30e6aa40030297fccff287aa20d310e6d7ee795be6cdf9000daa134c7f5",
-      "size": 4070,
-      "normalized_sha256": "430bd30e6aa40030297fccff287aa20d310e6d7ee795be6cdf9000daa134c7f5"
+      "sha256": "da5d700a08c93f6c527699ab20ace5170299f7427db681fa55ea6c9566b81ed4",
+      "size": 8686,
+      "normalized_sha256": "da5d700a08c93f6c527699ab20ace5170299f7427db681fa55ea6c9566b81ed4"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetService.java": {
       "role": "index",
-      "sha256": "4f4984a695399c7ccea08d95420e115c7e3660656ad0fc35b376e56ca6b1d62d",
-      "size": 5799,
-      "normalized_sha256": "4f4984a695399c7ccea08d95420e115c7e3660656ad0fc35b376e56ca6b1d62d"
+      "sha256": "39b60164ad334aa20c6409c49777b4e843b5f035d14cc1064ff95d88c3e0dd11",
+      "size": 10897,
+      "normalized_sha256": "39b60164ad334aa20c6409c49777b4e843b5f035d14cc1064ff95d88c3e0dd11"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetValidationException.java": {
       "role": "index",
-      "sha256": "1522a3be38ccffbbc2d08c5b04b45068dcd9248676a1d0f116a60ea779702b04",
-      "size": 135,
-      "normalized_sha256": "1522a3be38ccffbbc2d08c5b04b45068dcd9248676a1d0f116a60ea779702b04"
+      "sha256": "1500b9931af28fdc05b3a21d059d1d3a9ffdab8ee4a2785eeab76a3bc1b0d588",
+      "size": 640,
+      "normalized_sha256": "1500b9931af28fdc05b3a21d059d1d3a9ffdab8ee4a2785eeab76a3bc1b0d588"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigController.java": {
       "role": "index",
-      "sha256": "7f5880dba2f8abf1518b6a83afc1e14ffa55f5c03c768ea4b36f332eee5d2eef",
-      "size": 2700,
-      "normalized_sha256": "7f5880dba2f8abf1518b6a83afc1e14ffa55f5c03c768ea4b36f332eee5d2eef"
+      "sha256": "bf9ec26dfedcbade69e92c61e9f1befd2f10dd3599e2e59e203d5ecef6cca6f9",
+      "size": 3414,
+      "normalized_sha256": "bf9ec26dfedcbade69e92c61e9f1befd2f10dd3599e2e59e203d5ecef6cca6f9"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigRepository.java": {
       "role": "index",
-      "sha256": "b5631ae8ac74e332095a845cbeba0f873b26cdf579defe90d6c4836c736870f6",
-      "size": 4920,
-      "normalized_sha256": "b5631ae8ac74e332095a845cbeba0f873b26cdf579defe90d6c4836c736870f6"
+      "sha256": "dea25d5358888a6ac7801f6d0c991a8db172a1db274a35c2bbd97623fd6ce06d",
+      "size": 6843,
+      "normalized_sha256": "dea25d5358888a6ac7801f6d0c991a8db172a1db274a35c2bbd97623fd6ce06d"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigService.java": {
       "role": "index",
-      "sha256": "21e67729d995e67d1bc20dc663272a6dce511b319e3e95f6014b2d3f7dd34df6",
-      "size": 7640,
-      "normalized_sha256": "21e67729d995e67d1bc20dc663272a6dce511b319e3e95f6014b2d3f7dd34df6"
+      "sha256": "fb27cdd190781ca8480a0f034323e4c0b2cd905b3c6b225a1700a02184084142",
+      "size": 9058,
+      "normalized_sha256": "fb27cdd190781ca8480a0f034323e4c0b2cd905b3c6b225a1700a02184084142"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ConversationHistory.java": {
+      "role": "index",
+      "sha256": "1d0715f7113086c06136aa01d7529c001e9719afa9a535d22a93e14ce7d0147c",
+      "size": 12420,
+      "normalized_sha256": "1d0715f7113086c06136aa01d7529c001e9719afa9a535d22a93e14ce7d0147c"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ConversationIds.java": {
+      "role": "index",
+      "sha256": "e2db4a45de45198735c8e06991c8741547b8f6178c52e0fa5da937876aeacc0f",
+      "size": 1333,
+      "normalized_sha256": "e2db4a45de45198735c8e06991c8741547b8f6178c52e0fa5da937876aeacc0f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ConversationRepository.java": {
+      "role": "index",
+      "sha256": "5a02c6b7a2b5aed4417c01f58d93caca15740bbc573426ad3b5c32a1d5647595",
+      "size": 6073,
+      "normalized_sha256": "5a02c6b7a2b5aed4417c01f58d93caca15740bbc573426ad3b5c32a1d5647595"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ExpiredTurnRecovery.java": {
+      "role": "index",
+      "sha256": "ee5a7d5fcd4612560b6fcdb0b0a5bffa95cd933da2825314f865d073f67e7f18",
+      "size": 3564,
+      "normalized_sha256": "ee5a7d5fcd4612560b6fcdb0b0a5bffa95cd933da2825314f865d073f67e7f18"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/HotMemoryCache.java": {
+      "role": "index",
+      "sha256": "1a6d31e9a3ead45268d01ecad143726ff2afd99ed2cab81a25df736e58c68d40",
+      "size": 9014,
+      "normalized_sha256": "1a6d31e9a3ead45268d01ecad143726ff2afd99ed2cab81a25df736e58c68d40"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/InstanceGuard.java": {
+      "role": "index",
+      "sha256": "6975b7b4aed583a6ba937c38c114eae0286b9664ac6b73871a59451dc18dc35b",
+      "size": 7379,
+      "normalized_sha256": "6975b7b4aed583a6ba937c38c114eae0286b9664ac6b73871a59451dc18dc35b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/InstanceGuardHealthIndicator.java": {
+      "role": "index",
+      "sha256": "a995a38ed2635d35b611210a3cb944b93cdbc46c540c7d55862890af0400db59",
+      "size": 1041,
+      "normalized_sha256": "a995a38ed2635d35b611210a3cb944b93cdbc46c540c7d55862890af0400db59"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryException.java": {
+      "role": "index",
+      "sha256": "2918d973ee142807604e40c7fadb02961c7f2f7b4b099f49eb39bd4345be489d",
+      "size": 2429,
+      "normalized_sha256": "2918d973ee142807604e40c7fadb02961c7f2f7b4b099f49eb39bd4345be489d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryMaintenance.java": {
+      "role": "index",
+      "sha256": "637075c8ed7d6ffcf3aec169c67859b3749eb6e13320b6913b808e9a7f76d350",
+      "size": 22826,
+      "normalized_sha256": "637075c8ed7d6ffcf3aec169c67859b3749eb6e13320b6913b808e9a7f76d350"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryMetrics.java": {
+      "role": "index",
+      "sha256": "32bdc5bb860b720ecf6e5dc1bfe7b02370d23fdd62ecf37001b29c3361e72112",
+      "size": 21509,
+      "normalized_sha256": "32bdc5bb860b720ecf6e5dc1bfe7b02370d23fdd62ecf37001b29c3361e72112"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryModel.java": {
+      "role": "index",
+      "sha256": "16873b691fe0d3674e5d00cefe9847c5f904d02ce7f3e0f698a84f67ab569551",
+      "size": 4599,
+      "normalized_sha256": "16873b691fe0d3674e5d00cefe9847c5f904d02ce7f3e0f698a84f67ab569551"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryProperties.java": {
+      "role": "index",
+      "sha256": "3e93db4382bb6e4b60576d09aa709c3fc93bd08971e4c5596199d8c1a75050f7",
+      "size": 35100,
+      "normalized_sha256": "3e93db4382bb6e4b60576d09aa709c3fc93bd08971e4c5596199d8c1a75050f7"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/MemoryScope.java": {
+      "role": "index",
+      "sha256": "9b39f4d1a102747fea0028b4aade8249646fc2edc15afeb023f9f78bbd77a4de",
+      "size": 1924,
+      "normalized_sha256": "9b39f4d1a102747fea0028b4aade8249646fc2edc15afeb023f9f78bbd77a4de"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/SourceType.java": {
+      "role": "index",
+      "sha256": "b8c7d2c410e2476fc39a4e13be2c2b609ef0c7b4c7e3cc9d16ff606a5886932d",
+      "size": 602,
+      "normalized_sha256": "b8c7d2c410e2476fc39a4e13be2c2b609ef0c7b4c7e3cc9d16ff606a5886932d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ToolEventRepository.java": {
+      "role": "index",
+      "sha256": "f81803ffa89aa94def40e063d77ca4b5e8256e2188d0ea30af6a77331d8dd8b2",
+      "size": 6932,
+      "normalized_sha256": "f81803ffa89aa94def40e063d77ca4b5e8256e2188d0ea30af6a77331d8dd8b2"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/ToolRecordSanitizer.java": {
+      "role": "index",
+      "sha256": "91dc44d5847da7cd804360a178479f84cb9a475eb946e597c65d516df7fb3ec1",
+      "size": 5023,
+      "normalized_sha256": "91dc44d5847da7cd804360a178479f84cb9a475eb946e597c65d516df7fb3ec1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/TurnFinalizer.java": {
+      "role": "index",
+      "sha256": "6558c21fa8cae4fb307c37997963d2eac26913a491d6a99a43d6f2201af4dcba",
+      "size": 8581,
+      "normalized_sha256": "6558c21fa8cae4fb307c37997963d2eac26913a491d6a99a43d6f2201af4dcba"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/TurnLifecycle.java": {
+      "role": "index",
+      "sha256": "9217250dd06f28a9667c8468e5e5a232d4013960f596581d4d155d8eb1e07a1f",
+      "size": 17124,
+      "normalized_sha256": "9217250dd06f28a9667c8468e5e5a232d4013960f596581d4d155d8eb1e07a1f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/TurnRecorder.java": {
+      "role": "index",
+      "sha256": "cc85b773f23c6bf5fce2dfb0ad7cf1676b233764a32343646aa86c47cc3b8a9e",
+      "size": 3731,
+      "normalized_sha256": "cc85b773f23c6bf5fce2dfb0ad7cf1676b233764a32343646aa86c47cc3b8a9e"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/TurnRepository.java": {
+      "role": "index",
+      "sha256": "a099cbc4acdcc991233c5deb7baa86a7552ac3f3cf868ee95f0cfb18777cfbe1",
+      "size": 11712,
+      "normalized_sha256": "a099cbc4acdcc991233c5deb7baa86a7552ac3f3cf868ee95f0cfb18777cfbe1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/TurnToolRecorder.java": {
+      "role": "index",
+      "sha256": "9aa78a928e870f6d5020c9533b98c2da698c231d181719e6938a0418e5234a9a",
+      "size": 4565,
+      "normalized_sha256": "9aa78a928e870f6d5020c9533b98c2da698c231d181719e6938a0418e5234a9a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/command/MemoryCommand.java": {
+      "role": "index",
+      "sha256": "0f5256e4eda85c24ef73a736a6446fca2b292c082c2e7d8548f8d9cf244707db",
+      "size": 3140,
+      "normalized_sha256": "0f5256e4eda85c24ef73a736a6446fca2b292c082c2e7d8548f8d9cf244707db"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/command/MemoryCommandClassifier.java": {
+      "role": "index",
+      "sha256": "863e15234cf5d315d78937532bb0eb1ea79937dd414acd7e10e18f8fa3650706",
+      "size": 6150,
+      "normalized_sha256": "863e15234cf5d315d78937532bb0eb1ea79937dd414acd7e10e18f8fa3650706"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/command/MemoryCommandService.java": {
+      "role": "index",
+      "sha256": "57f867857a76dead7147c81b5da5caa7762c776bac60f8fc90e919102faa86cf",
+      "size": 15508,
+      "normalized_sha256": "57f867857a76dead7147c81b5da5caa7762c776bac60f8fc90e919102faa86cf"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/AssembledContext.java": {
+      "role": "index",
+      "sha256": "d8f3315c4b76b0868d8425a30998bd375426556199ce0ea8843cb73cd6b07597",
+      "size": 839,
+      "normalized_sha256": "d8f3315c4b76b0868d8425a30998bd375426556199ce0ea8843cb73cd6b07597"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/ContextAssembler.java": {
+      "role": "index",
+      "sha256": "c8160294fc25a2235a1222a211ed6f1f2b60b066d5349161ee2f108fad687b15",
+      "size": 18035,
+      "normalized_sha256": "c8160294fc25a2235a1222a211ed6f1f2b60b066d5349161ee2f108fad687b15"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/ContextBudget.java": {
+      "role": "index",
+      "sha256": "870a2975418bd484bea028306984e89d043d8e354929fd32266937b5488809d2",
+      "size": 8187,
+      "normalized_sha256": "870a2975418bd484bea028306984e89d043d8e354929fd32266937b5488809d2"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/ContextPurpose.java": {
+      "role": "index",
+      "sha256": "c2e065e26fe9b388575d0c14e66ccf0e76d7259fc94e41c669c4bb8882c07fb4",
+      "size": 424,
+      "normalized_sha256": "c2e065e26fe9b388575d0c14e66ccf0e76d7259fc94e41c669c4bb8882c07fb4"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/ModelWindow.java": {
+      "role": "index",
+      "sha256": "e73df1a5721de2736e0f7711f84d890f6060d69b6f9c6945581c2b90b292641b",
+      "size": 612,
+      "normalized_sha256": "e73df1a5721de2736e0f7711f84d890f6060d69b6f9c6945581c2b90b292641b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/context/TokenEstimator.java": {
+      "role": "index",
+      "sha256": "aa5d27202b4f79693175d6ba32de7d94f1337036d252da123f3814eee889406d",
+      "size": 2446,
+      "normalized_sha256": "aa5d27202b4f79693175d6ba32de7d94f1337036d252da123f3814eee889406d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/DecayPolicy.java": {
+      "role": "index",
+      "sha256": "7303a3f9d843ecf13eeb9bd3c672665bf438beda3767d9494542bcc00b36fb7d",
+      "size": 1856,
+      "normalized_sha256": "7303a3f9d843ecf13eeb9bd3c672665bf438beda3767d9494542bcc00b36fb7d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/EntityGraphRepository.java": {
+      "role": "index",
+      "sha256": "3389c5d37f94815441ef10b3c1a8e82b06ac3d72441500a1a94fb29639e762a9",
+      "size": 9194,
+      "normalized_sha256": "3389c5d37f94815441ef10b3c1a8e82b06ac3d72441500a1a94fb29639e762a9"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/ItemStatus.java": {
+      "role": "index",
+      "sha256": "2ac7d229d07431704b7489e5819ec80229c5fcf5a9c74222a4077f9f87266774",
+      "size": 352,
+      "normalized_sha256": "2ac7d229d07431704b7489e5819ec80229c5fcf5a9c74222a4077f9f87266774"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryDecay.java": {
+      "role": "index",
+      "sha256": "5e7746b156a7fcd9399ffd47154768393a8153bd585f0a0712ec478cbf0e8be1",
+      "size": 5203,
+      "normalized_sha256": "5e7746b156a7fcd9399ffd47154768393a8153bd585f0a0712ec478cbf0e8be1"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryEntity.java": {
+      "role": "index",
+      "sha256": "9f085cbd90df8b94c9a53327b6c73e2c0b7a63703cbcb31a5dd508830d26f8e0",
+      "size": 297,
+      "normalized_sha256": "9f085cbd90df8b94c9a53327b6c73e2c0b7a63703cbcb31a5dd508830d26f8e0"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryItem.java": {
+      "role": "index",
+      "sha256": "d8577002147c3d2828e95abb72f84d5aacd7345ee31a3cb312410edc0cc22d4c",
+      "size": 1515,
+      "normalized_sha256": "d8577002147c3d2828e95abb72f84d5aacd7345ee31a3cb312410edc0cc22d4c"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryItemRepository.java": {
+      "role": "index",
+      "sha256": "f0eb0b15ad6123e6bc354ede4ff2d89d05eb8ea5d80a5b599a15a3405f103594",
+      "size": 15084,
+      "normalized_sha256": "f0eb0b15ad6123e6bc354ede4ff2d89d05eb8ea5d80a5b599a15a3405f103594"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryItemService.java": {
+      "role": "index",
+      "sha256": "e32ce7d4c49d087823c6574e1b8bc2664ac801b5825ed4540d47f914ce61b707",
+      "size": 20652,
+      "normalized_sha256": "e32ce7d4c49d087823c6574e1b8bc2664ac801b5825ed4540d47f914ce61b707"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryItemSourceRepository.java": {
+      "role": "index",
+      "sha256": "afc307bd967764dbbd9c36abc2a8df66ce3644ac0ca55f837198fbe0d8f8d79e",
+      "size": 3808,
+      "normalized_sha256": "afc307bd967764dbbd9c36abc2a8df66ce3644ac0ca55f837198fbe0d8f8d79e"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/MemoryRelation.java": {
+      "role": "index",
+      "sha256": "28c282f805c0c347307426d46c3409c64f0dd101ea34668fb816847f84a1ad81",
+      "size": 408,
+      "normalized_sha256": "28c282f805c0c347307426d46c3409c64f0dd101ea34668fb816847f84a1ad81"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/Profile.java": {
+      "role": "index",
+      "sha256": "e7077f9be324ba448f1d2108659f1bda890b680f4f8918662f263ce819a5facd",
+      "size": 272,
+      "normalized_sha256": "e7077f9be324ba448f1d2108659f1bda890b680f4f8918662f263ce819a5facd"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/ProfileCache.java": {
+      "role": "index",
+      "sha256": "590b191c2238e44d24b9362fffd34abf94603de7709a7d7ef1a909709f28b17a",
+      "size": 5126,
+      "normalized_sha256": "590b191c2238e44d24b9362fffd34abf94603de7709a7d7ef1a909709f28b17a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/ProfileService.java": {
+      "role": "index",
+      "sha256": "faed3327f92bc36b3baf5f822614e965a2b381713e834a275f00581553d0623a",
+      "size": 9093,
+      "normalized_sha256": "faed3327f92bc36b3baf5f822614e965a2b381713e834a275f00581553d0623a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/items/RebuildProfileJobHandler.java": {
+      "role": "index",
+      "sha256": "bb218a91a20523ad231fc115990aafc8d12b780148d17518e6cf5c87f741461c",
+      "size": 1978,
+      "normalized_sha256": "bb218a91a20523ad231fc115990aafc8d12b780148d17518e6cf5c87f741461c"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/jobs/ClaimedJob.java": {
+      "role": "index",
+      "sha256": "4cd90106e5fa2e4f3403c703b4b96456017f10b9f2e7f0d545033b71c80bf521",
+      "size": 347,
+      "normalized_sha256": "4cd90106e5fa2e4f3403c703b4b96456017f10b9f2e7f0d545033b71c80bf521"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/jobs/ConsolidationQuota.java": {
+      "role": "index",
+      "sha256": "471acb409cff731c69d9f8e5565d3c3cf6cece0013337dfefd2c6c4c71bfeba5",
+      "size": 5702,
+      "normalized_sha256": "471acb409cff731c69d9f8e5565d3c3cf6cece0013337dfefd2c6c4c71bfeba5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/jobs/JobType.java": {
+      "role": "index",
+      "sha256": "65810f6be9c9d4e86fc02eeb279757f3cbad9218759327606c4b6f854420160b",
+      "size": 771,
+      "normalized_sha256": "65810f6be9c9d4e86fc02eeb279757f3cbad9218759327606c4b6f854420160b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/jobs/MemoryJobQueue.java": {
+      "role": "index",
+      "sha256": "3fa00a7822f4627a750596efe19dfd9077779e3b1bbabcf683c6d02d1f296f18",
+      "size": 3384,
+      "normalized_sha256": "3fa00a7822f4627a750596efe19dfd9077779e3b1bbabcf683c6d02d1f296f18"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/jobs/MemoryJobWorker.java": {
+      "role": "index",
+      "sha256": "190dafd9fc9dea739b5d6feb437c3985172a1d8ebb8c8ffcc0bb7a417382905b",
+      "size": 13183,
+      "normalized_sha256": "190dafd9fc9dea739b5d6feb437c3985172a1d8ebb8c8ffcc0bb7a417382905b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/ExistingItems.java": {
+      "role": "index",
+      "sha256": "1913186b5f8e51a2318aa62dc3c0fcfaa35f5ee2ca14f4b097a7a9c7ec0a602a",
+      "size": 6855,
+      "normalized_sha256": "1913186b5f8e51a2318aa62dc3c0fcfaa35f5ee2ca14f4b097a7a9c7ec0a602a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/GlobalRules.java": {
+      "role": "index",
+      "sha256": "5abfc98047911127bc2f3b7d2f55ee137310f84bdbbf96c26cea37199aae6d48",
+      "size": 3828,
+      "normalized_sha256": "5abfc98047911127bc2f3b7d2f55ee137310f84bdbbf96c26cea37199aae6d48"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/JudgementAction.java": {
+      "role": "index",
+      "sha256": "52a274d1f81bc7928fdcdc7aa0248efce86eb44fdb570a4cd175abdaa62a8658",
+      "size": 727,
+      "normalized_sha256": "52a274d1f81bc7928fdcdc7aa0248efce86eb44fdb570a4cd175abdaa62a8658"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/JudgementJobHandler.java": {
+      "role": "index",
+      "sha256": "cfd86d3cb9712a588b29eaecbd3bb13da9d6ce33f01dac07ce10eac261123c17",
+      "size": 21644,
+      "normalized_sha256": "cfd86d3cb9712a588b29eaecbd3bb13da9d6ce33f01dac07ce10eac261123c17"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/JudgementProgress.java": {
+      "role": "index",
+      "sha256": "37c1e484b6f52d7c214764c0b7be619e8da04e93a891404c417cb5455fe98b75",
+      "size": 2813,
+      "normalized_sha256": "37c1e484b6f52d7c214764c0b7be619e8da04e93a891404c417cb5455fe98b75"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/JudgementValidator.java": {
+      "role": "index",
+      "sha256": "ffcdd196cb223bf30ec4743964fccdb3704655708ad7d49ff6117c6c0838da78",
+      "size": 15427,
+      "normalized_sha256": "ffcdd196cb223bf30ec4743964fccdb3704655708ad7d49ff6117c6c0838da78"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/MemoryJudgementPrompt.java": {
+      "role": "index",
+      "sha256": "63145ad8ecdc4f4bc92de1598844be3576232bd23bdbd1d890dd66f43c0b5475",
+      "size": 1814,
+      "normalized_sha256": "63145ad8ecdc4f4bc92de1598844be3576232bd23bdbd1d890dd66f43c0b5475"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/RulesReplayHandler.java": {
+      "role": "index",
+      "sha256": "a9ae3136f628b3910b350532d535ec6470664341e18acb422207cd362cecd957",
+      "size": 27648,
+      "normalized_sha256": "a9ae3136f628b3910b350532d535ec6470664341e18acb422207cd362cecd957"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/ValidatedAction.java": {
+      "role": "index",
+      "sha256": "7550aa9d1d9dd919ca071815c904824ab96ce752bb2fe59b7100c3c2f8de3440",
+      "size": 897,
+      "normalized_sha256": "7550aa9d1d9dd919ca071815c904824ab96ce752bb2fe59b7100c3c2f8de3440"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/judgement/WriteGovernance.java": {
+      "role": "index",
+      "sha256": "d6e311f5dea97c3ec0649ee20173e29f93b7dbec633253a74a04f60eed0dc84a",
+      "size": 1877,
+      "normalized_sha256": "d6e311f5dea97c3ec0649ee20173e29f93b7dbec633253a74a04f60eed0dc84a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/ChunkIndexer.java": {
+      "role": "index",
+      "sha256": "8b9f7b3d8d101fc3d05a77de91a82e139471dc08680d220234f580e00ea84ef5",
+      "size": 14932,
+      "normalized_sha256": "8b9f7b3d8d101fc3d05a77de91a82e139471dc08680d220234f580e00ea84ef5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/ChunkRepository.java": {
+      "role": "index",
+      "sha256": "5017dadfa6c17d0b6f5ddabdd21955f06c810c17fee839fabc0e2641b338171d",
+      "size": 13595,
+      "normalized_sha256": "5017dadfa6c17d0b6f5ddabdd21955f06c810c17fee839fabc0e2641b338171d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/EntityTerms.java": {
+      "role": "index",
+      "sha256": "96b280c50c3b220a55190695ce9620ffaff2d755b409b2b5932920c49bc6b521",
+      "size": 4580,
+      "normalized_sha256": "96b280c50c3b220a55190695ce9620ffaff2d755b409b2b5932920c49bc6b521"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/FullTextSearch.java": {
+      "role": "index",
+      "sha256": "09a66c3749358d0c2f8ad401e785f385d916f4d518541aca2b9b559fad1a35eb",
+      "size": 1405,
+      "normalized_sha256": "09a66c3749358d0c2f8ad401e785f385d916f4d518541aca2b9b559fad1a35eb"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/LikeFullTextSearch.java": {
+      "role": "index",
+      "sha256": "a441367208d2e0b6d7564e8fc09b645cf05d0fa0e3b2ac80bfc6283cac69d293",
+      "size": 3758,
+      "normalized_sha256": "a441367208d2e0b6d7564e8fc09b645cf05d0fa0e3b2ac80bfc6283cac69d293"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/MemoryRetriever.java": {
+      "role": "index",
+      "sha256": "c3a2bd0d4e00ff42a143304d708cf9fa28a90d2c4f4eeb9b8a10f8d88ef0e74f",
+      "size": 18845,
+      "normalized_sha256": "c3a2bd0d4e00ff42a143304d708cf9fa28a90d2c4f4eeb9b8a10f8d88ef0e74f"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/MemorySettingsService.java": {
+      "role": "index",
+      "sha256": "7e64258950e8ef4a9e8cf73f3aa14f5f833db3bada9dd88316b2c23e703094c2",
+      "size": 3847,
+      "normalized_sha256": "7e64258950e8ef4a9e8cf73f3aa14f5f833db3bada9dd88316b2c23e703094c2"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/MySqlFullTextSearch.java": {
+      "role": "index",
+      "sha256": "6d5011ec567de3e4175aa9c51c64a468799a6e7b72bec7f064c9127ed48384f0",
+      "size": 3427,
+      "normalized_sha256": "6d5011ec567de3e4175aa9c51c64a468799a6e7b72bec7f064c9127ed48384f0"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallCandidate.java": {
+      "role": "index",
+      "sha256": "429824efa60ee24fb300f0b7d12a325097c2305d40159a7b618acb8fdfae2637",
+      "size": 1064,
+      "normalized_sha256": "429824efa60ee24fb300f0b7d12a325097c2305d40159a7b618acb8fdfae2637"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallConfiguration.java": {
+      "role": "index",
+      "sha256": "ceb3f99c3dbb0509e95426bad8f05cf556f49f9c7d227df221a41984ad47b2e5",
+      "size": 526,
+      "normalized_sha256": "ceb3f99c3dbb0509e95426bad8f05cf556f49f9c7d227df221a41984ad47b2e5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallEventRecorder.java": {
+      "role": "index",
+      "sha256": "526f9712612f5f86bdc70c122a49276ac1db381efac19a52846516f4b7be37f0",
+      "size": 8957,
+      "normalized_sha256": "526f9712612f5f86bdc70c122a49276ac1db381efac19a52846516f4b7be37f0"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallExclusions.java": {
+      "role": "index",
+      "sha256": "12d54501baf880beb0f79b6c15ba81b46555316df61d76281efc7cfb57acdb85",
+      "size": 2731,
+      "normalized_sha256": "12d54501baf880beb0f79b6c15ba81b46555316df61d76281efc7cfb57acdb85"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallResult.java": {
+      "role": "index",
+      "sha256": "0b6e9020e5a488b6279d35fec35a852ac4e75f1353241066dedcfc30ff2da2cf",
+      "size": 2240,
+      "normalized_sha256": "0b6e9020e5a488b6279d35fec35a852ac4e75f1353241066dedcfc30ff2da2cf"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/recall/RecallTextCache.java": {
+      "role": "index",
+      "sha256": "52d93247c306979b26132bee61413f5b829038bb97c459d506a72bad3925bdf8",
+      "size": 8216,
+      "normalized_sha256": "52d93247c306979b26132bee61413f5b829038bb97c459d506a72bad3925bdf8"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/retention/MemoryAudit.java": {
+      "role": "index",
+      "sha256": "859cc750dff1bf81d77424a0f6414efb78f5517fbad1c5959dd415d0b89b763d",
+      "size": 3590,
+      "normalized_sha256": "859cc750dff1bf81d77424a0f6414efb78f5517fbad1c5959dd415d0b89b763d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/retention/MemoryIndexPurger.java": {
+      "role": "index",
+      "sha256": "8cf5554954239743ffb1a4f348f3e538176b2dcfa0c7021e988534e3f08a592b",
+      "size": 10324,
+      "normalized_sha256": "8cf5554954239743ffb1a4f348f3e538176b2dcfa0c7021e988534e3f08a592b"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/retention/RecallReferences.java": {
+      "role": "index",
+      "sha256": "d0d396565802b49b5735f3e72a35366ffea88bfdfdc86f416e36c6a1e527e4ad",
+      "size": 3077,
+      "normalized_sha256": "d0d396565802b49b5735f3e72a35366ffea88bfdfdc86f416e36c6a1e527e4ad"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/retention/RetentionTiers.java": {
+      "role": "index",
+      "sha256": "227638910983f332cdc2a45be19818c57f0c067316110a7732edcb927b709244",
+      "size": 2926,
+      "normalized_sha256": "227638910983f332cdc2a45be19818c57f0c067316110a7732edcb927b709244"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/storage/CorruptStoredPayloadException.java": {
+      "role": "index",
+      "sha256": "9f7137c2062218714d3f57b7176300e41096f300a21d47403e1c7f714c1d2f1d",
+      "size": 539,
+      "normalized_sha256": "9f7137c2062218714d3f57b7176300e41096f300a21d47403e1c7f714c1d2f1d"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/storage/MessageCompressor.java": {
+      "role": "index",
+      "sha256": "89d5dc8a5f712411d9bd62c49ba29e1d86b1cd2d7f492586795111d46fccadbe",
+      "size": 26211,
+      "normalized_sha256": "89d5dc8a5f712411d9bd62c49ba29e1d86b1cd2d7f492586795111d46fccadbe"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/storage/MessagePayloadCodec.java": {
+      "role": "index",
+      "sha256": "796dc4f63a601d9bcf9944e8e3fb2aae9764f4b87bf4df58e83a75f0b91552c9",
+      "size": 9625,
+      "normalized_sha256": "796dc4f63a601d9bcf9944e8e3fb2aae9764f4b87bf4df58e83a75f0b91552c9"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/storage/MessageStorageScanner.java": {
+      "role": "index",
+      "sha256": "851d56452dbeeaae578ac1b9ef39662378e888cd069666baf01b51ef4f793cb5",
+      "size": 4933,
+      "normalized_sha256": "851d56452dbeeaae578ac1b9ef39662378e888cd069666baf01b51ef4f793cb5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/IdleConversationScanner.java": {
+      "role": "index",
+      "sha256": "fca5ca3d55f409c72b1486d04e6aa3033a8933c1e0d7279a33469d28ef4556ef",
+      "size": 9220,
+      "normalized_sha256": "fca5ca3d55f409c72b1486d04e6aa3033a8933c1e0d7279a33469d28ef4556ef"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/MemoryRecord.java": {
+      "role": "index",
+      "sha256": "02bb1c7f50ae48a843e4f0bc74e2c1f1be00ff4a5f6aa2539e10f11ab3501ff5",
+      "size": 1365,
+      "normalized_sha256": "02bb1c7f50ae48a843e4f0bc74e2c1f1be00ff4a5f6aa2539e10f11ab3501ff5"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/MemoryRecordValidator.java": {
+      "role": "index",
+      "sha256": "d61e90c118e935f79363d5809a196025a0ad5abf17d5358d91f9481974a336f2",
+      "size": 6137,
+      "normalized_sha256": "d61e90c118e935f79363d5809a196025a0ad5abf17d5358d91f9481974a336f2"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/SummaryJobHandler.java": {
+      "role": "index",
+      "sha256": "be7e9083cd0ab32646eefbf8fab0ce1e6cc204d9b5d7ff2fb73d38ea8679582a",
+      "size": 18924,
+      "normalized_sha256": "be7e9083cd0ab32646eefbf8fab0ce1e6cc204d9b5d7ff2fb73d38ea8679582a"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/SummaryPrompt.java": {
+      "role": "index",
+      "sha256": "b9aab5adfb698845718487ab841d50bedb605bb1a97a7d445127715f49338b86",
+      "size": 3564,
+      "normalized_sha256": "b9aab5adfb698845718487ab841d50bedb605bb1a97a7d445127715f49338b86"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/memory/summary/SummaryRepository.java": {
+      "role": "index",
+      "sha256": "4eadb68208a504bc695e4f85cf0c943601b2b37f32b9cef122f18529386eeae8",
+      "size": 18284,
+      "normalized_sha256": "4eadb68208a504bc695e4f85cf0c943601b2b37f32b9cef122f18529386eeae8"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/repository/SessionRepository.java": {
       "role": "index",
-      "sha256": "2bdc7040b3380d3c8d6d9ac33e551e9a6dd0516024436976b01b13ef4a5f1251",
-      "size": 2200,
-      "normalized_sha256": "2bdc7040b3380d3c8d6d9ac33e551e9a6dd0516024436976b01b13ef4a5f1251"
+      "sha256": "b1efd2a772c3151a449fc5711472de2edb61757d0af15875532d8403a71188a3",
+      "size": 5240,
+      "normalized_sha256": "b1efd2a772c3151a449fc5711472de2edb61757d0af15875532d8403a71188a3"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/AuthSessionStore.java": {
       "role": "index",
@@ -377,21 +947,21 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/FileStorageService.java": {
       "role": "index",
-      "sha256": "b73ce7ce9e5a22fb4beb6c1a6a8952b66a9e326b4be20d1cee28c4b8f33604c7",
-      "size": 3973,
-      "normalized_sha256": "b73ce7ce9e5a22fb4beb6c1a6a8952b66a9e326b4be20d1cee28c4b8f33604c7"
+      "sha256": "c3522810291fea62413f195207c6fb3e1de9ffb1ab476dc16ea6c865cd2ea091",
+      "size": 6513,
+      "normalized_sha256": "c3522810291fea62413f195207c6fb3e1de9ffb1ab476dc16ea6c865cd2ea091"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/LlmClient.java": {
       "role": "index",
-      "sha256": "799ba4caa89c4539405ca7bb40619fe5ff8c28577a0c48852447f15e15316410",
-      "size": 2753,
-      "normalized_sha256": "799ba4caa89c4539405ca7bb40619fe5ff8c28577a0c48852447f15e15316410"
+      "sha256": "fa64a741978a41f235a7ee0895b09398083be80a2f0ca4a7ddaf3e9caad22def",
+      "size": 3542,
+      "normalized_sha256": "fa64a741978a41f235a7ee0895b09398083be80a2f0ca4a7ddaf3e9caad22def"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OAuth2Client.java": {
       "role": "index",
-      "sha256": "7e22128a87c82870faa0f19e4c8886ac021778a67e37141a06cf2133fdeac3ee",
-      "size": 9043,
-      "normalized_sha256": "7e22128a87c82870faa0f19e4c8886ac021778a67e37141a06cf2133fdeac3ee"
+      "sha256": "17e9e2dffab53819516b8b7608dfca8012a3fd457fee1e5d8f930dba15e8eece",
+      "size": 10370,
+      "normalized_sha256": "17e9e2dffab53819516b8b7608dfca8012a3fd457fee1e5d8f930dba15e8eece"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OAuth2StateStore.java": {
       "role": "index",
@@ -401,9 +971,9 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/OpenAiCompatibleLlmClient.java": {
       "role": "index",
-      "sha256": "a75d2686246191457f439036fda1b8e2a7b3723f6d02e2a7289f7c995fa59de8",
-      "size": 6355,
-      "normalized_sha256": "a75d2686246191457f439036fda1b8e2a7b3723f6d02e2a7289f7c995fa59de8"
+      "sha256": "4d692e1eb8924c0700bf00e9ccef792982edf84c4208bd8c4bba6f1fb3b6343a",
+      "size": 6992,
+      "normalized_sha256": "4d692e1eb8924c0700bf00e9ccef792982edf84c4208bd8c4bba6f1fb3b6343a"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/Pkce.java": {
       "role": "index",
@@ -413,15 +983,15 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/SessionService.java": {
       "role": "index",
-      "sha256": "8783a11749b550adeb565a67c7537df1ed9c5fab6f6dd65d311fd63a5e8be17e",
-      "size": 1699,
-      "normalized_sha256": "8783a11749b550adeb565a67c7537df1ed9c5fab6f6dd65d311fd63a5e8be17e"
+      "sha256": "6652f34d05cc6bca58e2ba56a8f183dcc23efabc747515f085cfd803e5848034",
+      "size": 3033,
+      "normalized_sha256": "6652f34d05cc6bca58e2ba56a8f183dcc23efabc747515f085cfd803e5848034"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/TenantLlmClientResolver.java": {
       "role": "index",
-      "sha256": "99541230f432fe1b70ff074fb1eb6a26d8ee49fc013b3e52c6440f4adede1c2d",
-      "size": 6156,
-      "normalized_sha256": "99541230f432fe1b70ff074fb1eb6a26d8ee49fc013b3e52c6440f4adede1c2d"
+      "sha256": "f46cc1051fb01a5b05144c0a96a2c52e89bc85ec35dc703d6f282b39bde4766d",
+      "size": 8952,
+      "normalized_sha256": "f46cc1051fb01a5b05144c0a96a2c52e89bc85ec35dc703d6f282b39bde4766d"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/TenantLlmConfigRequiredException.java": {
       "role": "index",
@@ -437,9 +1007,9 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/service/UploadCleanupTask.java": {
       "role": "index",
-      "sha256": "142c8a5395312f42bb0ae966e699017c42a9b6d7b26952ca4eb6034b8d9278ed",
-      "size": 1963,
-      "normalized_sha256": "142c8a5395312f42bb0ae966e699017c42a9b6d7b26952ca4eb6034b8d9278ed"
+      "sha256": "99435a2b1a100e1386a570225b1b2dc50ac48d2cc3897ebc92af6f2540dc0457",
+      "size": 2315,
+      "normalized_sha256": "99435a2b1a100e1386a570225b1b2dc50ac48d2cc3897ebc92af6f2540dc0457"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/util/NonBlockingIds.java": {
       "role": "index",
@@ -449,15 +1019,15 @@
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/web/ApiError.java": {
       "role": "index",
-      "sha256": "16570525f4d14b946f78da4b75ed5980745d68f401c3d0114b76a616913148d8",
-      "size": 158,
-      "normalized_sha256": "16570525f4d14b946f78da4b75ed5980745d68f401c3d0114b76a616913148d8"
+      "sha256": "8419e42067727d81b692206f3399d135b8bcb2771f208ca669151ef24e52237b",
+      "size": 407,
+      "normalized_sha256": "8419e42067727d81b692206f3399d135b8bcb2771f208ca669151ef24e52237b"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/web/AuthExceptionHandler.java": {
       "role": "index",
-      "sha256": "8b93cc975a5009584de3ddaf1f3edcd4c1c88b02a07025f8d1374a451b61d088",
-      "size": 4300,
-      "normalized_sha256": "8b93cc975a5009584de3ddaf1f3edcd4c1c88b02a07025f8d1374a451b61d088"
+      "sha256": "cbd306a9565f03164a7639fa6b417287d2882b7036d0e4424aa8982501567d54",
+      "size": 4307,
+      "normalized_sha256": "cbd306a9565f03164a7639fa6b417287d2882b7036d0e4424aa8982501567d54"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/web/CurrentUser.java": {
       "role": "index",
@@ -476,6 +1046,12 @@
       "sha256": "3c228e43d1375c8b33c1c48561ccd3ccf7ab2990a0fb194c315c535fb3bd3743",
       "size": 189,
       "normalized_sha256": "3c228e43d1375c8b33c1c48561ccd3ccf7ab2990a0fb194c315c535fb3bd3743"
+    },
+    "agent-server/src/main/java/io/github/sukimiya/agileagent/web/MemoryExceptionHandler.java": {
+      "role": "index",
+      "sha256": "4f9011aa3af8f4bb08699283bef691c9f8e464044e3ce3ce2ff17b4462c8077d",
+      "size": 3065,
+      "normalized_sha256": "4f9011aa3af8f4bb08699283bef691c9f8e464044e3ce3ce2ff17b4462c8077d"
     },
     "agent-server/src/main/java/io/github/sukimiya/agileagent/web/UnauthorizedException.java": {
       "role": "index",
@@ -497,9 +1073,63 @@
     },
     "agent-server/src/main/resources/application.yml": {
       "role": "index",
-      "sha256": "f9bd35e0b0e77a3f68f30abc15306091bb04577031c20d98e1c8040a2ea8447b",
-      "size": 2895,
-      "normalized_sha256": "f9bd35e0b0e77a3f68f30abc15306091bb04577031c20d98e1c8040a2ea8447b"
+      "sha256": "f54b28a9d1983620c41961c9d62398d4d3b50d441baee57413f0af5337637e2a",
+      "size": 7176,
+      "normalized_sha256": "f54b28a9d1983620c41961c9d62398d4d3b50d441baee57413f0af5337637e2a"
+    },
+    "agent-server/src/main/resources/db/migration/V10__memory_m2a.sql": {
+      "role": "index",
+      "sha256": "1289a396b27d04af6bfe2efe4bc9d99d4598960428bfb8a9cb1975099e587a10",
+      "size": 5379,
+      "normalized_sha256": "1289a396b27d04af6bfe2efe4bc9d99d4598960428bfb8a9cb1975099e587a10"
+    },
+    "agent-server/src/main/resources/db/migration/V11__memory_m2b.sql": {
+      "role": "index",
+      "sha256": "188995f792fd4672488b8bad4c086b8030b9ffe6bf9924ec63cb53ed6b155488",
+      "size": 5434,
+      "normalized_sha256": "188995f792fd4672488b8bad4c086b8030b9ffe6bf9924ec63cb53ed6b155488"
+    },
+    "agent-server/src/main/resources/db/migration/V12__memory_judgement_progress.sql": {
+      "role": "index",
+      "sha256": "c45df8cabe4525e5d583c5fb1fd49e87abc4b800e4170eed6a6951feb3b19be2",
+      "size": 179,
+      "normalized_sha256": "c45df8cabe4525e5d583c5fb1fd49e87abc4b800e4170eed6a6951feb3b19be2"
+    },
+    "agent-server/src/main/resources/db/migration/V13__memory_soft_delete.sql": {
+      "role": "index",
+      "sha256": "7b0d567cfd7eeb236503277884134dca1a73fe0e9ce24f473482ef4f83f85968",
+      "size": 2623,
+      "normalized_sha256": "7b0d567cfd7eeb236503277884134dca1a73fe0e9ce24f473482ef4f83f85968"
+    },
+    "agent-server/src/main/resources/db/migration/V14__memory_forget.sql": {
+      "role": "index",
+      "sha256": "791b024de2ba54ac02266f394e141c3e53674ba64eb29de81989e6e0c489435d",
+      "size": 1003,
+      "normalized_sha256": "791b024de2ba54ac02266f394e141c3e53674ba64eb29de81989e6e0c489435d"
+    },
+    "agent-server/src/main/resources/db/migration/V15__memory_recall_expiry.sql": {
+      "role": "index",
+      "sha256": "80ebe36552584095c1c7f67f9408bcb44262f767aeb6dde13442b4bfe6aef07f",
+      "size": 441,
+      "normalized_sha256": "80ebe36552584095c1c7f67f9408bcb44262f767aeb6dde13442b4bfe6aef07f"
+    },
+    "agent-server/src/main/resources/db/migration/V16__memory_rules_replay.sql": {
+      "role": "index",
+      "sha256": "ff5f4b422647e8e739fdbfad31f57fc92d6a18094a496bf0f681c8bd9547d4d8",
+      "size": 1968,
+      "normalized_sha256": "ff5f4b422647e8e739fdbfad31f57fc92d6a18094a496bf0f681c8bd9547d4d8"
+    },
+    "agent-server/src/main/resources/db/migration/V17__memory_message_storage.sql": {
+      "role": "index",
+      "sha256": "dc4dd7c92bce19049b86b180480d0a1e89f5ec3e5f50fa0155e399f60d7cd2f3",
+      "size": 2379,
+      "normalized_sha256": "dc4dd7c92bce19049b86b180480d0a1e89f5ec3e5f50fa0155e399f60d7cd2f3"
+    },
+    "agent-server/src/main/resources/db/migration/V18__llm_balance_endpoint.sql": {
+      "role": "index",
+      "sha256": "265a1ca73b16c87357d5a8fc08110f7a15759d503011bf3adc9e385b938e9228",
+      "size": 571,
+      "normalized_sha256": "265a1ca73b16c87357d5a8fc08110f7a15759d503011bf3adc9e385b938e9228"
     },
     "agent-server/src/main/resources/db/migration/V1__create_sessions_table.sql": {
       "role": "index",
@@ -543,17 +1173,53 @@
       "size": 796,
       "normalized_sha256": "822fabe4357c6b70fcabdaaa28e06efa0e4265d928c851e11fce558d029ae704"
     },
+    "agent-server/src/main/resources/db/migration/V8__memory_persistence.sql": {
+      "role": "index",
+      "sha256": "48756c9e22ff33165e88a9e441e883f8b1bfc4d91f27662dfdbf145f2a4ef342",
+      "size": 6515,
+      "normalized_sha256": "48756c9e22ff33165e88a9e441e883f8b1bfc4d91f27662dfdbf145f2a4ef342"
+    },
+    "agent-server/src/main/resources/db/migration/V9__idempotency_user_scope.sql": {
+      "role": "index",
+      "sha256": "84cac34f8661fcb21e0a570d4463c0f902939646cfd13db1efe53eed3bae8103",
+      "size": 1074,
+      "normalized_sha256": "84cac34f8661fcb21e0a570d4463c0f902939646cfd13db1efe53eed3bae8103"
+    },
+    "agent-server/src/main/resources/db/vendor/h2/V10_1__memory_m2a_fulltext.sql": {
+      "role": "index",
+      "sha256": "0ed724ed9cf9317b0d4bfc5c2f5a3c0d0e5f43addd6443fe34d11158d523135e",
+      "size": 330,
+      "normalized_sha256": "0ed724ed9cf9317b0d4bfc5c2f5a3c0d0e5f43addd6443fe34d11158d523135e"
+    },
+    "agent-server/src/main/resources/db/vendor/mysql/V10_1__memory_m2a_fulltext.sql": {
+      "role": "index",
+      "sha256": "768db80b0cdd96c6e801cd07cbabe8648b7df14cd08b01a7389a6440eda6d893",
+      "size": 433,
+      "normalized_sha256": "768db80b0cdd96c6e801cd07cbabe8648b7df14cd08b01a7389a6440eda6d893"
+    },
     "agent-server/src/main/resources/logback-spring.xml": {
       "role": "index",
       "sha256": "2404f986e9d2e6c1286bb7927909ea7ba56231b86c27fbfd5a3f6498cad350e1",
       "size": 1082,
       "normalized_sha256": "2404f986e9d2e6c1286bb7927909ea7ba56231b86c27fbfd5a3f6498cad350e1"
     },
+    "agent-server/src/main/resources/memory/global-rules.md": {
+      "role": "index",
+      "sha256": "9e0ba158a5ebd95ee305a053d48be95c05a30fc6051d91ee33a3fe721c71bea4",
+      "size": 1010,
+      "normalized_sha256": "9e0ba158a5ebd95ee305a053d48be95c05a30fc6051d91ee33a3fe721c71bea4"
+    },
     "agent-server/src/test/java/com/alibaba/nacos/shaded/io/grpc/netty/shaded/io/netty/util/internal/Hidden.java": {
       "role": "index",
       "sha256": "2adad0d4cf7924bf6da6ea6acdc5216ea4dc526ca059c5838c281f1337b08ac1",
       "size": 895,
       "normalized_sha256": "2adad0d4cf7924bf6da6ea6acdc5216ea4dc526ca059c5838c281f1337b08ac1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/ActuatorHealthTest.java": {
+      "role": "index",
+      "sha256": "49fd3a914486736d2d5c28dd00e6071aa0472748df21d60947df425137d021e6",
+      "size": 3205,
+      "normalized_sha256": "49fd3a914486736d2d5c28dd00e6071aa0472748df21d60947df425137d021e6"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/LocalRedisTestServer.java": {
       "role": "index",
@@ -563,15 +1229,15 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/OpenSourceBoundaryTest.java": {
       "role": "index",
-      "sha256": "6f60ba0d71b6ef16684eab6210bcac2c5ccaa6ff17492805e12916cda55f751a",
-      "size": 17617,
-      "normalized_sha256": "6f60ba0d71b6ef16684eab6210bcac2c5ccaa6ff17492805e12916cda55f751a"
+      "sha256": "7262c5845cf14bc42b74f077afaade1ef658eb318c10dedee18be7775d4ce90f",
+      "size": 19337,
+      "normalized_sha256": "7262c5845cf14bc42b74f077afaade1ef658eb318c10dedee18be7775d4ce90f"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/ReactiveChainBlockHoundTest.java": {
       "role": "index",
-      "sha256": "817786a883098ea146372ea8f84d2890aa173c6e3f5928d53c31eee183b7b13f",
-      "size": 4921,
-      "normalized_sha256": "817786a883098ea146372ea8f84d2890aa173c6e3f5928d53c31eee183b7b13f"
+      "sha256": "4eb27eaf4e215e1f6a94f6a0b011f7472dd46760efbc9dfbc23360791c926ba9",
+      "size": 6893,
+      "normalized_sha256": "4eb27eaf4e215e1f6a94f6a0b011f7472dd46760efbc9dfbc23360791c926ba9"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/TestAuthUsers.java": {
       "role": "index",
@@ -581,33 +1247,63 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/AgentLoggingTest.java": {
       "role": "index",
-      "sha256": "ab39e60f9f469fa5a121a92b3334a8c9d95fb335094672753ebe42160d2dc5e5",
-      "size": 6058,
-      "normalized_sha256": "ab39e60f9f469fa5a121a92b3334a8c9d95fb335094672753ebe42160d2dc5e5"
+      "sha256": "3517158906c25e08df0d7ad6377a2530fc50a9f59437459cc2ee5a9f0d2a3921",
+      "size": 6036,
+      "normalized_sha256": "3517158906c25e08df0d7ad6377a2530fc50a9f59437459cc2ee5a9f0d2a3921"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/DomainAgentContextTest.java": {
+      "role": "index",
+      "sha256": "c3f438af7d213f683816b7226a7e5a9ed7d05e994d66a86a212f67e5175e79d9",
+      "size": 12273,
+      "normalized_sha256": "c3f438af7d213f683816b7226a7e5a9ed7d05e994d66a86a212f67e5175e79d9"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/DomainAgentTest.java": {
       "role": "index",
-      "sha256": "79d730bb4d6062659cad95ba06d3ca085c350c2ab60438516e2daa45e0ae7bb4",
-      "size": 9563,
-      "normalized_sha256": "79d730bb4d6062659cad95ba06d3ca085c350c2ab60438516e2daa45e0ae7bb4"
+      "sha256": "9fa842fea6383bb3c7e85a0c1ef153c15fcb2ac47752f2b506ae30fb96307c4d",
+      "size": 12570,
+      "normalized_sha256": "9fa842fea6383bb3c7e85a0c1ef153c15fcb2ac47752f2b506ae30fb96307c4d"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/InProcessTaskDispatcherTest.java": {
       "role": "index",
-      "sha256": "665b5a6bbc2b67d3228d2cc437392ddc401cbd85531a57e8356b369bbac7784b",
-      "size": 3906,
-      "normalized_sha256": "665b5a6bbc2b67d3228d2cc437392ddc401cbd85531a57e8356b369bbac7784b"
+      "sha256": "2a10bf9d83730ad13529f586a6f938e11c90371f7e3fb713bcd25f01a6441fc7",
+      "size": 5336,
+      "normalized_sha256": "2a10bf9d83730ad13529f586a6f938e11c90371f7e3fb713bcd25f01a6441fc7"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/OrchestratorBudgetTest.java": {
+      "role": "index",
+      "sha256": "6ea6229f0b35f6af03a25140c7eae5d8d6f123a6edf20eb945cb67f60f1a26b4",
+      "size": 14623,
+      "normalized_sha256": "6ea6229f0b35f6af03a25140c7eae5d8d6f123a6edf20eb945cb67f60f1a26b4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/OrchestratorCapabilityCancelTest.java": {
+      "role": "index",
+      "sha256": "ba4955aedcb3f760da2205751a76c52d602a304343d031017d74348085ef8f2f",
+      "size": 7765,
+      "normalized_sha256": "ba4955aedcb3f760da2205751a76c52d602a304343d031017d74348085ef8f2f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/OrchestratorRecallTest.java": {
+      "role": "index",
+      "sha256": "953fc4316b59405bdc9a93d9332bab86693b0ad96e5e15c60269c162c3c27935",
+      "size": 5368,
+      "normalized_sha256": "953fc4316b59405bdc9a93d9332bab86693b0ad96e5e15c60269c162c3c27935"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/agent/OrchestratorTest.java": {
       "role": "index",
-      "sha256": "a5ddc13f4365efd5d77e7eb420e503b576fd7d204e518f2586633f72879f6c78",
-      "size": 9599,
-      "normalized_sha256": "a5ddc13f4365efd5d77e7eb420e503b576fd7d204e518f2586633f72879f6c78"
+      "sha256": "6a548a1b8081fc97a38ee2aa0cd9d75fea7dae728a0fbed6fe7c26d168d29d6c",
+      "size": 17239,
+      "normalized_sha256": "6a548a1b8081fc97a38ee2aa0cd9d75fea7dae728a0fbed6fe7c26d168d29d6c"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/AuthorizationServiceTest.java": {
       "role": "index",
       "sha256": "c25e39198091a946c30751541f2328a7aaacf8a80ad8a5876f0d18f723797bfe",
       "size": 4413,
       "normalized_sha256": "c25e39198091a946c30751541f2328a7aaacf8a80ad8a5876f0d18f723797bfe"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/GitHubCompatibleIdentityMappingTest.java": {
+      "role": "index",
+      "sha256": "f29321831239885bb9a0d7b541d8ebbbf165dd852a2d2f6ed2e48be07d9e18bb",
+      "size": 6807,
+      "normalized_sha256": "f29321831239885bb9a0d7b541d8ebbbf165dd852a2d2f6ed2e48be07d9e18bb"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/JsonPointerOAuth2IdentityMapperTest.java": {
       "role": "index",
@@ -617,9 +1313,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/auth/MockOAuth2EndToEndTest.java": {
       "role": "index",
-      "sha256": "a3e8cdf7983270fb292402f3a88f2b500730e4ccb5543b9834c20229dfaab172",
-      "size": 26678,
-      "normalized_sha256": "a3e8cdf7983270fb292402f3a88f2b500730e4ccb5543b9834c20229dfaab172"
+      "sha256": "707271fc2abc35180c3a4927141a100ee4be361d212a3cc023058ff7a533ca83",
+      "size": 26679,
+      "normalized_sha256": "707271fc2abc35180c3a4927141a100ee4be361d212a3cc023058ff7a533ca83"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/CapabilityRegistryTest.java": {
       "role": "index",
@@ -629,9 +1325,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/ExternalCapabilityIntegrationTest.java": {
       "role": "index",
-      "sha256": "6b60ab1c01006a5910be6d44018114e02347ce1078b13c28d802df515ab994ad",
-      "size": 6394,
-      "normalized_sha256": "6b60ab1c01006a5910be6d44018114e02347ce1078b13c28d802df515ab994ad"
+      "sha256": "0e9876f63a5eaad2a598871792dacbaf572ea365f5e43493dc44330d50612718",
+      "size": 7398,
+      "normalized_sha256": "0e9876f63a5eaad2a598871792dacbaf572ea365f5e43493dc44330d50612718"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/capability/fixture/ExternalFixtureCapabilityProvider.java": {
       "role": "index",
@@ -641,9 +1337,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/config/OAuth2PropertiesTest.java": {
       "role": "index",
-      "sha256": "a36b29a4f454ae65c719f14397be438ec6599d5572048540069bc81448e90dd5",
-      "size": 3811,
-      "normalized_sha256": "a36b29a4f454ae65c719f14397be438ec6599d5572048540069bc81448e90dd5"
+      "sha256": "2d4a23a959ad3ffb0d5c4f1180feb2b9fdcb5484c41ba2ac8d447aeaf8a9f70e",
+      "size": 7258,
+      "normalized_sha256": "2d4a23a959ad3ffb0d5c4f1180feb2b9fdcb5484c41ba2ac8d447aeaf8a9f70e"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/AuthControllerTest.java": {
       "role": "index",
@@ -659,9 +1355,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/ChatControllerTest.java": {
       "role": "index",
-      "sha256": "73efec09f41b83fc72af16ac4f58aad40f673e7996d5692c64af1f50d4c9f898",
-      "size": 10470,
-      "normalized_sha256": "73efec09f41b83fc72af16ac4f58aad40f673e7996d5692c64af1f50d4c9f898"
+      "sha256": "1e794c96151eef7bc9c45daca8eabe1c934075d271c203090be1459524ae9bc5",
+      "size": 20162,
+      "normalized_sha256": "1e794c96151eef7bc9c45daca8eabe1c934075d271c203090be1459524ae9bc5"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/FileStorageServiceTestData.java": {
       "role": "index",
@@ -669,11 +1365,23 @@
       "size": 653,
       "normalized_sha256": "ac3c7740f0b374b2c89038931921a2e245672f58ecae8340ff1f4efa4e6586c5"
     },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/MemoryAdminControllerTest.java": {
+      "role": "index",
+      "sha256": "d5cb6d7ff0ee90631ff6ec1bf7424e6e26851c87c082e828b0f2593d7b483a64",
+      "size": 6452,
+      "normalized_sha256": "d5cb6d7ff0ee90631ff6ec1bf7424e6e26851c87c082e828b0f2593d7b483a64"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/MemoryControllerTest.java": {
+      "role": "index",
+      "sha256": "aeacc42cb12a6df45fed55a0464994d7fc7fff3dbbb27a3ed169456f7e2dd50e",
+      "size": 15743,
+      "normalized_sha256": "aeacc42cb12a6df45fed55a0464994d7fc7fff3dbbb27a3ed169456f7e2dd50e"
+    },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/controller/UploadControllerTest.java": {
       "role": "index",
-      "sha256": "406b60b66042c0c18be12219456e685f13d85c31563f1509133434a4fdc99f88",
-      "size": 6633,
-      "normalized_sha256": "406b60b66042c0c18be12219456e685f13d85c31563f1509133434a4fdc99f88"
+      "sha256": "de5008cdb5620bd56b23223f2f6ac70f938a01629f32b37d54b73b475ccfcf72",
+      "size": 18506,
+      "normalized_sha256": "de5008cdb5620bd56b23223f2f6ac70f938a01629f32b37d54b73b475ccfcf72"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintControllerTest.java": {
       "role": "index",
@@ -683,9 +1391,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintRepositoryTest.java": {
       "role": "index",
-      "sha256": "a450c8787db687da987a104b2638b42aec8ee8baa586b49c4633fc9d4599c9f9",
-      "size": 3100,
-      "normalized_sha256": "a450c8787db687da987a104b2638b42aec8ee8baa586b49c4633fc9d4599c9f9"
+      "sha256": "ccf66fe315d8da881b08f2309a651fc23dcdf7ed53d14f64dedf4ce0a5d3664c",
+      "size": 3126,
+      "normalized_sha256": "ccf66fe315d8da881b08f2309a651fc23dcdf7ed53d14f64dedf4ce0a5d3664c"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/hint/HintServiceTest.java": {
       "role": "index",
@@ -713,9 +1421,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeControllerIntegrationTest.java": {
       "role": "index",
-      "sha256": "aaf4c0fefa6d9102917123ef025f758f9c46da6a1fabef30992ebb67977228c7",
-      "size": 23955,
-      "normalized_sha256": "aaf4c0fefa6d9102917123ef025f758f9c46da6a1fabef30992ebb67977228c7"
+      "sha256": "45af0dd8968befe7bb443b526dca634fa4d36aac92f79e7b3d6deb3dc5ba970c",
+      "size": 24502,
+      "normalized_sha256": "45af0dd8968befe7bb443b526dca634fa4d36aac92f79e7b3d6deb3dc5ba970c"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeControllerTest.java": {
       "role": "index",
@@ -725,9 +1433,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentRepositoryTest.java": {
       "role": "index",
-      "sha256": "da81d721d33b19a3b06b10d0d12a6b588d9a603edae4f4de01a4ab9d95b26876",
-      "size": 19347,
-      "normalized_sha256": "da81d721d33b19a3b06b10d0d12a6b588d9a603edae4f4de01a4ab9d95b26876"
+      "sha256": "44d7f86ac44d58b0a6e0e1266a9b0e82d666f5ebff1326e4ed4aab9d207d3ec4",
+      "size": 19426,
+      "normalized_sha256": "44d7f86ac44d58b0a6e0e1266a9b0e82d666f5ebff1326e4ed4aab9d207d3ec4"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeDocumentServiceTest.java": {
       "role": "index",
@@ -743,9 +1451,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/knowledge/KnowledgeScopeMigrationTest.java": {
       "role": "index",
-      "sha256": "fb0e65c9d3c47aaf1ec32850a4fd11a92b473e96a28b1bf6a8a5e637e8149680",
-      "size": 7962,
-      "normalized_sha256": "fb0e65c9d3c47aaf1ec32850a4fd11a92b473e96a28b1bf6a8a5e637e8149680"
+      "sha256": "03feb8313f06a6f97774fe9bcf863550cc97e9dcf6a26041c0b44a944a6601fa",
+      "size": 8060,
+      "normalized_sha256": "03feb8313f06a6f97774fe9bcf863550cc97e9dcf6a26041c0b44a944a6601fa"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/ApiKeyCryptoTest.java": {
       "role": "index",
@@ -755,21 +1463,27 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceControllerTest.java": {
       "role": "index",
-      "sha256": "5aaf5fba52a5d03f4b0bdc9cc9c1393dd17fc3474e732ec52c9a7192b208a052",
-      "size": 2930,
-      "normalized_sha256": "5aaf5fba52a5d03f4b0bdc9cc9c1393dd17fc3474e732ec52c9a7192b208a052"
+      "sha256": "1cc548fc45c531a1cad34f55260a787accf48aed8f24e44326edd6fb0dc6fb75",
+      "size": 2935,
+      "normalized_sha256": "1cc548fc45c531a1cad34f55260a787accf48aed8f24e44326edd6fb0dc6fb75"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceParsingTest.java": {
+      "role": "index",
+      "sha256": "fbd05897535735a3300764fd2400c7b3f623c256e76ea3393229631c5fbf6ff8",
+      "size": 3500,
+      "normalized_sha256": "fbd05897535735a3300764fd2400c7b3f623c256e76ea3393229631c5fbf6ff8"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmBalanceServiceTest.java": {
       "role": "index",
-      "sha256": "a616532f412c28fdfbc541224e2a814a3483f4b9449701d19e5f988cf4af2c43",
-      "size": 6279,
-      "normalized_sha256": "a616532f412c28fdfbc541224e2a814a3483f4b9449701d19e5f988cf4af2c43"
+      "sha256": "5279a27deecc16b2ccbcd5e3e9cdcc7c4b2eca6d0ffa55a96e8a036aa83142f0",
+      "size": 7733,
+      "normalized_sha256": "5279a27deecc16b2ccbcd5e3e9cdcc7c4b2eca6d0ffa55a96e8a036aa83142f0"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmMigrationTest.java": {
       "role": "index",
-      "sha256": "5e5e40c604ff760f6d054298182f060dda51968d1cd096fb770c15292574c886",
-      "size": 4283,
-      "normalized_sha256": "5e5e40c604ff760f6d054298182f060dda51968d1cd096fb770c15292574c886"
+      "sha256": "b932d7c536947169be2adc922d5d2336e3a6ee58bb1f2090ae99835215884213",
+      "size": 4393,
+      "normalized_sha256": "b932d7c536947169be2adc922d5d2336e3a6ee58bb1f2090ae99835215884213"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetControllerTest.java": {
       "role": "index",
@@ -779,15 +1493,15 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetRepositoryTest.java": {
       "role": "index",
-      "sha256": "40012fa979b0e651662b5d414b6478db3d9991dfc2c9148f5554b06448e3a8c8",
-      "size": 3444,
-      "normalized_sha256": "40012fa979b0e651662b5d414b6478db3d9991dfc2c9148f5554b06448e3a8c8"
+      "sha256": "a753a96a0f7bcc35a759ba8307eb61ae5813d2a86d95f2ae06dd4c7dc0edf5c4",
+      "size": 4684,
+      "normalized_sha256": "a753a96a0f7bcc35a759ba8307eb61ae5813d2a86d95f2ae06dd4c7dc0edf5c4"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/LlmProviderPresetServiceTest.java": {
       "role": "index",
-      "sha256": "6daf12d2bedab56111f28067095850a9476a61ebe931a38de5ebee93b78477c3",
-      "size": 8990,
-      "normalized_sha256": "6daf12d2bedab56111f28067095850a9476a61ebe931a38de5ebee93b78477c3"
+      "sha256": "52a35ad4c76184b416153b629c84c1f5a2686d3eb16348c0edb1a03974c34feb",
+      "size": 12224,
+      "normalized_sha256": "52a35ad4c76184b416153b629c84c1f5a2686d3eb16348c0edb1a03974c34feb"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigControllerTest.java": {
       "role": "index",
@@ -797,9 +1511,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigRepositoryTest.java": {
       "role": "index",
-      "sha256": "1b451526c8babee2189a203b4262cc114acd06fa0694506fbef6c939fff00a49",
-      "size": 6643,
-      "normalized_sha256": "1b451526c8babee2189a203b4262cc114acd06fa0694506fbef6c939fff00a49"
+      "sha256": "d0bc93a96f255025cacd9f405129cac223b3a5f9940544aeecced6764dc0d523",
+      "size": 6669,
+      "normalized_sha256": "d0bc93a96f255025cacd9f405129cac223b3a5f9940544aeecced6764dc0d523"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/llmconfig/TenantLlmConfigServiceTest.java": {
       "role": "index",
@@ -807,11 +1521,575 @@
       "size": 15692,
       "normalized_sha256": "58437791799827b66db9438db2b9c72b5aa9176804cc6c4587142a6774f273bf"
     },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/ConversationHistoryMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "f1ad732707d22b10e9e00368459d4acf88662b19fa3c3a7db0252837c4292f06",
+      "size": 517,
+      "normalized_sha256": "f1ad732707d22b10e9e00368459d4acf88662b19fa3c3a7db0252837c4292f06"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/ConversationHistoryTest.java": {
+      "role": "index",
+      "sha256": "3939675e22018957823f9fa057d53a1946083e7dbd64053eb114cb138264823d",
+      "size": 14789,
+      "normalized_sha256": "3939675e22018957823f9fa057d53a1946083e7dbd64053eb114cb138264823d"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/ConversationIdsTest.java": {
+      "role": "index",
+      "sha256": "8febe57da5e9ab047523294d1e1e959c6591f260b5629eb66468736aff5ca412",
+      "size": 2464,
+      "normalized_sha256": "8febe57da5e9ab047523294d1e1e959c6591f260b5629eb66468736aff5ca412"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/ExpiredTurnRecoveryTest.java": {
+      "role": "index",
+      "sha256": "68b091af0c5bc6d1e758c77443170b5769215d4dc86cd91ae2020f3c0ced392f",
+      "size": 3574,
+      "normalized_sha256": "68b091af0c5bc6d1e758c77443170b5769215d4dc86cd91ae2020f3c0ced392f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/HotMemoryCacheTest.java": {
+      "role": "index",
+      "sha256": "5a25dd1ece59eab0352eafe655ac2b6d318dee9db49b8109d53f0dddf28c9478",
+      "size": 10300,
+      "normalized_sha256": "5a25dd1ece59eab0352eafe655ac2b6d318dee9db49b8109d53f0dddf28c9478"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/InstanceGuardMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "d6e160bc3b014e451f6357aaf415b23bb15785e7f7a478d59de462f10c605e61",
+      "size": 391,
+      "normalized_sha256": "d6e160bc3b014e451f6357aaf415b23bb15785e7f7a478d59de462f10c605e61"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/InstanceGuardTest.java": {
+      "role": "index",
+      "sha256": "6e4b2a0fde6c299403a258695a40373208a81db5153ed4cfa6f9b2f830524c5c",
+      "size": 8410,
+      "normalized_sha256": "6e4b2a0fde6c299403a258695a40373208a81db5153ed4cfa6f9b2f830524c5c"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/M2aSchemaMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "8b5f61e0fa04c916bd15317605faa91181128f4c08efb50ec56c5a88b1b6ec74",
+      "size": 926,
+      "normalized_sha256": "8b5f61e0fa04c916bd15317605faa91181128f4c08efb50ec56c5a88b1b6ec74"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/M2aSchemaTest.java": {
+      "role": "index",
+      "sha256": "58c01e7c43da0e6b7da98895587f0df3fbc6f387c3ad9b9e682bb1441c0e7d80",
+      "size": 12312,
+      "normalized_sha256": "58c01e7c43da0e6b7da98895587f0df3fbc6f387c3ad9b9e682bb1441c0e7d80"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/M2bSchemaMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "92f4344d66427d98b5a7d7535921adf8c0d8d6a6db4f51c8b4484f934ec6da63",
+      "size": 332,
+      "normalized_sha256": "92f4344d66427d98b5a7d7535921adf8c0d8d6a6db4f51c8b4484f934ec6da63"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/M2bSchemaTest.java": {
+      "role": "index",
+      "sha256": "bd9b448bf945d93415535f86e6995f4165cd15a9d17ae0c08daf44cf6882dbcb",
+      "size": 6749,
+      "normalized_sha256": "bd9b448bf945d93415535f86e6995f4165cd15a9d17ae0c08daf44cf6882dbcb"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryDeletionMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "d79f2372676329cb833b32f6e7451b144fd132e30a89463dd9b69d1331d71baf",
+      "size": 405,
+      "normalized_sha256": "d79f2372676329cb833b32f6e7451b144fd132e30a89463dd9b69d1331d71baf"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryDeletionTest.java": {
+      "role": "index",
+      "sha256": "8520ab8e499e7d4ccd656faf7085560a5e990392542c58433c947b13a02d19a1",
+      "size": 27658,
+      "normalized_sha256": "8520ab8e499e7d4ccd656faf7085560a5e990392542c58433c947b13a02d19a1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalBaselineMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "4bb908354d607985ef4a4d199570e2a88f8a84ba4561daf454c1c860590b696b",
+      "size": 468,
+      "normalized_sha256": "4bb908354d607985ef4a4d199570e2a88f8a84ba4561daf454c1c860590b696b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalBaselineTest.java": {
+      "role": "index",
+      "sha256": "07f65ef8270b893aa8675f00bc32f5ae942044b8981a2b25a080bf919e56a094",
+      "size": 37578,
+      "normalized_sha256": "07f65ef8270b893aa8675f00bc32f5ae942044b8981a2b25a080bf919e56a094"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalCases.java": {
+      "role": "index",
+      "sha256": "6bee7bee94ccf4cd8e2f6b4846359f8057262f442564fab16bf173ff50244d8c",
+      "size": 8071,
+      "normalized_sha256": "6bee7bee94ccf4cd8e2f6b4846359f8057262f442564fab16bf173ff50244d8c"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalLiveConfig.java": {
+      "role": "index",
+      "sha256": "560808b38553b804c875aa6ab01c29c64f38c8fd9d9634296d4ab7b65d050433",
+      "size": 2728,
+      "normalized_sha256": "560808b38553b804c875aa6ab01c29c64f38c8fd9d9634296d4ab7b65d050433"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalLiveTest.java": {
+      "role": "index",
+      "sha256": "358715f77dfb0ab9940abc645fb1fcd495e8aaf009e893fc2e839c47bfa7340f",
+      "size": 3858,
+      "normalized_sha256": "358715f77dfb0ab9940abc645fb1fcd495e8aaf009e893fc2e839c47bfa7340f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalReport.java": {
+      "role": "index",
+      "sha256": "42ffcdc8af953a677601bbf2c0d4e5c15599cdcb30f2880672ce737783c4d3d0",
+      "size": 29229,
+      "normalized_sha256": "42ffcdc8af953a677601bbf2c0d4e5c15599cdcb30f2880672ce737783c4d3d0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryEvalRunner.java": {
+      "role": "index",
+      "sha256": "cbeb57d073cebe4ba0d02f8d86ffe75aabe8b301bf7d3936d48f40a68fcafd70",
+      "size": 90192,
+      "normalized_sha256": "cbeb57d073cebe4ba0d02f8d86ffe75aabe8b301bf7d3936d48f40a68fcafd70"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryFailureIntegrationTest.java": {
+      "role": "index",
+      "sha256": "632f0fc4f67cf50909d06e0d98d36f9d1867a8e627e0dc56b744c3a96951dac7",
+      "size": 562,
+      "normalized_sha256": "632f0fc4f67cf50909d06e0d98d36f9d1867a8e627e0dc56b744c3a96951dac7"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryFailureTest.java": {
+      "role": "index",
+      "sha256": "2f0cabe1a961457bca92c132e167208e520ede0d0191c50869ee6b889e20798b",
+      "size": 17479,
+      "normalized_sha256": "2f0cabe1a961457bca92c132e167208e520ede0d0191c50869ee6b889e20798b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryMetricsTest.java": {
+      "role": "index",
+      "sha256": "4e2e7f56c2e041773271a18b98c513aebd6f1831400b965d6e09c9ec98670fe6",
+      "size": 6835,
+      "normalized_sha256": "4e2e7f56c2e041773271a18b98c513aebd6f1831400b965d6e09c9ec98670fe6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "bee5079346c45849c3f2c91c4b5d420ef266c02a5c37865d8688506b724db0be",
+      "size": 2092,
+      "normalized_sha256": "bee5079346c45849c3f2c91c4b5d420ef266c02a5c37865d8688506b724db0be"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryMySqlTestSupport.java": {
+      "role": "index",
+      "sha256": "17d865a7cc37a8955e86a8a83bccee6f0d106d13390eb3e4473d46f4168d638c",
+      "size": 3353,
+      "normalized_sha256": "17d865a7cc37a8955e86a8a83bccee6f0d106d13390eb3e4473d46f4168d638c"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemorySchemaTest.java": {
+      "role": "index",
+      "sha256": "1b3bbca0e5adbaebd33d03bb115f0cd37193784cf773f9cd2dcc5cb31105c13e",
+      "size": 11830,
+      "normalized_sha256": "1b3bbca0e5adbaebd33d03bb115f0cd37193784cf773f9cd2dcc5cb31105c13e"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryScopeTest.java": {
+      "role": "index",
+      "sha256": "13fe5748d35a5e1d642bcb243150fd6bbc7bf4fab771f213ebd51fb653ab2f09",
+      "size": 6004,
+      "normalized_sha256": "13fe5748d35a5e1d642bcb243150fd6bbc7bf4fab771f213ebd51fb653ab2f09"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryTestDoubles.java": {
+      "role": "index",
+      "sha256": "ff57fbcc5dcd6b2da7123f0679c60bfdb35e83ddb09bc2efda09b162cc6f300d",
+      "size": 3198,
+      "normalized_sha256": "ff57fbcc5dcd6b2da7123f0679c60bfdb35e83ddb09bc2efda09b162cc6f300d"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryTestFixture.java": {
+      "role": "index",
+      "sha256": "e0b6ca89ee3407f6ffd2bef46e6442c99276229761578c1d9fef51a79cab4286",
+      "size": 3028,
+      "normalized_sha256": "e0b6ca89ee3407f6ffd2bef46e6442c99276229761578c1d9fef51a79cab4286"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/MemoryTestStack.java": {
+      "role": "index",
+      "sha256": "1935283e80b9e9049a63c72c2ada21c738cc70386e2e67108469f345261dd4eb",
+      "size": 10311,
+      "normalized_sha256": "1935283e80b9e9049a63c72c2ada21c738cc70386e2e67108469f345261dd4eb"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/ToolRecordSanitizerTest.java": {
+      "role": "index",
+      "sha256": "3a5b663ac28760676b785b880cc53e7b1efcfa996d4bd1100d2a642e26453a53",
+      "size": 2775,
+      "normalized_sha256": "3a5b663ac28760676b785b880cc53e7b1efcfa996d4bd1100d2a642e26453a53"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnConcurrencyIntegrationTest.java": {
+      "role": "index",
+      "sha256": "7e6cb554d029abcfc6df7d4b0a22fb5cb4d51ad76c2ba4591854f93ff969c3e4",
+      "size": 564,
+      "normalized_sha256": "7e6cb554d029abcfc6df7d4b0a22fb5cb4d51ad76c2ba4591854f93ff969c3e4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnFinalizerTest.java": {
+      "role": "index",
+      "sha256": "d0bb7cdada199ce2b03bcf264a18653d685a9c156cc0d83e0c7064850ee434c5",
+      "size": 4648,
+      "normalized_sha256": "d0bb7cdada199ce2b03bcf264a18653d685a9c156cc0d83e0c7064850ee434c5"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnLifecycleTest.java": {
+      "role": "index",
+      "sha256": "da3d251874f53f7ab4633535f888ae24b5d1b6af16e44541bbacb47e2169e2be",
+      "size": 15819,
+      "normalized_sha256": "da3d251874f53f7ab4633535f888ae24b5d1b6af16e44541bbacb47e2169e2be"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnRecorderTest.java": {
+      "role": "index",
+      "sha256": "40fba7f4d594e383302da9361f817ce424630bcf34cd5610dde98170d8b15099",
+      "size": 2553,
+      "normalized_sha256": "40fba7f4d594e383302da9361f817ce424630bcf34cd5610dde98170d8b15099"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnStreamingIntegrationTest.java": {
+      "role": "index",
+      "sha256": "94c8fab16f28b1a8db43fa1d748fe30607efbbfb771008237cff623f34bffb6a",
+      "size": 26218,
+      "normalized_sha256": "94c8fab16f28b1a8db43fa1d748fe30607efbbfb771008237cff623f34bffb6a"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnStreamingMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "011317f960d210f052231f5bf29ecb219835085958f2a53572f33b415ed5e574",
+      "size": 532,
+      "normalized_sha256": "011317f960d210f052231f5bf29ecb219835085958f2a53572f33b415ed5e574"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnTestSupport.java": {
+      "role": "index",
+      "sha256": "52ec9d4de7461cd0bc411681b78affde5700b30680d1bb8f1bfc7286f52cebe1",
+      "size": 5010,
+      "normalized_sha256": "52ec9d4de7461cd0bc411681b78affde5700b30680d1bb8f1bfc7286f52cebe1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnToolRecorderMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "0a9a2072a9fa6b90498cb530ed374df77ee7af292583dd51bdb6e12f1a7c3504",
+      "size": 414,
+      "normalized_sha256": "0a9a2072a9fa6b90498cb530ed374df77ee7af292583dd51bdb6e12f1a7c3504"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/TurnToolRecorderTest.java": {
+      "role": "index",
+      "sha256": "32835546c00f15963c0577b0d0da5465a70cc2b27383f3426b47c14c4b840a2a",
+      "size": 18243,
+      "normalized_sha256": "32835546c00f15963c0577b0d0da5465a70cc2b27383f3426b47c14c4b840a2a"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/command/MemoryCommandClassifierTest.java": {
+      "role": "index",
+      "sha256": "9927bbd69dec8ae0e945125a685568d72999ff93b27d3b79c7265cd840f65c8e",
+      "size": 3999,
+      "normalized_sha256": "9927bbd69dec8ae0e945125a685568d72999ff93b27d3b79c7265cd840f65c8e"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/command/MemoryCommandTest.java": {
+      "role": "index",
+      "sha256": "3e1285643e2a62d1b4554b5bc938cac72193ac9b660f5e49f97ac9cf7223f2b6",
+      "size": 2609,
+      "normalized_sha256": "3e1285643e2a62d1b4554b5bc938cac72193ac9b660f5e49f97ac9cf7223f2b6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/command/MemoryForgetMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "9801fd81ebeb74d654c56eb63ed4f29be9289a757ef327b38f9b32973d7c74d7",
+      "size": 494,
+      "normalized_sha256": "9801fd81ebeb74d654c56eb63ed4f29be9289a757ef327b38f9b32973d7c74d7"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/command/MemoryForgetTest.java": {
+      "role": "index",
+      "sha256": "ef96b846e7fa3bb6bf6f7b81fda64a3344f17f68fbcba466c053c8f510251e42",
+      "size": 35531,
+      "normalized_sha256": "ef96b846e7fa3bb6bf6f7b81fda64a3344f17f68fbcba466c053c8f510251e42"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/context/ContextAssemblerTest.java": {
+      "role": "index",
+      "sha256": "229e5ece1e3b802e508c421f1c926c61de4dfbcf8f0735799d0242c57dc3d2f3",
+      "size": 10104,
+      "normalized_sha256": "229e5ece1e3b802e508c421f1c926c61de4dfbcf8f0735799d0242c57dc3d2f3"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/context/ContextBudgetTest.java": {
+      "role": "index",
+      "sha256": "7273248cf62624b3cebda8400c33f94e0cb80df8e06446190206a71104b792c4",
+      "size": 5655,
+      "normalized_sha256": "7273248cf62624b3cebda8400c33f94e0cb80df8e06446190206a71104b792c4"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/context/TokenEstimatorTest.java": {
+      "role": "index",
+      "sha256": "dde841295b41dd99e14c5c91fd0e3dc481bb984ebee227520110a341f9cf6b72",
+      "size": 2087,
+      "normalized_sha256": "dde841295b41dd99e14c5c91fd0e3dc481bb984ebee227520110a341f9cf6b72"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/DecayPolicyTest.java": {
+      "role": "index",
+      "sha256": "ba0e00d9e013e359bb923f39111ec0b292866dd9ab8e5501e7f4a4b7603c4555",
+      "size": 2619,
+      "normalized_sha256": "ba0e00d9e013e359bb923f39111ec0b292866dd9ab8e5501e7f4a4b7603c4555"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/EntityGraphMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "a2297c33cb7411d2d344192cb8f0d1e780c480808c261fb7a074829c9a6ff038",
+      "size": 435,
+      "normalized_sha256": "a2297c33cb7411d2d344192cb8f0d1e780c480808c261fb7a074829c9a6ff038"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/EntityGraphRepositoryTest.java": {
+      "role": "index",
+      "sha256": "3945c49d643d7fac2b8ad114c14320900fa6df851a1285c79912eaa0711cadf6",
+      "size": 4695,
+      "normalized_sha256": "3945c49d643d7fac2b8ad114c14320900fa6df851a1285c79912eaa0711cadf6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/MemoryDecayMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "294bc84f1531b6237072bb8c972971a123befe597971f3439092a78ec69f553b",
+      "size": 471,
+      "normalized_sha256": "294bc84f1531b6237072bb8c972971a123befe597971f3439092a78ec69f553b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/MemoryDecayTest.java": {
+      "role": "index",
+      "sha256": "b70ca95d7fd5c4c3cccf0e5448c7bf1590860720af398ab1151e0372a76654d0",
+      "size": 14430,
+      "normalized_sha256": "b70ca95d7fd5c4c3cccf0e5448c7bf1590860720af398ab1151e0372a76654d0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/MemoryItemMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "8328c35d20411e2c71b6718eff1ead3a7aed17a43ab5b66f5d52b720fdd006de",
+      "size": 494,
+      "normalized_sha256": "8328c35d20411e2c71b6718eff1ead3a7aed17a43ab5b66f5d52b720fdd006de"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/MemoryItemServiceTest.java": {
+      "role": "index",
+      "sha256": "f60410a08d485a41637f7a31fca45cb39bcd767e85f49eaa70113fb5787db762",
+      "size": 14020,
+      "normalized_sha256": "f60410a08d485a41637f7a31fca45cb39bcd767e85f49eaa70113fb5787db762"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/ProfileCacheTest.java": {
+      "role": "index",
+      "sha256": "69ddd9a4c9a54a542280168dbe660aa89dcb1d369eadc4fa21431150577e2f23",
+      "size": 2208,
+      "normalized_sha256": "69ddd9a4c9a54a542280168dbe660aa89dcb1d369eadc4fa21431150577e2f23"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/ProfileMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "ed150d493ec8125aa6970cfeb0b659ea2d88e7ed7c6b412e8f8edc0118dac2e8",
+      "size": 424,
+      "normalized_sha256": "ed150d493ec8125aa6970cfeb0b659ea2d88e7ed7c6b412e8f8edc0118dac2e8"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/items/ProfileServiceTest.java": {
+      "role": "index",
+      "sha256": "33b0c33c92c0444c324b14b21d85b83a0a7ec34f6d2a953c3f2664249cdde6c6",
+      "size": 10190,
+      "normalized_sha256": "33b0c33c92c0444c324b14b21d85b83a0a7ec34f6d2a953c3f2664249cdde6c6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/jobs/ConsolidationQuotaMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "e23e13541d35a3a5f5426fb29daf5e8167c0881ae3ff24af3cee572952a798f0",
+      "size": 525,
+      "normalized_sha256": "e23e13541d35a3a5f5426fb29daf5e8167c0881ae3ff24af3cee572952a798f0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/jobs/ConsolidationQuotaTest.java": {
+      "role": "index",
+      "sha256": "800a0162d9fed70030e8d36e7f3906e168f69cbfceb6c67146618756acb05a5b",
+      "size": 8616,
+      "normalized_sha256": "800a0162d9fed70030e8d36e7f3906e168f69cbfceb6c67146618756acb05a5b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/jobs/MemoryJobQueueMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "dd92f44905dc74f5215a2ac4799ed608637b0b450a532e68713c1730cbe403aa",
+      "size": 546,
+      "normalized_sha256": "dd92f44905dc74f5215a2ac4799ed608637b0b450a532e68713c1730cbe403aa"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/jobs/MemoryJobQueueTest.java": {
+      "role": "index",
+      "sha256": "212654ba3ecaa94a38c8d343fe7542937c47fcd64a89541520efcbc0f601c8a7",
+      "size": 11493,
+      "normalized_sha256": "212654ba3ecaa94a38c8d343fe7542937c47fcd64a89541520efcbc0f601c8a7"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/GlobalRulesTest.java": {
+      "role": "index",
+      "sha256": "a350db5e910321d13b910fece38df878681e49278656163c0e55555a71dd0eeb",
+      "size": 2709,
+      "normalized_sha256": "a350db5e910321d13b910fece38df878681e49278656163c0e55555a71dd0eeb"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/JudgementJobHandlerTest.java": {
+      "role": "index",
+      "sha256": "4e8e9a2b317bea0bb18dca81d1f579f332c3cf748814789dc00202997a978fa6",
+      "size": 34170,
+      "normalized_sha256": "4e8e9a2b317bea0bb18dca81d1f579f332c3cf748814789dc00202997a978fa6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/JudgementMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "e6ebbd975be63e8e7e1507a551560a6e8ca8ef7d00f864e392477cca4f3e3369",
+      "size": 489,
+      "normalized_sha256": "e6ebbd975be63e8e7e1507a551560a6e8ca8ef7d00f864e392477cca4f3e3369"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/JudgementValidatorTest.java": {
+      "role": "index",
+      "sha256": "2318b0dd8dcc76638f39fe03960f3e5c289de31509d876bd773660c9c90d8274",
+      "size": 10622,
+      "normalized_sha256": "2318b0dd8dcc76638f39fe03960f3e5c289de31509d876bd773660c9c90d8274"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/PoisoningSemanticsTest.java": {
+      "role": "index",
+      "sha256": "265c4e27f74a4428e4eae81783bfb4ab379a9f0e27776ce8997f177d8176bbb9",
+      "size": 6991,
+      "normalized_sha256": "265c4e27f74a4428e4eae81783bfb4ab379a9f0e27776ce8997f177d8176bbb9"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/RulesReplayMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "93892b80ac9572e9fdae002466bfa940400eca54c38b26f478d2ee716d454ebe",
+      "size": 482,
+      "normalized_sha256": "93892b80ac9572e9fdae002466bfa940400eca54c38b26f478d2ee716d454ebe"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/judgement/RulesReplayTest.java": {
+      "role": "index",
+      "sha256": "e58017c8e59735603dd3c08f7ed989d52c9eb56133e4770a3074a8d154fdc783",
+      "size": 21329,
+      "normalized_sha256": "e58017c8e59735603dd3c08f7ed989d52c9eb56133e4770a3074a8d154fdc783"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/ChunkIndexerMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "2d6af6ff421d15993cf4732b636f081cfd7a8dd6312e1a35a30bddd48578f3f2",
+      "size": 480,
+      "normalized_sha256": "2d6af6ff421d15993cf4732b636f081cfd7a8dd6312e1a35a30bddd48578f3f2"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/ChunkIndexerTest.java": {
+      "role": "index",
+      "sha256": "d307df87d31858c3cdaffea60186d033f069623f94d98bda74508f794e01f461",
+      "size": 7771,
+      "normalized_sha256": "d307df87d31858c3cdaffea60186d033f069623f94d98bda74508f794e01f461"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/ContextAssemblerRecallTest.java": {
+      "role": "index",
+      "sha256": "02c63aabca18adecefee79f0dd9ff8a191492365e9980475b2b573597a0bb983",
+      "size": 9593,
+      "normalized_sha256": "02c63aabca18adecefee79f0dd9ff8a191492365e9980475b2b573597a0bb983"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/MemoryRetrieverTest.java": {
+      "role": "index",
+      "sha256": "49409c267895c4cf4881a5ec035cbc58bc927a1a80623e790f1c2ab0fa309b3d",
+      "size": 12336,
+      "normalized_sha256": "49409c267895c4cf4881a5ec035cbc58bc927a1a80623e790f1c2ab0fa309b3d"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/MemorySettingsTest.java": {
+      "role": "index",
+      "sha256": "720361abf7e0a0c9d72515c3561d2d1f4e7f021abfbaa7c2b20f31dc0e2999f8",
+      "size": 1771,
+      "normalized_sha256": "720361abf7e0a0c9d72515c3561d2d1f4e7f021abfbaa7c2b20f31dc0e2999f8"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/RecallEventMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "31247073f681d3b85caf0a7621ce420f06247a84e5aba0c36c15ad182edc528c",
+      "size": 493,
+      "normalized_sha256": "31247073f681d3b85caf0a7621ce420f06247a84e5aba0c36c15ad182edc528c"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/RecallEventRecorderTest.java": {
+      "role": "index",
+      "sha256": "18698a0e2033a8f5131e33095b23cebab5ef6473d1e7058cafd40c026c7f4434",
+      "size": 11015,
+      "normalized_sha256": "18698a0e2033a8f5131e33095b23cebab5ef6473d1e7058cafd40c026c7f4434"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/RecallMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "903333257acf56e68f96dbd18250c4f752b193a3d0dfb0162d00874daf71acf0",
+      "size": 1139,
+      "normalized_sha256": "903333257acf56e68f96dbd18250c4f752b193a3d0dfb0162d00874daf71acf0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/RecallTextCacheMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "5ec40efa93d20ad5850bbf63ca309d583600572ec32eb1a5eeb541aa6d55af02",
+      "size": 489,
+      "normalized_sha256": "5ec40efa93d20ad5850bbf63ca309d583600572ec32eb1a5eeb541aa6d55af02"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/recall/RecallTextCacheTest.java": {
+      "role": "index",
+      "sha256": "42c415a47b416c81a2f2dbf1c35ea9361317c533335116a9d87f64a1d336014c",
+      "size": 11510,
+      "normalized_sha256": "42c415a47b416c81a2f2dbf1c35ea9361317c533335116a9d87f64a1d336014c"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/retention/RetentionTiersTest.java": {
+      "role": "index",
+      "sha256": "b9388f84e6cb6e3e9bd71cc8acf88a1cd5bbefa8c5714ded5417278fa1d25ef1",
+      "size": 5846,
+      "normalized_sha256": "b9388f84e6cb6e3e9bd71cc8acf88a1cd5bbefa8c5714ded5417278fa1d25ef1"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/retention/SoftDeleteRetentionMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "5b2b50576be2811430c2aaf3b1a5d3680be50ab7a6a12e490290483e4ab5744b",
+      "size": 522,
+      "normalized_sha256": "5b2b50576be2811430c2aaf3b1a5d3680be50ab7a6a12e490290483e4ab5744b"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/retention/SoftDeleteRetentionTest.java": {
+      "role": "index",
+      "sha256": "5ab3e8998d942c7ad7d660e3816e19a43f09c38a03f1a06dcc4dcbbd5b23dcb3",
+      "size": 23292,
+      "normalized_sha256": "5ab3e8998d942c7ad7d660e3816e19a43f09c38a03f1a06dcc4dcbbd5b23dcb3"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/MessageCompressorMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "97c7d6459c6c89f156796320639ce5083bcd43738e40468aa425feb475df083e",
+      "size": 496,
+      "normalized_sha256": "97c7d6459c6c89f156796320639ce5083bcd43738e40468aa425feb475df083e"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/MessageCompressorTest.java": {
+      "role": "index",
+      "sha256": "d3673c10d781324a79820f456d8426d8a15e780d09f40cd25f4433d9cc534292",
+      "size": 26338,
+      "normalized_sha256": "d3673c10d781324a79820f456d8426d8a15e780d09f40cd25f4433d9cc534292"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/MessagePayloadCodecTest.java": {
+      "role": "index",
+      "sha256": "b4f1791e9c42b9c995c28b5dc07762282281a051864b199ab55d710352aebe43",
+      "size": 4983,
+      "normalized_sha256": "b4f1791e9c42b9c995c28b5dc07762282281a051864b199ab55d710352aebe43"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/PayloadReadBlockHoundTest.java": {
+      "role": "index",
+      "sha256": "edc6d21152306c66f52d3f77fdd7b61c6c6314a00d42f6fa3b3c55155868d05f",
+      "size": 2108,
+      "normalized_sha256": "edc6d21152306c66f52d3f77fdd7b61c6c6314a00d42f6fa3b3c55155868d05f"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/PayloadReadGuardTest.java": {
+      "role": "index",
+      "sha256": "85d2768b8d50335e3a978068f297dfc101fc775c407f38ebb0fb6539108cfe2a",
+      "size": 5284,
+      "normalized_sha256": "85d2768b8d50335e3a978068f297dfc101fc775c407f38ebb0fb6539108cfe2a"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/StoragePropertiesTest.java": {
+      "role": "index",
+      "sha256": "de394f881c0150d9aef67ab012daa5241abada41755ba2351847e29d5ce381ef",
+      "size": 3328,
+      "normalized_sha256": "de394f881c0150d9aef67ab012daa5241abada41755ba2351847e29d5ce381ef"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/StorageSchemaMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "f26f7056d64309f2780c97fe9bf9ebf3b2e83450d546649fec44effb7cb5d1b0",
+      "size": 484,
+      "normalized_sha256": "f26f7056d64309f2780c97fe9bf9ebf3b2e83450d546649fec44effb7cb5d1b0"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/storage/StorageSchemaTest.java": {
+      "role": "index",
+      "sha256": "141e7a6476ed692c54f0240e27fcbed4532611b160878cafc8f1b57d89f3c4b6",
+      "size": 3779,
+      "normalized_sha256": "141e7a6476ed692c54f0240e27fcbed4532611b160878cafc8f1b57d89f3c4b6"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/summary/IdleConversationScannerMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "626eb4683d85db894966e1170e6d6f66a08caceee29e1d48653bb47e817913d9",
+      "size": 562,
+      "normalized_sha256": "626eb4683d85db894966e1170e6d6f66a08caceee29e1d48653bb47e817913d9"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/summary/IdleConversationScannerTest.java": {
+      "role": "index",
+      "sha256": "6bf91d549d6ebce939575690f1ca9dd5dd77bb24afe88e38cad2f4c69f5ee530",
+      "size": 8515,
+      "normalized_sha256": "6bf91d549d6ebce939575690f1ca9dd5dd77bb24afe88e38cad2f4c69f5ee530"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/summary/MemoryRecordValidatorTest.java": {
+      "role": "index",
+      "sha256": "9384bb57aacacb3f8be30c3d81ea314408f4e288df5e4cd5a1f513d228317080",
+      "size": 5493,
+      "normalized_sha256": "9384bb57aacacb3f8be30c3d81ea314408f4e288df5e4cd5a1f513d228317080"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/summary/SummaryJobHandlerTest.java": {
+      "role": "index",
+      "sha256": "9000dfec0d1a4c5d55a8443e34e0740315a3adf2b76fc7d5510c5a61a5567e34",
+      "size": 29512,
+      "normalized_sha256": "9000dfec0d1a4c5d55a8443e34e0740315a3adf2b76fc7d5510c5a61a5567e34"
+    },
+    "agent-server/src/test/java/io/github/sukimiya/agileagent/memory/summary/SummaryMySqlIntegrationTest.java": {
+      "role": "index",
+      "sha256": "1004e78660bdf87045250b449ed710ca15f9704295797564f37e99874869c110",
+      "size": 540,
+      "normalized_sha256": "1004e78660bdf87045250b449ed710ca15f9704295797564f37e99874869c110"
+    },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/repository/SessionRepositoryTest.java": {
       "role": "index",
-      "sha256": "39a548d9e0a627486a12a52b335a11fec8bd55403fe41787fce23f03663a7022",
-      "size": 3000,
-      "normalized_sha256": "39a548d9e0a627486a12a52b335a11fec8bd55403fe41787fce23f03663a7022"
+      "sha256": "c0141620a7d07a36380ee64c934b0d34e4c6f83f8b1774fc94be7c24835dcf07",
+      "size": 3079,
+      "normalized_sha256": "c0141620a7d07a36380ee64c934b0d34e4c6f83f8b1774fc94be7c24835dcf07"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/AuthSessionStoreTest.java": {
       "role": "index",
@@ -827,9 +2105,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/FileStorageServiceTest.java": {
       "role": "index",
-      "sha256": "0cb678a8dbb5242757b859f127eda4c75b1e0e7d3c6c53f07eb5a8d3fe51d7d2",
-      "size": 4507,
-      "normalized_sha256": "0cb678a8dbb5242757b859f127eda4c75b1e0e7d3c6c53f07eb5a8d3fe51d7d2"
+      "sha256": "ee76537460c6557f443ad109229263e450040e586ebcb6c7a5e628ec86315af2",
+      "size": 7280,
+      "normalized_sha256": "ee76537460c6557f443ad109229263e450040e586ebcb6c7a5e628ec86315af2"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/LlmClientSummarizeTest.java": {
       "role": "index",
@@ -839,9 +2117,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OAuth2ClientTest.java": {
       "role": "index",
-      "sha256": "4c285e45c7e699b139a4871f500768a79d422ca7f99f487db0b39330372987d4",
-      "size": 15037,
-      "normalized_sha256": "4c285e45c7e699b139a4871f500768a79d422ca7f99f487db0b39330372987d4"
+      "sha256": "5eb2de4b0b50dfb298d1fefccf60f6216e2d29b47c49893bafd55eb773275f2d",
+      "size": 18634,
+      "normalized_sha256": "5eb2de4b0b50dfb298d1fefccf60f6216e2d29b47c49893bafd55eb773275f2d"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OAuth2StateStoreTest.java": {
       "role": "index",
@@ -857,9 +2135,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/OpenAiCompatibleLlmClientTest.java": {
       "role": "index",
-      "sha256": "617b42793faf5a99bfe2c565860f27c1d25a5f00b60bf0f0d65427f23451ae61",
-      "size": 4848,
-      "normalized_sha256": "617b42793faf5a99bfe2c565860f27c1d25a5f00b60bf0f0d65427f23451ae61"
+      "sha256": "b00a93490662c3c8e3f71722cdd09e84eb21e97b9b42e67294b149ff0b78093c",
+      "size": 6981,
+      "normalized_sha256": "b00a93490662c3c8e3f71722cdd09e84eb21e97b9b42e67294b149ff0b78093c"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/PkceTest.java": {
       "role": "index",
@@ -869,15 +2147,15 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/SessionServiceTest.java": {
       "role": "index",
-      "sha256": "fbd5f0c70f949f5f16e6a7e8d1194a8c34267978e4b82596cd74d2a896420b64",
-      "size": 3915,
-      "normalized_sha256": "fbd5f0c70f949f5f16e6a7e8d1194a8c34267978e4b82596cd74d2a896420b64"
+      "sha256": "5b4b5f84d161ce05a9658e9941e10cb55299e1d66649c5194e0ab267b96ed30f",
+      "size": 4423,
+      "normalized_sha256": "5b4b5f84d161ce05a9658e9941e10cb55299e1d66649c5194e0ab267b96ed30f"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/TenantLlmClientResolverTest.java": {
       "role": "index",
-      "sha256": "c2419d0d2d5f83afddd93a8fc2ebd74c95bee2c749248b0062161694cc2ffc45",
-      "size": 16618,
-      "normalized_sha256": "c2419d0d2d5f83afddd93a8fc2ebd74c95bee2c749248b0062161694cc2ffc45"
+      "sha256": "adf458a0563abd5d77708737227992036c1b5678d89e209356d63a91469e982d",
+      "size": 19372,
+      "normalized_sha256": "adf458a0563abd5d77708737227992036c1b5678d89e209356d63a91469e982d"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/TtlCacheTest.java": {
       "role": "index",
@@ -887,9 +2165,9 @@
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/service/UploadCleanupTaskTest.java": {
       "role": "index",
-      "sha256": "0a3b186527bdf235f1ca78edf3fb0a1071c5f03c2d62d3d14f066769ba234323",
-      "size": 1429,
-      "normalized_sha256": "0a3b186527bdf235f1ca78edf3fb0a1071c5f03c2d62d3d14f066769ba234323"
+      "sha256": "2f56ccd9f31297c5513ebeb8012765c5af01e34b10e2177fd582a5e068d3a967",
+      "size": 2308,
+      "normalized_sha256": "2f56ccd9f31297c5513ebeb8012765c5af01e34b10e2177fd582a5e068d3a967"
     },
     "agent-server/src/test/java/io/github/sukimiya/agileagent/util/NonBlockingIdsTest.java": {
       "role": "index",
@@ -908,6 +2186,18 @@
       "sha256": "94f4a8c80bb9015136d7578145fa6cb944a07a3c3d81937364b8254a343a373f",
       "size": 46084,
       "normalized_sha256": "94f4a8c80bb9015136d7578145fa6cb944a07a3c3d81937364b8254a343a373f"
+    },
+    "agent-server/src/test/resources/memory-eval/README.md": {
+      "role": "index",
+      "sha256": "6dde707158ad39ca85b2387487361099f645e4100c6ee8152217264a9cdadf55",
+      "size": 5978,
+      "normalized_sha256": "6dde707158ad39ca85b2387487361099f645e4100c6ee8152217264a9cdadf55"
+    },
+    "agent-server/src/test/resources/memory-eval/cases.jsonl": {
+      "role": "index",
+      "sha256": "7d407042a944d6389eb1ea18f78df78514e7c7b2a35eae7e8c7adb3efaa8ceb8",
+      "size": 17560,
+      "normalized_sha256": "7d407042a944d6389eb1ea18f78df78514e7c7b2a35eae7e8c7adb3efaa8ceb8"
     },
     "agent-spi/pom.xml": {
       "role": "index",
@@ -977,9 +2267,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2",
-      "size": 21,
-      "normalized_sha256": "12cbc237b863041b3ab7b6c6330091964cb014a20e624ec1f88de6056aed56c2"
+      "sha256": "3398e60e1fbf6dfed101b40d1a09704a6d586f263f4e6d9cc2d9c47c848f89a6",
+      "size": 137505,
+      "normalized_sha256": "3398e60e1fbf6dfed101b40d1a09704a6d586f263f4e6d9cc2d9c47c848f89a6"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -995,15 +2285,21 @@
     },
     "docker/Dockerfile": {
       "role": "index",
-      "sha256": "bf19b1ee8a92737044945a3b608b6483bbd4a0c6faa75683dbbc9b133cbb275e",
-      "size": 740,
-      "normalized_sha256": "bf19b1ee8a92737044945a3b608b6483bbd4a0c6faa75683dbbc9b133cbb275e"
+      "sha256": "4ea9114ca556735081d6bda4f4516fe123388c7bb87a578bb33024512041906b",
+      "size": 813,
+      "normalized_sha256": "4ea9114ca556735081d6bda4f4516fe123388c7bb87a578bb33024512041906b"
+    },
+    "docker/docker-compose.memory-test.yml": {
+      "role": "index",
+      "sha256": "b1c2bc4431756073e7bd34b3e2a53192a56fd84041d3d5c50fc1182b7b5cc4d1",
+      "size": 1599,
+      "normalized_sha256": "b1c2bc4431756073e7bd34b3e2a53192a56fd84041d3d5c50fc1182b7b5cc4d1"
     },
     "docker/docker-compose.yml": {
       "role": "index",
-      "sha256": "a64249781392bce33fd40d2ecf9dcdb20ffd5016f53e03a99b1b47ef0f29e6e3",
-      "size": 4162,
-      "normalized_sha256": "a64249781392bce33fd40d2ecf9dcdb20ffd5016f53e03a99b1b47ef0f29e6e3"
+      "sha256": "02999cf796cd08a9a1a448e178db6ffc7ae181e98dfdad69ad6471485ae5bdea",
+      "size": 4468,
+      "normalized_sha256": "02999cf796cd08a9a1a448e178db6ffc7ae181e98dfdad69ad6471485ae5bdea"
     },
     "docs/capability-adapters.md": {
       "role": "index",
@@ -1011,11 +2307,77 @@
       "size": 5932,
       "normalized_sha256": "ef8e988b90633db49df5b6c6d02d6080be36a7630a341ef98fb077154f1f9a5a"
     },
+    "docs/images/recall-by-version.svg": {
+      "role": "observe",
+      "sha256": "9ac16bdc1313ed3f81c78a4d57e058b059bfeb67853afe256a61b6616d0b9171",
+      "size": 65548,
+      "normalized_sha256": "9ac16bdc1313ed3f81c78a4d57e058b059bfeb67853afe256a61b6616d0b9171"
+    },
+    "docs/known-issues/2026-10-21-idempotency-duplicate-billing.md": {
+      "role": "index",
+      "sha256": "9454131555166d53d1ae2044ca41c3601442d57b7a5a88244e12680914e056a9",
+      "size": 6629,
+      "normalized_sha256": "9454131555166d53d1ae2044ca41c3601442d57b7a5a88244e12680914e056a9"
+    },
+    "docs/local-development.md": {
+      "role": "index",
+      "sha256": "e9aff99c51a4e04382cfaecac6b235b3ff0c45cb30a4d6270a49a4186ce29c72",
+      "size": 6585,
+      "normalized_sha256": "e9aff99c51a4e04382cfaecac6b235b3ff0c45cb30a4d6270a49a4186ce29c72"
+    },
+    "docs/memory/api.md": {
+      "role": "index",
+      "sha256": "bef5b1836c81049c3c27677fcf6c76780565f798dcab89b7f937edf4b4166da2",
+      "size": 38512,
+      "normalized_sha256": "bef5b1836c81049c3c27677fcf6c76780565f798dcab89b7f937edf4b4166da2"
+    },
+    "docs/memory/consolidation-principles.md": {
+      "role": "index",
+      "sha256": "71e5aecbf9f03d04a6a4331db4a95fccbcc7b6f3fdadbf166e3e3deebb1e4775",
+      "size": 9959,
+      "normalized_sha256": "71e5aecbf9f03d04a6a4331db4a95fccbcc7b6f3fdadbf166e3e3deebb1e4775"
+    },
+    "docs/memory/eval-baseline.md": {
+      "role": "index",
+      "sha256": "1d9399d123acd3a2ab7526332249671b3e83fb21b4655d217936c1d89d5c8219",
+      "size": 50924,
+      "normalized_sha256": "1d9399d123acd3a2ab7526332249671b3e83fb21b4655d217936c1d89d5c8219"
+    },
+    "docs/memory/eval-baselines.json": {
+      "role": "index",
+      "sha256": "76ce1f3220b08be87d544cf41518dfd95be9e373af25394b31a58e8959907447",
+      "size": 9515,
+      "normalized_sha256": "76ce1f3220b08be87d544cf41518dfd95be9e373af25394b31a58e8959907447"
+    },
+    "docs/memory/operations.md": {
+      "role": "index",
+      "sha256": "a928ebd7f1d2daf217d7df6ea12b008c418256237ed0826cfb590ccbf3fffdbf",
+      "size": 52700,
+      "normalized_sha256": "a928ebd7f1d2daf217d7df6ea12b008c418256237ed0826cfb590ccbf3fffdbf"
+    },
+    "docs/memory/phase-1-acceptance.md": {
+      "role": "index",
+      "sha256": "1cd22fa5536503bb95270068d122121da2dfa9ceb84a1ab45cfb0f72dba74e9d",
+      "size": 9091,
+      "normalized_sha256": "1cd22fa5536503bb95270068d122121da2dfa9ceb84a1ab45cfb0f72dba74e9d"
+    },
+    "docs/memory/phase-2a-acceptance.md": {
+      "role": "index",
+      "sha256": "16b18e87729b2f6f93b60d3c86f909f5f303905f8028599fd6ce1bd1a639eb24",
+      "size": 9361,
+      "normalized_sha256": "16b18e87729b2f6f93b60d3c86f909f5f303905f8028599fd6ce1bd1a639eb24"
+    },
+    "docs/memory/phase-2b-acceptance.md": {
+      "role": "index",
+      "sha256": "c00fad24db003cd183f7c8975625766834d095dac2d9ea4c464a598cce6af1b7",
+      "size": 17744,
+      "normalized_sha256": "c00fad24db003cd183f7c8975625766834d095dac2d9ea4c464a598cce6af1b7"
+    },
     "docs/oauth2-provider-integration.md": {
       "role": "index",
-      "sha256": "acec7efd32e780cbe02f141d872debd645cdd3c00652355a8cdcf73cc1d931ac",
-      "size": 6194,
-      "normalized_sha256": "acec7efd32e780cbe02f141d872debd645cdd3c00652355a8cdcf73cc1d931ac"
+      "sha256": "a81360b2bed019f78dd3285938e4644c564775a219fad6faea98e82a0d42641c",
+      "size": 11723,
+      "normalized_sha256": "a81360b2bed019f78dd3285938e4644c564775a219fad6faea98e82a0d42641c"
     },
     "docs/spec/2026-10-09-open-source-multimodule-migration.md": {
       "role": "index",
@@ -1025,9 +2387,9 @@
     },
     "docs/spec/migration-from-single-module.md": {
       "role": "index",
-      "sha256": "dfcb40cd17a3f4481e0c7c7b2b6ba3e633237f866c54c766ca1e9e21e81792a5",
+      "sha256": "59f3e6a56de0c6be4447b8758a0bbcd60914a6857a463ce6829066f80340927d",
       "size": 6638,
-      "normalized_sha256": "dfcb40cd17a3f4481e0c7c7b2b6ba3e633237f866c54c766ca1e9e21e81792a5"
+      "normalized_sha256": "59f3e6a56de0c6be4447b8758a0bbcd60914a6857a463ce6829066f80340927d"
     },
     "docs/superpowers/plans/2026-06-16-frontend-file-upload.md": {
       "role": "index",
@@ -1127,9 +2489,15 @@
     },
     "docs/superpowers/plans/2026-10-21-memory-persistence-phase-1.md": {
       "role": "index",
-      "sha256": "b99b3d5ecac6405d22b75549ed6db9e671a74ffa32a16a30b5f0bb042e432e49",
-      "size": 44661,
-      "normalized_sha256": "b99b3d5ecac6405d22b75549ed6db9e671a74ffa32a16a30b5f0bb042e432e49"
+      "sha256": "015c88c6409c7732be43eee658e2ba9f1b736ecd65b40a341de772810dcef477",
+      "size": 46500,
+      "normalized_sha256": "015c88c6409c7732be43eee658e2ba9f1b736ecd65b40a341de772810dcef477"
+    },
+    "docs/superpowers/plans/2026-10-23-memory-m2.md": {
+      "role": "index",
+      "sha256": "a654b101da0f958ff8ac7ca9cf80b96e391010f71b7c19964b733ea055961813",
+      "size": 137395,
+      "normalized_sha256": "a654b101da0f958ff8ac7ca9cf80b96e391010f71b7c19964b733ea055961813"
     },
     "docs/superpowers/specs/2026-06-16-frontend-file-upload-design.md": {
       "role": "index",
@@ -1193,9 +2561,9 @@
     },
     "docs/superpowers/specs/2026-10-21-memory-runtime-design.md": {
       "role": "index",
-      "sha256": "43c11457ade79151ad25032ee42d18f3352768f88fc34cefe61d1b5b9a54743d",
-      "size": 45108,
-      "normalized_sha256": "43c11457ade79151ad25032ee42d18f3352768f88fc34cefe61d1b5b9a54743d"
+      "sha256": "79b52668a78c91fc52189ae2606328ff798febde6e4af03e812829d13b3a21b5",
+      "size": 53918,
+      "normalized_sha256": "79b52668a78c91fc52189ae2606328ff798febde6e4af03e812829d13b3a21b5"
     },
     "mock-oauth2/pom.xml": {
       "role": "index",
@@ -1229,9 +2597,9 @@
     },
     "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/OAuth2Controller.java": {
       "role": "index",
-      "sha256": "9aa6261333c5e6fe6666980a35d6ea3cb126ae014832baa2189f29070b269f5b",
-      "size": 10304,
-      "normalized_sha256": "9aa6261333c5e6fe6666980a35d6ea3cb126ae014832baa2189f29070b269f5b"
+      "sha256": "18d18f71594a084016e6fd7087a4f384ad3ef23c0afbd7e8f04f57dea6bf429f",
+      "size": 10342,
+      "normalized_sha256": "18d18f71594a084016e6fd7087a4f384ad3ef23c0afbd7e8f04f57dea6bf429f"
     },
     "mock-oauth2/src/main/java/io/github/sukimiya/agileagent/mockoauth/PkceVerifier.java": {
       "role": "index",
@@ -1289,15 +2657,489 @@
     },
     "pom.xml": {
       "role": "index",
-      "sha256": "0d1e7cec73a0036216ab740f35036794456846d9b9a0e2df2b5243ff7d8c5330",
-      "size": 2336,
-      "normalized_sha256": "0d1e7cec73a0036216ab740f35036794456846d9b9a0e2df2b5243ff7d8c5330"
+      "sha256": "1c5fa5e8230fd761ac39c462b77dcd62218db7a385f73151fefaec4b00ed5db4",
+      "size": 2337,
+      "normalized_sha256": "1c5fa5e8230fd761ac39c462b77dcd62218db7a385f73151fefaec4b00ed5db4"
     },
     "start.sh": {
       "role": "index",
       "sha256": "42eebbd5a32eae1a9d0d397a86cb02d54e6eb79cb51631f0da062a7b87c8a163",
       "size": 1381,
       "normalized_sha256": "42eebbd5a32eae1a9d0d397a86cb02d54e6eb79cb51631f0da062a7b87c8a163"
+    },
+    "web/.env.example": {
+      "role": "index",
+      "sha256": "3eb1cb5a8792a3f8bf5c837a8009c7630182003a005cccb37ccf69c71124bbf1",
+      "size": 272,
+      "normalized_sha256": "3eb1cb5a8792a3f8bf5c837a8009c7630182003a005cccb37ccf69c71124bbf1"
+    },
+    "web/.gitignore": {
+      "role": "index",
+      "sha256": "9b86455958afa3624cf9a7d7e357ebc6ac8c96d063aa880b30c03f729801c0a4",
+      "size": 304,
+      "normalized_sha256": "9b86455958afa3624cf9a7d7e357ebc6ac8c96d063aa880b30c03f729801c0a4"
+    },
+    "web/README.md": {
+      "role": "index",
+      "sha256": "ddf317dfdba7b6dbfcf1a00a7c364615691db2ee3aedc274d74a1bac93b2d90d",
+      "size": 5366,
+      "normalized_sha256": "ddf317dfdba7b6dbfcf1a00a7c364615691db2ee3aedc274d74a1bac93b2d90d"
+    },
+    "web/eslint.config.js": {
+      "role": "index",
+      "sha256": "cf80a7510234dcd5ae594b30b44682b8b45ba13c0fcb5bf8928bea143802aa1c",
+      "size": 591,
+      "normalized_sha256": "cf80a7510234dcd5ae594b30b44682b8b45ba13c0fcb5bf8928bea143802aa1c"
+    },
+    "web/index.html": {
+      "role": "index",
+      "sha256": "5287b62e7f5119ea2866599cc08c34c6f0dd2def5644c53957747d9910c8ffdf",
+      "size": 972,
+      "normalized_sha256": "5287b62e7f5119ea2866599cc08c34c6f0dd2def5644c53957747d9910c8ffdf"
+    },
+    "web/package-lock.json": {
+      "role": "observe",
+      "sha256": "5203251392e02b709e8cd39f8df771db9252d99c3c6a2889bd6d9550f89f6d1b",
+      "size": 220752,
+      "normalized_sha256": "5203251392e02b709e8cd39f8df771db9252d99c3c6a2889bd6d9550f89f6d1b"
+    },
+    "web/package.json": {
+      "role": "index",
+      "sha256": "6d1a33cadd50f72ac7f50169592608a4bda4c53796b5b51d0355fad3b2409c52",
+      "size": 1365,
+      "normalized_sha256": "6d1a33cadd50f72ac7f50169592608a4bda4c53796b5b51d0355fad3b2409c52"
+    },
+    "web/public/favicon.svg": {
+      "role": "observe",
+      "sha256": "61bc9a161de58248288e6905425d7180f0624c2865007b97d763fdac12043a66",
+      "size": 9522,
+      "normalized_sha256": "61bc9a161de58248288e6905425d7180f0624c2865007b97d763fdac12043a66"
+    },
+    "web/public/icons.svg": {
+      "role": "observe",
+      "sha256": "b45fa506195cfcdef406ba9f0c77b36ddc1a7c224040926ec70abc2fdea7b93a",
+      "size": 5031,
+      "normalized_sha256": "b45fa506195cfcdef406ba9f0c77b36ddc1a7c224040926ec70abc2fdea7b93a"
+    },
+    "web/src/App.tsx": {
+      "role": "index",
+      "sha256": "be83f2fbf63d32590ab4d75eeb2c1ca784d1c20059fc023464b79efabee45cc5",
+      "size": 11081,
+      "normalized_sha256": "be83f2fbf63d32590ab4d75eeb2c1ca784d1c20059fc023464b79efabee45cc5"
+    },
+    "web/src/Chat.tsx": {
+      "role": "index",
+      "sha256": "c1a76e209d8ae7486577fcdde3b5f8d5e683504695d45e9bd1e6eeb6fd1a164b",
+      "size": 13711,
+      "normalized_sha256": "c1a76e209d8ae7486577fcdde3b5f8d5e683504695d45e9bd1e6eeb6fd1a164b"
+    },
+    "web/src/HomePage.tsx": {
+      "role": "index",
+      "sha256": "44978b4f148d518de5954d2186b442252b3de896c07c745010dcd4b6433cc025",
+      "size": 4591,
+      "normalized_sha256": "44978b4f148d518de5954d2186b442252b3de896c07c745010dcd4b6433cc025"
+    },
+    "web/src/Login.tsx": {
+      "role": "index",
+      "sha256": "ffb7ad128e7c348f946e498018db7e255fe1a0e2aa779d4ff2790fa75bb26e82",
+      "size": 929,
+      "normalized_sha256": "ffb7ad128e7c348f946e498018db7e255fe1a0e2aa779d4ff2790fa75bb26e82"
+    },
+    "web/src/Sidebar.tsx": {
+      "role": "index",
+      "sha256": "510743757d3d6cefb4cb3bda85c3f291246de411eeb314ff11dc5f5ad6a0059a",
+      "size": 6988,
+      "normalized_sha256": "510743757d3d6cefb4cb3bda85c3f291246de411eeb314ff11dc5f5ad6a0059a"
+    },
+    "web/src/__tests__/App.test.tsx": {
+      "role": "observe",
+      "sha256": "0b06fd96423ae2f437504507e002190e719b276372f33be56d66634bc1f2427c",
+      "size": 12474,
+      "normalized_sha256": "0b06fd96423ae2f437504507e002190e719b276372f33be56d66634bc1f2427c"
+    },
+    "web/src/__tests__/Chat.test.tsx": {
+      "role": "observe",
+      "sha256": "af6445d79a69ddb7b8eb71ebd1d8aaca7fd446ad6fa8cbb3516ed3de69d56ded",
+      "size": 1988,
+      "normalized_sha256": "af6445d79a69ddb7b8eb71ebd1d8aaca7fd446ad6fa8cbb3516ed3de69d56ded"
+    },
+    "web/src/__tests__/HomePage.test.tsx": {
+      "role": "observe",
+      "sha256": "324077140e0a7001104c693389ae5a9a4fa024b02652eb7a2b8d9a2b60d0a539",
+      "size": 4180,
+      "normalized_sha256": "324077140e0a7001104c693389ae5a9a4fa024b02652eb7a2b8d9a2b60d0a539"
+    },
+    "web/src/__tests__/Login.test.tsx": {
+      "role": "observe",
+      "sha256": "e53cc93e276cb3856e7f7ba8756770bb8b2aff3a99a8af91ed0c36f5553f1cf9",
+      "size": 1028,
+      "normalized_sha256": "e53cc93e276cb3856e7f7ba8756770bb8b2aff3a99a8af91ed0c36f5553f1cf9"
+    },
+    "web/src/__tests__/Sidebar.test.tsx": {
+      "role": "observe",
+      "sha256": "be3d0f59c73003bdb964d4a59fa29526bf4aee96f172282bbafea4abaab09433",
+      "size": 2884,
+      "normalized_sha256": "be3d0f59c73003bdb964d4a59fa29526bf4aee96f172282bbafea4abaab09433"
+    },
+    "web/src/__tests__/api/auth.test.ts": {
+      "role": "observe",
+      "sha256": "a0c8ee7f76006766a545b7a21a1638469fcc3eb3e28b457f7d20e0079ccf1a58",
+      "size": 1610,
+      "normalized_sha256": "a0c8ee7f76006766a545b7a21a1638469fcc3eb3e28b457f7d20e0079ccf1a58"
+    },
+    "web/src/__tests__/api/client.test.ts": {
+      "role": "observe",
+      "sha256": "5c3b78103923b5a8fe239670392ce7f209804d5de6ba8a4b8522877e7ee6fc34",
+      "size": 1513,
+      "normalized_sha256": "5c3b78103923b5a8fe239670392ce7f209804d5de6ba8a4b8522877e7ee6fc34"
+    },
+    "web/src/__tests__/api/conversations.test.ts": {
+      "role": "observe",
+      "sha256": "368da09ff1789e64febdc883613056450eeddbd3fe03b074ba0978cc89746f09",
+      "size": 1619,
+      "normalized_sha256": "368da09ff1789e64febdc883613056450eeddbd3fe03b074ba0978cc89746f09"
+    },
+    "web/src/__tests__/api/hints.test.ts": {
+      "role": "observe",
+      "sha256": "0f6d3d8d5d1e997e0eac93f514a4f35c941369a474cb0e2d475e8b38616f1fea",
+      "size": 2500,
+      "normalized_sha256": "0f6d3d8d5d1e997e0eac93f514a4f35c941369a474cb0e2d475e8b38616f1fea"
+    },
+    "web/src/__tests__/api/knowledge.test.ts": {
+      "role": "observe",
+      "sha256": "f1bf477775a85cfcb3851796c79f469fbf61344d437309dfdbcc52e345240831",
+      "size": 4033,
+      "normalized_sha256": "f1bf477775a85cfcb3851796c79f469fbf61344d437309dfdbcc52e345240831"
+    },
+    "web/src/__tests__/api/llmConfig.test.ts": {
+      "role": "observe",
+      "sha256": "39cb86577479aef6e49ff36d922e9cc6f2ecfb8e27387a2fe8fcfd50ae5b0bd9",
+      "size": 4432,
+      "normalized_sha256": "39cb86577479aef6e49ff36d922e9cc6f2ecfb8e27387a2fe8fcfd50ae5b0bd9"
+    },
+    "web/src/__tests__/api/llmProviders.test.ts": {
+      "role": "observe",
+      "sha256": "bd6e3c59f6c65c0308d27dc81f63929458cc63c25aa41de6749df2a204d302c1",
+      "size": 2929,
+      "normalized_sha256": "bd6e3c59f6c65c0308d27dc81f63929458cc63c25aa41de6749df2a204d302c1"
+    },
+    "web/src/__tests__/api/upload.test.ts": {
+      "role": "observe",
+      "sha256": "81636b9d998c5ec8454b540b40013f4aa601cec551876aba0f7a48e23563a197",
+      "size": 1341,
+      "normalized_sha256": "81636b9d998c5ec8454b540b40013f4aa601cec551876aba0f7a48e23563a197"
+    },
+    "web/src/__tests__/components/Attachment.test.tsx": {
+      "role": "observe",
+      "sha256": "d5457330b6a283b710fe1a48f1cda69c9421f96af91c9c339145192d59ae68a8",
+      "size": 1389,
+      "normalized_sha256": "d5457330b6a283b710fe1a48f1cda69c9421f96af91c9c339145192d59ae68a8"
+    },
+    "web/src/__tests__/components/DownloadButton.test.tsx": {
+      "role": "observe",
+      "sha256": "becd4d70f0a26b02518b27019361619de97fb5466add78c6330476022a0f0799",
+      "size": 3509,
+      "normalized_sha256": "becd4d70f0a26b02518b27019361619de97fb5466add78c6330476022a0f0799"
+    },
+    "web/src/__tests__/components/SettingsModal.test.tsx": {
+      "role": "observe",
+      "sha256": "ad6b126ae6c5d2d608a71a4104523d2a906b3efb20f9eda1c5f1725cf5b1fd88",
+      "size": 7116,
+      "normalized_sha256": "ad6b126ae6c5d2d608a71a4104523d2a906b3efb20f9eda1c5f1725cf5b1fd88"
+    },
+    "web/src/__tests__/components/settings/AppearancePanel.test.tsx": {
+      "role": "observe",
+      "sha256": "255648e1dd4f3b73636a4b16ec335829980402f88d9cf2179c91f1be5e259009",
+      "size": 1543,
+      "normalized_sha256": "255648e1dd4f3b73636a4b16ec335829980402f88d9cf2179c91f1be5e259009"
+    },
+    "web/src/__tests__/components/settings/BalancePanel.test.tsx": {
+      "role": "observe",
+      "sha256": "51970f54e58943a7db120c0ad2b5b698b2dc7f65f5b1ae4f9e6be5fb37f05e6c",
+      "size": 2194,
+      "normalized_sha256": "51970f54e58943a7db120c0ad2b5b698b2dc7f65f5b1ae4f9e6be5fb37f05e6c"
+    },
+    "web/src/__tests__/components/settings/HintManagementPanel.test.tsx": {
+      "role": "observe",
+      "sha256": "0fb5899b5f52298cc2d43de7d4aa49ed1fe80abee57389f0c06bb2f72f3e79fa",
+      "size": 4768,
+      "normalized_sha256": "0fb5899b5f52298cc2d43de7d4aa49ed1fe80abee57389f0c06bb2f72f3e79fa"
+    },
+    "web/src/__tests__/components/settings/KnowledgeUploadPanel.test.tsx": {
+      "role": "observe",
+      "sha256": "45fb53fc9259af97e746e2b0808c91c335b87fa87af48a5377d0223c0028f9c7",
+      "size": 6051,
+      "normalized_sha256": "45fb53fc9259af97e746e2b0808c91c335b87fa87af48a5377d0223c0028f9c7"
+    },
+    "web/src/__tests__/components/settings/LlmConfigPanel.test.tsx": {
+      "role": "observe",
+      "sha256": "64f434af17fadf37ab1a8ce669bea45bff2249d5a7443d180c730eaaab02db68",
+      "size": 4834,
+      "normalized_sha256": "64f434af17fadf37ab1a8ce669bea45bff2249d5a7443d180c730eaaab02db68"
+    },
+    "web/src/__tests__/components/settings/LlmPresetPanel.test.tsx": {
+      "role": "observe",
+      "sha256": "2ec0bf79e6389767dfef35eb94d11cb3798343326e2593fc0410b3867b4e6b22",
+      "size": 6857,
+      "normalized_sha256": "2ec0bf79e6389767dfef35eb94d11cb3798343326e2593fc0410b3867b4e6b22"
+    },
+    "web/src/__tests__/components/settings/ReviewListPanel.test.tsx": {
+      "role": "observe",
+      "sha256": "f04ffe5a951abe8ea071b7f5dc5e2e02c7de71528914b7ff171f512b859b7617",
+      "size": 3987,
+      "normalized_sha256": "f04ffe5a951abe8ea071b7f5dc5e2e02c7de71528914b7ff171f512b859b7617"
+    },
+    "web/src/__tests__/components/settings/presetValidation.test.ts": {
+      "role": "observe",
+      "sha256": "0d5cf75b56f813050e285438998dd867f996ed11e55fcf618c456a89e737cc50",
+      "size": 1096,
+      "normalized_sha256": "0d5cf75b56f813050e285438998dd867f996ed11e55fcf618c456a89e737cc50"
+    },
+    "web/src/__tests__/homeLocale.test.ts": {
+      "role": "observe",
+      "sha256": "fc57db5bdc84b12ef10310155e78741e7145b7ff74eea692cae019298558d4da",
+      "size": 554,
+      "normalized_sha256": "fc57db5bdc84b12ef10310155e78741e7145b7ff74eea692cae019298558d4da"
+    },
+    "web/src/__tests__/homeRoute.test.ts": {
+      "role": "observe",
+      "sha256": "1ed4c565c6b40d346eb4a96fff5e13be8927a5d4437d02c25df08feed2fb3103",
+      "size": 484,
+      "normalized_sha256": "1ed4c565c6b40d346eb4a96fff5e13be8927a5d4437d02c25df08feed2fb3103"
+    },
+    "web/src/__tests__/lib/id.test.ts": {
+      "role": "observe",
+      "sha256": "77539cc01d342c758604190e89dc1fcfdd1b500526e45b01afe95b265f8e93fc",
+      "size": 567,
+      "normalized_sha256": "77539cc01d342c758604190e89dc1fcfdd1b500526e45b01afe95b265f8e93fc"
+    },
+    "web/src/__tests__/store.test.ts": {
+      "role": "observe",
+      "sha256": "66202ea06827b92d3f17d4b5089827b0fa80c6e040ba30f9a85e10ea861a980e",
+      "size": 3689,
+      "normalized_sha256": "66202ea06827b92d3f17d4b5089827b0fa80c6e040ba30f9a85e10ea861a980e"
+    },
+    "web/src/__tests__/theme.test.ts": {
+      "role": "observe",
+      "sha256": "6b2cc19ad65d46f6fccba7e7a128ab849fb02c60d84bd90529f9a111eeeb43bb",
+      "size": 2925,
+      "normalized_sha256": "6b2cc19ad65d46f6fccba7e7a128ab849fb02c60d84bd90529f9a111eeeb43bb"
+    },
+    "web/src/api/auth.ts": {
+      "role": "index",
+      "sha256": "498e6253dc1c672d5f9fb38992efe81a0ec2fcd69391df7e9094d3e0e0ad2d51",
+      "size": 1403,
+      "normalized_sha256": "498e6253dc1c672d5f9fb38992efe81a0ec2fcd69391df7e9094d3e0e0ad2d51"
+    },
+    "web/src/api/client.ts": {
+      "role": "index",
+      "sha256": "a8641aabbb867b90df101686a0152996e450a71ffc77597e63ac098ca3e75248",
+      "size": 1094,
+      "normalized_sha256": "a8641aabbb867b90df101686a0152996e450a71ffc77597e63ac098ca3e75248"
+    },
+    "web/src/api/conversations.ts": {
+      "role": "index",
+      "sha256": "5d417c58002742145fe7bc05893309082581f332074956fd2855fbac8b54280d",
+      "size": 754,
+      "normalized_sha256": "5d417c58002742145fe7bc05893309082581f332074956fd2855fbac8b54280d"
+    },
+    "web/src/api/hints.ts": {
+      "role": "index",
+      "sha256": "8d88ae4e7bc14332f61d662aee6043778b4ea68300013b67a7f8b63dbb0bf6ec",
+      "size": 1614,
+      "normalized_sha256": "8d88ae4e7bc14332f61d662aee6043778b4ea68300013b67a7f8b63dbb0bf6ec"
+    },
+    "web/src/api/knowledge.ts": {
+      "role": "index",
+      "sha256": "11432c581aa20322fc342ad1483bb5d08d52661af0f71931f09d759670ad2eda",
+      "size": 2031,
+      "normalized_sha256": "11432c581aa20322fc342ad1483bb5d08d52661af0f71931f09d759670ad2eda"
+    },
+    "web/src/api/llmConfig.ts": {
+      "role": "index",
+      "sha256": "7eed1fd8b58f2cfcc5600f8498922909d33f91ea6c5c3955636378fa134ff694",
+      "size": 2366,
+      "normalized_sha256": "7eed1fd8b58f2cfcc5600f8498922909d33f91ea6c5c3955636378fa134ff694"
+    },
+    "web/src/api/llmProviders.ts": {
+      "role": "index",
+      "sha256": "83c617d86d3e7ab2a30097f0b777a64e209c20a21d53c440e406b0cf34841264",
+      "size": 3424,
+      "normalized_sha256": "83c617d86d3e7ab2a30097f0b777a64e209c20a21d53c440e406b0cf34841264"
+    },
+    "web/src/api/upload.ts": {
+      "role": "index",
+      "sha256": "f30be33f94f03188756b71c6e895af47582a8c8a2eeadd766d7349acb9c261fa",
+      "size": 852,
+      "normalized_sha256": "f30be33f94f03188756b71c6e895af47582a8c8a2eeadd766d7349acb9c261fa"
+    },
+    "web/src/assets/react.svg": {
+      "role": "observe",
+      "sha256": "35ef61ed53b323ae94a16a8ec659b3d0af3880698791133f23b084085ab1c2e5",
+      "size": 4126,
+      "normalized_sha256": "35ef61ed53b323ae94a16a8ec659b3d0af3880698791133f23b084085ab1c2e5"
+    },
+    "web/src/assets/vite.svg": {
+      "role": "observe",
+      "sha256": "5be21acd42eb7b896e517f4e0f0f11eb5c5d9e54fbbcebe9453f033008fcca6f",
+      "size": 8709,
+      "normalized_sha256": "5be21acd42eb7b896e517f4e0f0f11eb5c5d9e54fbbcebe9453f033008fcca6f"
+    },
+    "web/src/auth/callback.ts": {
+      "role": "index",
+      "sha256": "25c5f0e15f6a514488058324c39d920be799347670c7f084b2678d7653f87d52",
+      "size": 1268,
+      "normalized_sha256": "25c5f0e15f6a514488058324c39d920be799347670c7f084b2678d7653f87d52"
+    },
+    "web/src/components/Attachment.tsx": {
+      "role": "index",
+      "sha256": "1cfed07f2652f3d088d179ff026009716942c0de5dd96f923f75d5e67bf5bdab",
+      "size": 1254,
+      "normalized_sha256": "1cfed07f2652f3d088d179ff026009716942c0de5dd96f923f75d5e67bf5bdab"
+    },
+    "web/src/components/DownloadButton.tsx": {
+      "role": "index",
+      "sha256": "f749769aa82875bf7e5195542f8b93901292f8638936d816ca8b14d86fc569de",
+      "size": 3282,
+      "normalized_sha256": "f749769aa82875bf7e5195542f8b93901292f8638936d816ca8b14d86fc569de"
+    },
+    "web/src/components/SettingsModal.tsx": {
+      "role": "index",
+      "sha256": "48fb9866d11660a674a1ac75c11a0e4402111daa3736438e0d5416225a0b24f0",
+      "size": 4451,
+      "normalized_sha256": "48fb9866d11660a674a1ac75c11a0e4402111daa3736438e0d5416225a0b24f0"
+    },
+    "web/src/components/settings/AppearancePanel.tsx": {
+      "role": "index",
+      "sha256": "55f5cd536fa6fb3f5da0863c4832ea196b7a4eef9260bdec328ebbb82c586b73",
+      "size": 1912,
+      "normalized_sha256": "55f5cd536fa6fb3f5da0863c4832ea196b7a4eef9260bdec328ebbb82c586b73"
+    },
+    "web/src/components/settings/BalancePanel.tsx": {
+      "role": "index",
+      "sha256": "29f893955fe46204bdffab04a4f6c2f3066c5580c1671f220d24a2c1e076bcf7",
+      "size": 2037,
+      "normalized_sha256": "29f893955fe46204bdffab04a4f6c2f3066c5580c1671f220d24a2c1e076bcf7"
+    },
+    "web/src/components/settings/HintManagementPanel.tsx": {
+      "role": "index",
+      "sha256": "206289626f785e618b3235ad0593b600b76d94a491121998e36c20a15ff59d4e",
+      "size": 6167,
+      "normalized_sha256": "206289626f785e618b3235ad0593b600b76d94a491121998e36c20a15ff59d4e"
+    },
+    "web/src/components/settings/KnowledgeUploadPanel.tsx": {
+      "role": "index",
+      "sha256": "f61d9edd57e52e787cdc5cbe0c7128f73b305ab1224244e0dd1835c3b646cee5",
+      "size": 5375,
+      "normalized_sha256": "f61d9edd57e52e787cdc5cbe0c7128f73b305ab1224244e0dd1835c3b646cee5"
+    },
+    "web/src/components/settings/LlmConfigPanel.tsx": {
+      "role": "index",
+      "sha256": "7acf643a150c7513968e1c6de13c1b98a1cd54a5c751610d22753ee7adac73ce",
+      "size": 9790,
+      "normalized_sha256": "7acf643a150c7513968e1c6de13c1b98a1cd54a5c751610d22753ee7adac73ce"
+    },
+    "web/src/components/settings/LlmPresetPanel.tsx": {
+      "role": "index",
+      "sha256": "1f992412eedd4f80ee14198f93368bd7010ac07251c085c2035e4dab61e2b1fb",
+      "size": 13605,
+      "normalized_sha256": "1f992412eedd4f80ee14198f93368bd7010ac07251c085c2035e4dab61e2b1fb"
+    },
+    "web/src/components/settings/ReviewListPanel.tsx": {
+      "role": "index",
+      "sha256": "806e27ae3e8c3586d36187116f34b941556515f9722efe9f4eff45bdcc35e8e1",
+      "size": 4640,
+      "normalized_sha256": "806e27ae3e8c3586d36187116f34b941556515f9722efe9f4eff45bdcc35e8e1"
+    },
+    "web/src/components/settings/presetValidation.ts": {
+      "role": "index",
+      "sha256": "c87570292784203a76db9d3aecf5957fc344efacb814965897a8d312f0cbf1c0",
+      "size": 2877,
+      "normalized_sha256": "c87570292784203a76db9d3aecf5957fc344efacb814965897a8d312f0cbf1c0"
+    },
+    "web/src/homeCopy.ts": {
+      "role": "index",
+      "sha256": "f36d77ab16d97688b8b6797605b971aad70166b222669bad3663c63f6594eaf5",
+      "size": 5637,
+      "normalized_sha256": "f36d77ab16d97688b8b6797605b971aad70166b222669bad3663c63f6594eaf5"
+    },
+    "web/src/homeHeroScene.ts": {
+      "role": "index",
+      "sha256": "0e7938e55982088090c1e5131a992faee1e4150feaa9aeddf16140418e059775",
+      "size": 12566,
+      "normalized_sha256": "0e7938e55982088090c1e5131a992faee1e4150feaa9aeddf16140418e059775"
+    },
+    "web/src/homeRoute.ts": {
+      "role": "index",
+      "sha256": "6e97ec9f0cb458ef820d105f5bd03c18a11997a39420ae65974eda3b635d559b",
+      "size": 433,
+      "normalized_sha256": "6e97ec9f0cb458ef820d105f5bd03c18a11997a39420ae65974eda3b635d559b"
+    },
+    "web/src/index.css": {
+      "role": "index",
+      "sha256": "a00363a944fa2e28adefca5b8bbcf99f103a60f6f91b6783943fff4e4c9cf5bd",
+      "size": 7171,
+      "normalized_sha256": "a00363a944fa2e28adefca5b8bbcf99f103a60f6f91b6783943fff4e4c9cf5bd"
+    },
+    "web/src/lib/id.ts": {
+      "role": "index",
+      "sha256": "095e9089f05ce8b28269ad1b7f6b0f0d22922a081b2b41990bf7728628571392",
+      "size": 608,
+      "normalized_sha256": "095e9089f05ce8b28269ad1b7f6b0f0d22922a081b2b41990bf7728628571392"
+    },
+    "web/src/main.tsx": {
+      "role": "index",
+      "sha256": "fd58004d30106577f8f0827df2f4969767fd596b5d39b2d2ac85c81a55caec48",
+      "size": 688,
+      "normalized_sha256": "fd58004d30106577f8f0827df2f4969767fd596b5d39b2d2ac85c81a55caec48"
+    },
+    "web/src/setupTests.ts": {
+      "role": "index",
+      "sha256": "195a77f44ec8d04687f7f2e7ef4b25d3ea6effea365ecacdcf296b94ce39e79f",
+      "size": 1298,
+      "normalized_sha256": "195a77f44ec8d04687f7f2e7ef4b25d3ea6effea365ecacdcf296b94ce39e79f"
+    },
+    "web/src/store.ts": {
+      "role": "index",
+      "sha256": "50b7ef81fb46aff83549a26b8834f8ac61421498b9617b455b5024185fe18541",
+      "size": 2249,
+      "normalized_sha256": "50b7ef81fb46aff83549a26b8834f8ac61421498b9617b455b5024185fe18541"
+    },
+    "web/src/theme.ts": {
+      "role": "index",
+      "sha256": "d887eb2c0d6a134720debae38c8198888dbffc89791e23ac893b0470f5bb24cf",
+      "size": 2382,
+      "normalized_sha256": "d887eb2c0d6a134720debae38c8198888dbffc89791e23ac893b0470f5bb24cf"
+    },
+    "web/src/vite-env.d.ts": {
+      "role": "index",
+      "sha256": "1261e7cc4c22b2265de20c2a55f9545e83b2121ffaeb56a4d8f8e845a13f956e",
+      "size": 206,
+      "normalized_sha256": "1261e7cc4c22b2265de20c2a55f9545e83b2121ffaeb56a4d8f8e845a13f956e"
+    },
+    "web/tsconfig.app.json": {
+      "role": "index",
+      "sha256": "b1eac9ba6cd1c01d59ebca159805e052c798d9d4ab904680b79ce3e306ea0bbd",
+      "size": 617,
+      "normalized_sha256": "b1eac9ba6cd1c01d59ebca159805e052c798d9d4ab904680b79ce3e306ea0bbd"
+    },
+    "web/tsconfig.json": {
+      "role": "index",
+      "sha256": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808",
+      "size": 119,
+      "normalized_sha256": "770b4140bbb581e2dfd9ea9946ffc9c75a1d86ba7d2db5f77c83e37cbdf9d808"
+    },
+    "web/tsconfig.node.json": {
+      "role": "index",
+      "sha256": "90a22c920cbc14624fb4658b58f15c875abf3234224f3933f211849c3ada3242",
+      "size": 591,
+      "normalized_sha256": "90a22c920cbc14624fb4658b58f15c875abf3234224f3933f211849c3ada3242"
+    },
+    "web/vite.config.ts": {
+      "role": "index",
+      "sha256": "b86e9cc95acc7786a46c650d2fb42a8c5968510c4599004ddd5c375a235eb726",
+      "size": 758,
+      "normalized_sha256": "b86e9cc95acc7786a46c650d2fb42a8c5968510c4599004ddd5c375a235eb726"
     }
   },
   "managed_scope": {
