@@ -60,7 +60,8 @@ class FileStorageServiceTest {
         assertEquals(pngBytes().length, ref.size());
         assertTrue(Files.exists(stored(CONV_A, "photo.png")));
         assertFalse(ref.toString().contains(tempDir.toString()), "Ref must not carry a server path: " + ref);
-        assertEquals(List.of("name", "size"), java.util.Arrays.stream(FileStorageService.Ref.class.getRecordComponents())
+        assertEquals(List.of("name", "size", "contentType"),
+                java.util.Arrays.stream(FileStorageService.Ref.class.getRecordComponents())
                 .map(java.lang.reflect.RecordComponent::getName).toList());
     }
 

@@ -9,7 +9,18 @@ public interface LlmClient {
 
     record ToolCall(String id, String name, String argumentsJson) {}
 
-    record Message(String role, String content, String toolCallId, List<ToolCall> toolCalls) {
+    record Message(String role, String content, String toolCallId, List<ToolCall> toolCalls,
+                   @com.fasterxml.jackson.annotation.JsonInclude(
+                           com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                   List<String> imageUrls) {
+
+        public Message(String role, String content, String toolCallId, List<ToolCall> toolCalls) {
+            this(role, content, toolCallId, toolCalls, null);
+        }
+
+        public Message withImageUrls(List<String> urls) {
+            return new Message(role, content, toolCallId, toolCalls, urls);
+        }
 
         public static Message system(String content) {
             return new Message("system", content, null, null);

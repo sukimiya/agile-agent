@@ -42,7 +42,16 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private static Map<String, Object> toWireMessage(Message m) {
         var wire = new LinkedHashMap<String, Object>();
         wire.put("role", m.role());
-        if (m.content() != null) wire.put("content", m.content());
+        if (m.imageUrls() != null && !m.imageUrls().isEmpty()) {
+            var parts = new java.util.ArrayList<Map<String, Object>>();
+            parts.add(Map.of("type", "text", "text", m.content() == null ? "" : m.content()));
+            for (var url : m.imageUrls()) {
+                parts.add(Map.of("type", "image_url", "image_url", Map.of("url", url)));
+            }
+            wire.put("content", parts);
+        } else if (m.content() != null) {
+            wire.put("content", m.content());
+        }
         if (m.toolCallId() != null) wire.put("tool_call_id", m.toolCallId());
         if (m.toolCalls() != null) {
             wire.put("tool_calls", m.toolCalls().stream().map(tc -> Map.of(

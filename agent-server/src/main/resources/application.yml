@@ -130,6 +130,13 @@ app:
       max-candidates: 5
       classify-timeout: 10s
   data-dir: ${APP_DATA_DIR:${user.home}/.openclaw/workspace}
+  # Public-read / private-write Tencent Cloud COS bucket that mirrors uploaded chat images; the model receives
+  # the plain object URLs. Disabled when the endpoint or credentials are unset.
+  cos:
+    endpoint: ${COS_BUCKET_ENDPOINT:}
+    secret-id: ${COS_SECRET_ID:}
+    secret-key: ${COS_SECRET_KEY:}
+    key-prefix: chat-uploads
   upload:
     dir: ${app.data-dir}/uploads
     ttl-hours: 24

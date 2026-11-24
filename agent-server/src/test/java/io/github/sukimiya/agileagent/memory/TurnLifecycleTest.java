@@ -79,6 +79,33 @@ class TurnLifecycleTest {
     }
 
     @Test
+    void acceptStoresImageUrlsOnTheUserPayloadOnlyWhenPresent() throws Exception {
+        var withUrls = newConversationId();
+        var urls = List.of("https://bucket/one.png", "https://bucket/two.png");
+        accept(new TurnCommand(ALICE, "endpoint", withUrls, "k-img", "看图", List.of("one.png"), urls));
+        var withoutUrls = newConversationId();
+        accept(command(withoutUrls, "k-plain", "hi"));
+
+        var withPayload = userPayload(withUrls);
+        assertThat(withPayload).contains("\"imageUrls\":[\"https://bucket/one.png\",\"https://bucket/two.png\"]");
+        // Without URLs the stored JSON is byte-identical to the pre-images form.
+        assertThat(userPayload(withoutUrls)).doesNotContain("imageUrls");
+
+        // Round-trip through the same Jackson record deserialization history reads use.
+        var message = support.mapper.readValue(withPayload, io.github.sukimiya.agileagent.service.LlmClient.Message.class);
+        assertThat(message.imageUrls()).isEqualTo(urls);
+        // A stored payload written before imageUrls existed still deserializes.
+        assertThat(support.mapper.readValue(userPayload(withoutUrls),
+                io.github.sukimiya.agileagent.service.LlmClient.Message.class).imageUrls()).isNull();
+    }
+
+    private String userPayload(String conversationId) {
+        return support.fixture.jdbc().queryForObject(
+                "SELECT payload FROM chat_messages WHERE conversation_id = ? AND role = 'user'",
+                String.class, conversationId);
+    }
+
+    @Test
     void acceptPersistsUserMessageAndAcceptedTurnBeforeExecution() {
         var conversation = newConversationId();
 

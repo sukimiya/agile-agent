@@ -189,6 +189,7 @@ export default function App() {
           messages: [{ role: "user", content: apiContent }],
           conversationId: convId,
           stream: true,
+          attachments: uploadedRefs.map((r) => r.name),
         }),
       });
 

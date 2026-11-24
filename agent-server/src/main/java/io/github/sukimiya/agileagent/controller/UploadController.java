@@ -28,6 +28,7 @@ import io.github.sukimiya.agileagent.memory.ConversationIds;
 import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
+import io.github.sukimiya.agileagent.service.ChatImageStore;
 import io.github.sukimiya.agileagent.service.FileStorageService;
 import io.github.sukimiya.agileagent.service.FileStorageService.RejectedException;
 import io.github.sukimiya.agileagent.service.SessionService;
@@ -56,11 +57,14 @@ class UploadController {
     private final FileStorageService storage;
     private final UploadProperties props;
     private final SessionService sessionService;
+    private final ChatImageStore imageStore;
 
-    UploadController(FileStorageService storage, UploadProperties props, SessionService sessionService) {
+    UploadController(FileStorageService storage, UploadProperties props, SessionService sessionService,
+                     ChatImageStore imageStore) {
         this.storage = storage;
         this.props = props;
         this.sessionService = sessionService;
+        this.imageStore = imageStore;
     }
 
     @GetMapping("/download")
@@ -127,6 +131,10 @@ class UploadController {
                     }
                     return Flux.fromIterable(list)
                             .concatMap(f -> storage.save(conversationId, f)
+                                    .flatMap(ref -> imageStore.mirror(conversationId, ref.name(),
+                                                    storage.locate(conversationId, ref.name()).orElseThrow(),
+                                                    ref.contentType())
+                                            .thenReturn(ref))
                                     .map(ref -> new UploadedFile(conversationId, ref.name(), ref.size()))
                                     .onErrorMap(RejectedException.class, e -> new PerFileRejected(e, f.filename())))
                             .collectList()
