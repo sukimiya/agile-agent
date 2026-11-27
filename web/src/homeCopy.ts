@@ -26,7 +26,7 @@ export interface HomeCopy {
 const en: HomeCopy = {
   languageLabel: 'Language',
   title: 'She remembers, and she can forget',
-  subtitle: "An open-source conversation assistant. It will recall what matters when you need it; if you'd rather not keep something, just say so in the chat, and it will forget.",
+  subtitle: 'An open-source conversation assistant. It recalls relevant history when you need it. Tell it in the chat what to forget.',
   signIn: 'Sign in with GitHub',
   openChat: 'Open chat',
   welcome: (name) => `Welcome back, ${name}`,
@@ -34,38 +34,38 @@ const en: HomeCopy = {
   whyTitle: 'Why agile-agent',
   features: [
     {
-      title: 'Relevant history is brought back',
-      body: "Conversations are arranged to fit the model's context window, so older turns that do not fit are not cut off abruptly. When something relates to the current question, Chinese full-text search brings the original text back to the model. No separate vector database is required. It searches the current conversation first, and you can turn on cross-conversation recall when you need it.",
+      title: 'Search brings back relevant history',
+      body: "The app fits each conversation to the model's context window. Older turns that do not fit stay intact. Chinese full-text search returns the original text for the current question. You do not need a vector database. Search starts in the current conversation. You can turn on recall across conversations.",
     },
     {
       title: 'She remembers, and she can forget',
-      body: 'The system can turn things worth keeping from a conversation into memories with sources, and link the relationships between them. Memories that go unused for a long time gradually fade. Ones you have confirmed yourself are not retired automatically. In the chat, saying “forget …” retires the matching memory, and saying “remember …” can restore it.',
+      body: 'The app saves facts worth keeping, each with a source, and stores links between them. Memories you do not use fade. A memory you confirmed stays active. In chat, say "forget ..." to retire a memory. Say "remember ..." to restore it.',
     },
     {
       title: 'Knowledge base and attachments',
-      body: 'You can upload Markdown or plain text. After it is reviewed, the assistant can consult it before answering. You can also attach images or PDFs in the chat.',
+      body: 'Upload Markdown or text. After review, the assistant can read the file before it answers. You can attach an image or a PDF in chat.',
     },
     {
-      title: 'Choose your model, and check the balance',
-      body: 'Use a model service with an OpenAI-compatible API. You can configure x.ai, Tongyi Qianwen, DeepSeek, and others. Chat and balance lookup can use separate addresses and keys, and you can view the current balance in Settings.',
+      title: 'Choose a model and check the balance',
+      body: 'Use a service with an OpenAI-compatible API, such as x.ai, Tongyi Qianwen, or DeepSeek. Chat and balance lookup can use different addresses and keys. Settings shows the current balance.',
     },
     {
-      title: 'Sign in with GitHub, data kept per person',
-      body: 'Sign in with a GitHub account to start chatting. Conversations and configuration are separated by tenant and by user. Model keys are encrypted in your own tenant configuration.',
+      title: 'GitHub sign-in keeps data per person',
+      body: 'Sign in with GitHub to start a chat. Conversations and settings are separate for each tenant and each user. Model keys are encrypted in that tenant config.',
     },
   ],
   reasons: [
-    'Open source under the Apache License 2.0. The code is public, and you can deploy it yourself with Docker Compose.',
-    'Long-term memory is part of the product: it keeps what should be kept and forgets when you say so, rather than stuffing the chat log back into the model afterward.',
-    'It is not locked to a single model vendor. Keys are configured by the tenant and stored encrypted, and chat charges go to your own model account.',
-    'The conversation comes back as a stream of events, so the answer appears while it is being generated.',
+    'The code is Apache License 2.0. You can deploy it with Docker Compose.',
+    'Long-term memory is built in. It keeps what you ask it to keep. It forgets what you ask it to forget. It does not paste the old chat log into the model.',
+    'You do not have to use one model vendor. You set the keys. The tenant config stores them encrypted. Chat charges go to your model account.',
+    'Replies arrive as a stream of events. The answer appears while the model writes it.',
   ],
 };
 
 const zh: HomeCopy = {
   languageLabel: '语言',
   title: '记得住，也忘得掉',
-  subtitle: '开源的对话助手。需要时会找回相关往事；不想留的，在聊天里说一声就可以忘掉。',
+  subtitle: '开源的对话助手。需要时会找回相关往事。不想留的，在聊天里说一声就可以忘掉。',
   signIn: 'GitHub 登录',
   openChat: '进入聊天',
   welcome: (name) => `欢迎回来，${name}`,
@@ -78,7 +78,7 @@ const zh: HomeCopy = {
     },
     {
       title: '记得住，也忘得掉',
-      body: '系统可以把对话里值得留下的事做成带来源的记忆，并带上相关关系。很久不用的记忆会逐渐淡出，你亲口确认过的不会被自动停用。在聊天里说「忘记…」就会停用对应记忆，说「记起来…」可以恢复。',
+      body: '系统可以把对话里值得留下的事做成带来源的记忆，并带上相关关系。很久不用的记忆会逐渐淡出。你亲口确认过的不会被自动停用。在聊天里说"忘记…"就会停用对应记忆。说"记起来…"可以恢复。',
     },
     {
       title: '知识库与附件',

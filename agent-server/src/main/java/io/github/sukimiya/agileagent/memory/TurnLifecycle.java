@@ -104,7 +104,8 @@ public class TurnLifecycle {
             if (instanceGuard.conflict()) {
                 return Mono.error(new MemoryException(ErrorCode.INSTANCE_CONFLICT));
             }
-            var payload = conversations.serialize(LlmClient.Message.user(command.text()));
+            var payload = conversations.serialize(
+                    LlmClient.Message.user(command.text()).withImageUrls(command.imageUrls()));
             props.checkMessageSize(payload);
             var hash = fingerprint(command);
             // Set by the attempt that interrupted an expired turn; read only after that attempt committed.

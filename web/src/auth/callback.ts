@@ -20,7 +20,7 @@ export function consumeOAuthCallback(): OAuthCallback {
   const error = params.get('error') ?? (token ? null : 'missing_token');
   const url = new URL(window.location.href);
   url.hash = '';
-  url.pathname = '/';
+  url.pathname = '/chat';
   window.history.replaceState(null, '', `${url.pathname}${url.search}`);
   pending = { token, error };
   return pending;

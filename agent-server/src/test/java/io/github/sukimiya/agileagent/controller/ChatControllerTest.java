@@ -51,7 +51,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @WebFluxTest(ChatController.class)
-@Import({WebConfig.class, AuthExceptionHandler.class, MemoryExceptionHandler.class, CurrentUserArgumentResolver.class})
+@Import({WebConfig.class, AuthExceptionHandler.class, MemoryExceptionHandler.class, CurrentUserArgumentResolver.class,
+        io.github.sukimiya.agileagent.config.UploadProperties.class})
 class ChatControllerTest {
 
     private static final MemoryScope SCOPE = new MemoryScope("tenant-1", "user-1");
@@ -64,6 +65,7 @@ class ChatControllerTest {
     @MockBean ConversationHistory history;
     @MockBean MemoryMaintenance maintenance;
     @MockBean TenantLlmClientResolver llmResolver;
+    @MockBean io.github.sukimiya.agileagent.service.ChatImageStore imageStore;
     @MockBean AuthSessionStore sessions;
     @MockBean OAuth2Client oauth2;
     @MockBean org.springframework.data.redis.core.ReactiveStringRedisTemplate redis;
@@ -140,6 +142,63 @@ class ChatControllerTest {
 
         verify(lifecycle).accept(command(CONV, "hi"));
         verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm);
+    }
+
+    @Test
+    void completionsAttachmentsReachTheCommandAndResolveToImageUrls() {
+        asUser1();
+        var llm = stubAcceptedTurn(CONV);
+        var urls = List.of("https://signed/a.png");
+        when(imageStore.imageUrls(CONV, List.of("a.png"))).thenReturn(urls);
+        when(orchestrator.chat(eq(accepted(CONV)), eq("sl-tok"), eq(user1Identity()), eq(llm), eq(urls)))
+                .thenReturn(Flux.just("hello back"));
+
+        client.post().uri("/api/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test-token")
+                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"" + CONV
+                        + "\",\"attachments\":[\"a.png\",7,null]}")
+                .exchange().expectStatus().isOk();
+
+        // Non-string entries are ignored; names reach the command for idempotency, the resolved URLs too.
+        verify(lifecycle).accept(argThat(c -> c != null && List.of("a.png").equals(c.attachmentIds())
+                && urls.equals(c.imageUrls())));
+        verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm, urls);
+        verify(orchestrator, never()).chat(any(), any(), any(), any(ResolvedModel.class));
+    }
+
+    @Test
+    void completionsAttachmentsAreNotResolvedWhenAccessIsDenied() {
+        asUser1();
+        when(sessionService.verifyAccess(CONV, SCOPE))
+                .thenReturn(Mono.error(new MemoryException(ErrorCode.CONVERSATION_NOT_FOUND)));
+        when(llmResolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(mock(LlmClient.class), null, null)));
+
+        client.post().uri("/api/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test-token")
+                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"" + CONV
+                        + "\",\"attachments\":[\"a.png\"]}")
+                .exchange().expectStatus().isNotFound();
+
+        verifyNoInteractions(imageStore, lifecycle, orchestrator);
+    }
+
+    @Test
+    void completionsWithoutResolvableAttachmentsUsesThePlainCall() {
+        asUser1();
+        var llm = stubAcceptedTurn(CONV);
+        when(imageStore.imageUrls(CONV, List.of("gone.png"))).thenReturn(List.of());
+
+        client.post().uri("/api/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test-token")
+                .bodyValue("{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"conversationId\":\"" + CONV
+                        + "\",\"attachments\":[\"gone.png\"]}")
+                .exchange().expectStatus().isOk();
+
+        verify(orchestrator).chat(accepted(CONV), "sl-tok", user1Identity(), llm);
+        verify(orchestrator, never()).chat(any(), any(), any(), any(ResolvedModel.class), anyList());
     }
 
     @Test

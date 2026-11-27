@@ -8,7 +8,7 @@ const REPO_URL = 'https://github.com/sukimiya/agile-agent';
 
 function Cta({ signedIn, label, className }: { signedIn: boolean; label: string; className: string }) {
   if (signedIn) {
-    return <a href="/" className={className}>{label}</a>;
+    return <a href="/chat" className={className}>{label}</a>;
   }
   return <a href={authorizeUrl()} className={className}>{label}</a>;
 }

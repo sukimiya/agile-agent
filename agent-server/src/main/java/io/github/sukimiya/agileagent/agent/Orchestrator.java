@@ -142,7 +142,13 @@ public class Orchestrator {
 
     /** Streams one accepted turn for the tenant's resolved model, budgeting every call to its window. */
     public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, ResolvedModel model) {
-        return chat(accepted, accessToken, identity, model.client(), windowOf(model));
+        return chat(accepted, accessToken, identity, model, List.of());
+    }
+
+    /** Same turn, with presigned image URLs attached to the current question's user message. */
+    public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity,
+            ResolvedModel model, List<String> imageUrls) {
+        return chat(accepted, accessToken, identity, model.client(), windowOf(model), imageUrls);
     }
 
     /**
@@ -151,11 +157,11 @@ public class Orchestrator {
      * once, so a second subscription gets an error line instead of a second model call).
      */
     public Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm) {
-        return chat(accepted, accessToken, identity, llm, budget.defaultWindow());
+        return chat(accepted, accessToken, identity, llm, budget.defaultWindow(), List.of());
     }
 
     private Flux<String> chat(AcceptedTurn accepted, String accessToken, IdentityContext identity, LlmClient llm,
-            ModelWindow window) {
+            ModelWindow window, List<String> imageUrls) {
         var ticket = accepted.ticket();
         if (accepted.replay()) {
             return replay(accepted);
@@ -169,7 +175,8 @@ public class Orchestrator {
             return Flux.concat(
                         Flux.just(controlLine("thinking", "正在处理...")),
                         lifecycle.execute(ticket,
-                                recorder -> runTurn(recorder, accessToken, executionIdentity, llm, window)),
+                                recorder -> runTurn(recorder, accessToken, executionIdentity, llm, window,
+                                        imageUrls)),
                         Flux.just(controlLine("done", null)))
                 .onErrorResume(e -> {
                     String code = errorCode(e);
@@ -181,7 +188,7 @@ public class Orchestrator {
     }
 
     private Flux<String> runTurn(TurnRecorder recorder, String accessToken, IdentityContext identity, LlmClient llm,
-            ModelWindow window) {
+            ModelWindow window, List<String> imageUrls) {
         var ticket = recorder.ticket();
         var usage = new UsageAccumulator();
         var finalText = new AtomicReference<String>();
@@ -193,7 +200,8 @@ public class Orchestrator {
                         return streamFinalAnswer(answer, Flux.just(new LlmClient.LlmEvent.ContentDelta(text),
                                 new LlmClient.LlmEvent.Completed(text)));
                     }
-                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage));
+                    var call = new Call(ticket, llm, window, usage, assembler.recall(ticket, userMessage),
+                            userMessage, imageUrls);
                     return route(call, userMessage)
                             .flatMapMany(capabilityCodes -> capabilityCodes.isEmpty()
                                     ? answerDirectly(call, answer, userMessage)
@@ -250,7 +258,7 @@ public class Orchestrator {
      * recall (run once, on first use; M2a Task 5).
      */
     private record Call(TurnTicket ticket, LlmClient llm, ModelWindow window, UsageAccumulator usage,
-            Mono<RecallResult> recall) {}
+            Mono<RecallResult> recall, String question, List<String> imageUrls) {}
 
     private List<LlmClient.Message> routingPrefix() {
         return List.of(LlmClient.Message.system(ROUTING_PROMPT_TEMPLATE.formatted(routingCatalog())));
@@ -269,13 +277,33 @@ public class Orchestrator {
 
     /** One budgeted model call: adds usage to the turn total and records the estimate deviation. */
     private Flux<LlmClient.LlmEvent> stream(Call call, ContextPurpose purpose, AssembledContext context) {
-        return modelCall(call.llm(), context.messages(), List.of(), budget, call.window())
+        return modelCall(call.llm(), messagesWithImages(call, context.messages()), List.of(), budget,
+                call.window())
                 .doOnNext(event -> {
             call.usage().add(event);
             if (event instanceof LlmClient.LlmEvent.Usage value) {
                 assembler.recordUsage(context, purpose, value.promptTokens());
             }
         });
+    }
+
+    /**
+     * The call's messages with the turn's image URLs attached to the last user message carrying the current
+     * question — the question itself, never history, system prompts or the aggregate results suffix.
+     */
+    private static List<LlmClient.Message> messagesWithImages(Call call, List<LlmClient.Message> messages) {
+        if (call.imageUrls().isEmpty()) {
+            return messages;
+        }
+        var copy = new ArrayList<>(messages);
+        for (int i = copy.size() - 1; i >= 0; i--) {
+            var m = copy.get(i);
+            if ("user".equals(m.role()) && java.util.Objects.equals(m.content(), call.question())) {
+                copy.set(i, m.withImageUrls(call.imageUrls()));
+                break;
+            }
+        }
+        return copy;
     }
 
     private Mono<List<String>> route(Call call, String userMessage) {

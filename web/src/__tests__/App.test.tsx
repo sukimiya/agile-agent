@@ -211,6 +211,45 @@ describe('App', () => {
     expect(sent.conversationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
+  it('sends uploaded attachment names in the completions body', async () => {
+    useStore.getState().setAuth({ token: 'app-tok', userId: 'u1', name: '周琳琳' });
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const bodies: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/chat/completions')) {
+        bodies.push(String(init?.body ?? ''));
+        return { ok: true, status: 200, body: stream };
+      }
+      if (url.startsWith('/api/files/upload')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ sessionId: 'c1', name: 'a.png', size: 3 }],
+        };
+      }
+      if (url.startsWith('/api/auth/me')) return me();
+      if (url.startsWith('/api/conversations/')) return { ok: false, status: 404 };
+      return { ok: true, status: 200, json: async () => [] };
+    }));
+    useStore.getState().addFiles([new File(['abc'], 'a.png', { type: 'image/png' })]);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByPlaceholderText('输入您的问题...')).toBeInTheDocument());
+    fireEvent.change(screen.getByPlaceholderText('输入您的问题...'), { target: { value: '看图' } });
+    fireEvent.click(screen.getByLabelText('发送'));
+
+    await waitFor(() => expect(bodies.length).toBe(1));
+    const sent = JSON.parse(bodies[0]);
+    expect(sent.attachments).toEqual(['a.png']);
+    expect(sent.messages[0].content).toContain('[已上传文件]');
+  });
+
   it('shows a generic failure message when chat returns a non-ok status', async () => {
     useStore.getState().setAuth({ token: 'app-tok', userId: 'u1', name: '周琳琳' });
     mockFetchByUrl({
@@ -269,7 +308,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('输入您的问题...')).toBeInTheDocument());
     expect(localStorage.getItem('auth-token')).toBe('app-tok');
     expect(window.location.hash).toBe('');
-    expect(window.location.pathname).toBe('/');
+    expect(window.location.pathname).toBe('/chat');
     expect(screen.getByText('周琳琳')).toBeInTheDocument();
     const meCall = vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/auth/me');
     expect(new Headers(meCall?.[1]?.headers).get('Authorization')).toBe('Bearer app-tok');
@@ -284,7 +323,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: '使用 GitHub 登录' })).toBeInTheDocument();
     expect(localStorage.getItem('auth-token')).toBeNull();
     expect(window.location.hash).toBe('');
-    expect(window.location.pathname).toBe('/');
+    expect(window.location.pathname).toBe('/chat');
   });
 
   it('returns to login when the callback token is rejected by /api/auth/me', async () => {

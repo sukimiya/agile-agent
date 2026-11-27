@@ -14,7 +14,7 @@ describe('Login', () => {
 
     const link = screen.getByRole('link', { name: '使用 GitHub 登录' });
     expect(link).toHaveAttribute('href', '/api/auth/oauth2/authorize');
-    expect(screen.getByText('agile-agent')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'agile-agent' })).toHaveAttribute('href', '/home');
     expect(screen.queryByLabelText('用户名')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('密码')).not.toBeInTheDocument();
   });

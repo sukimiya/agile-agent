@@ -231,7 +231,9 @@ class OrchestratorBudgetTest {
         var resolver = mock(TenantLlmClientResolver.class);
         when(resolver.resolveModel("tenant-1")).thenReturn(Mono.just(new ResolvedModel(llm, 2_000, 1_000)));
         var controller = new ChatController(orchestrator(new DataTools("x")), stack.sessionService(),
-                stack.lifecycle(), stack.history(), resolver, mock(MemoryMaintenance.class));
+                stack.lifecycle(), stack.history(), resolver, mock(MemoryMaintenance.class),
+                mock(io.github.sukimiya.agileagent.service.ChatImageStore.class),
+                new io.github.sukimiya.agileagent.config.UploadProperties());
         var client = WebTestClient.bindToController(controller)
                 .controllerAdvice(new MemoryExceptionHandler(), new AuthExceptionHandler())
                 .argumentResolvers(c -> c.addCustomResolver(new FixedUser()))

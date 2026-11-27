@@ -8,6 +8,12 @@ import { subscribeSystemTheme } from './theme.ts'
 
 subscribeSystemTheme()
 
+if (window.location.pathname === '/' || window.location.pathname === '') {
+  const url = new URL(window.location.href);
+  url.pathname = '/home';
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 const Page = isHomePath(window.location.pathname) ? HomePage : App
 
 createRoot(document.getElementById('root')!).render(

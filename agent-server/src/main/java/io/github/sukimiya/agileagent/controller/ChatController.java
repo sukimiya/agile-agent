@@ -5,8 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiFunction;
-
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -23,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sukimiya.agileagent.agent.Orchestrator;
+import io.github.sukimiya.agileagent.config.UploadProperties;
 import io.github.sukimiya.agileagent.memory.ConversationHistory;
 import io.github.sukimiya.agileagent.memory.MemoryException;
 import io.github.sukimiya.agileagent.memory.MemoryModel.AcceptedTurn;
@@ -33,6 +32,7 @@ import io.github.sukimiya.agileagent.memory.MemoryMaintenance;
 import io.github.sukimiya.agileagent.memory.MemoryScope;
 import io.github.sukimiya.agileagent.memory.TurnLifecycle;
 import io.github.sukimiya.agileagent.service.AuthSessionStore;
+import io.github.sukimiya.agileagent.service.ChatImageStore;
 import io.github.sukimiya.agileagent.service.SessionService;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver;
 import io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel;
@@ -70,17 +70,22 @@ public class ChatController {
     private final ConversationHistory history;
     private final TenantLlmClientResolver llmResolver;
     private final MemoryMaintenance maintenance;
+    private final ChatImageStore imageStore;
+    private final UploadProperties uploadProps;
     private static final ObjectMapper json = new ObjectMapper();
 
     public ChatController(Orchestrator orchestrator, SessionService sessionService, TurnLifecycle lifecycle,
                           ConversationHistory history, TenantLlmClientResolver llmResolver,
-                          MemoryMaintenance maintenance) {
+                          MemoryMaintenance maintenance, ChatImageStore imageStore,
+                          UploadProperties uploadProps) {
         this.orchestrator = orchestrator;
         this.sessionService = sessionService;
         this.lifecycle = lifecycle;
         this.history = history;
         this.llmResolver = llmResolver;
         this.maintenance = maintenance;
+        this.imageStore = imageStore;
+        this.uploadProps = uploadProps;
     }
 
     // OpenAI-compatible chat completions endpoint
@@ -92,21 +97,52 @@ public class ChatController {
         var userMsg = messages.isEmpty() ? "" :
                 messages.get(messages.size() - 1).getOrDefault("content", "");
         var conversationId = Optional.ofNullable(body.get("conversationId")).map(Object::toString).orElse(null);
+        var attachments = getAttachments(body);
         var chunkId = "chatcmpl-" + NonBlockingIds.shortUuid();
-        return startTurn(user, COMPLETIONS_ENDPOINT, conversationId, idempotencyKey, userMsg,
-                (accepted, llm) -> openAiStream(accepted, user, chunkId, llm));
+        return startTurn(user, COMPLETIONS_ENDPOINT, conversationId, idempotencyKey, userMsg, attachments,
+                (accepted, llm, urls) -> openAiStream(accepted, user, chunkId, llm, urls));
+    }
+
+    /** Attachment file names sent with the request; only string entries, capped at the upload batch limit. */
+    private List<String> getAttachments(Map<String, Object> body) {
+        if (!(body.get("attachments") instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(String.class::isInstance).map(String.class::cast)
+                .limit(uploadProps.getMaxFilesPerRequest()).toList();
+    }
+
+    /**
+     * Object URLs of the request's image attachments, resolved after access verification and before accept so
+     * they are stored with the user message. Empty for a brand-new conversation (no id yet) or no attachments.
+     */
+    private Mono<List<String>> resolveImageUrls(String conversationId, List<String> attachments) {
+        if (conversationId == null || attachments.isEmpty()) {
+            return Mono.just(List.of());
+        }
+        // Resolving the object URLs touches the local file index — off the event loop.
+        return Mono.fromCallable(() -> imageStore.imageUrls(conversationId, attachments))
+                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
     }
 
     private Flux<String> openAiStream(AcceptedTurn accepted, AuthSessionStore.AuthUser user, String chunkId,
-                                      ResolvedModel llm) {
-        return orchestrator.chat(accepted, user.accessToken(), user.identity(), llm)
+                                      ResolvedModel llm, List<String> imageUrls) {
+        var events = imageUrls.isEmpty()
+                ? orchestrator.chat(accepted, user.accessToken(), user.identity(), llm)
+                : orchestrator.chat(accepted, user.accessToken(), user.identity(), llm, imageUrls);
+        return events
                 .flatMap(line -> toOpenAiChunk(line, chunkId).map(Flux::just).orElseGet(Flux::empty))
                 .concatWithValues("[DONE]");
     }
 
+    /** What the accepted turn streams; the resolved image URLs are part of the turn's inputs. */
+    private interface TurnStream {
+        Flux<String> apply(AcceptedTurn accepted, ResolvedModel llm, List<String> imageUrls);
+    }
+
     private Mono<ResponseEntity<?>> startTurn(AuthSessionStore.AuthUser user, String endpoint, String conversationId,
-                                              String idempotencyKey, String text,
-                                              BiFunction<AcceptedTurn, ResolvedModel, Flux<String>> stream) {
+                                              String idempotencyKey, String text, List<String> attachments,
+                                              TurnStream stream) {
         return Mono.defer(() -> {
             // A client-supplied id is used exactly as given or rejected (400); null means "new conversation".
             if (conversationId != null) {
@@ -116,19 +152,19 @@ public class ChatController {
             if (idempotencyKey != null && !TurnLifecycle.isValidRequestId(idempotencyKey)) {
                 return Mono.error(new MemoryException(MemoryException.ErrorCode.INVALID_IDEMPOTENCY_KEY));
             }
-            // The request has no attachment ids today; attachments are bound to the conversation by upload.
-            var command = new TurnCommand(scope, endpoint, conversationId, idempotencyKey, text == null ? "" : text,
-                    List.of());
+            var question = text == null ? "" : text;
             var access = conversationId == null ? Mono.<Void>empty() : sessionService.verifyAccess(conversationId, scope);
             return access
                     .then(Mono.defer(() -> llmResolver.resolveModel(scope.tenantId())))
                     // A question that cannot fit the model's input even without history is refused (413) here,
                     // before anything is written.
-                    .doOnNext(llm -> orchestrator.requireWithinBudget(command.text(), llm))
-                    .flatMap(llm -> lifecycle.accept(command)
-                            .<ResponseEntity<?>>map(accepted -> ResponseEntity.ok()
-                                    .contentType(MediaType.TEXT_EVENT_STREAM)
-                                    .body(stream.apply(accepted, llm))))
+                    .doOnNext(llm -> orchestrator.requireWithinBudget(question, llm))
+                    .flatMap(llm -> resolveImageUrls(conversationId, attachments)
+                            .flatMap(urls -> lifecycle.accept(new TurnCommand(scope, endpoint, conversationId,
+                                            idempotencyKey, question, attachments, urls))
+                                    .<ResponseEntity<?>>map(accepted -> ResponseEntity.ok()
+                                            .contentType(MediaType.TEXT_EVENT_STREAM)
+                                            .body(stream.apply(accepted, llm, urls)))))
                     .onErrorResume(TenantLlmConfigRequiredException.class, e -> Mono.just(configRequired()));
         });
     }
@@ -200,7 +236,8 @@ public class ChatController {
                                  @RequestHeader(name = IDEMPOTENCY_KEY, required = false) String idempotencyKey,
                                  @CurrentUser AuthSessionStore.AuthUser user) {
         return startTurn(user, CHAT_ENDPOINT, request.conversationId(), idempotencyKey, request.message(),
-                (accepted, llm) -> orchestrator.chat(accepted, user.accessToken(), user.identity(), llm));
+                List.of(),
+                (accepted, llm, urls) -> orchestrator.chat(accepted, user.accessToken(), user.identity(), llm));
     }
 
     @GetMapping("/conversations")

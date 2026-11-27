@@ -199,6 +199,84 @@ class OrchestratorTest {
     }
 
     @Test
+    void imageUrlsAttachOnlyToTheCurrentQuestionMessage() {
+        when(llm.chatStream(any(), eq(List.of())))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("第一次回答")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("第二次回答")));
+        // History ends up holding a user message with the exact text of the next question.
+        chat("重复的问题");
+
+        var urls = List.of("https://signed/one.png", "https://signed/two.png");
+        var model = new io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel(llm, null, null);
+        orchestrator.chat(accept("重复的问题"), "sl-tok", null, model, urls).collectList().block();
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(llm, times(4)).chatStream(captor.capture(), eq(List.of()));
+        // Calls 3 and 4 (routing, then direct answer) of the second turn both carry the images.
+        for (List<LlmClient.Message> messages :
+                (List<List<LlmClient.Message>>) (List<?>) captor.getAllValues().subList(2, 4)) {
+            var withImages = messages.stream()
+                    .filter(m -> m.imageUrls() != null && !m.imageUrls().isEmpty()).toList();
+            assertThat(withImages).containsExactly(LlmClient.Message.user("重复的问题").withImageUrls(urls));
+            assertThat(messages.getLast()).isEqualTo(withImages.getFirst());
+            // The identical history question and every system prompt stay image-free.
+            assertThat(messages.stream().filter(m -> m.imageUrls() == null || m.imageUrls().isEmpty()).count())
+                    .isEqualTo(messages.size() - 1);
+        }
+    }
+
+    @Test
+    void historyImageUrlsStoredOnEarlierTurnsFlowBackIntoThePrompt() {
+        when(llm.chatStream(any(), eq(List.of())))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("旧答")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("新答")));
+        // Complete a turn whose stored user payload carries its own image URLs.
+        var historyUrls = List.of("https://bucket/old.png");
+        var earlier = stack.lifecycle().accept(new io.github.sukimiya.agileagent.memory.MemoryModel.TurnCommand(
+                MemoryTestStack.ALICE, "endpoint", conversation, "k-img", "旧问题", List.of(), historyUrls))
+                .block();
+        chat(earlier);
+
+        var currentUrls = List.of("https://bucket/new.png");
+        var model = new io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel(llm, null, null);
+        orchestrator.chat(accept("新问题"), "sl-tok", null, model, currentUrls).collectList().block();
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(llm, times(4)).chatStream(captor.capture(), eq(List.of()));
+        List<LlmClient.Message> directAnswer = captor.getAllValues().get(3);
+        var historyMessage = directAnswer.stream().filter(m -> "旧问题".equals(m.content())).findFirst().orElseThrow();
+        assertThat(historyMessage.imageUrls()).isEqualTo(historyUrls);
+        assertThat(directAnswer.getLast().imageUrls()).isEqualTo(currentUrls);
+        // System and assistant messages never carry image URLs.
+        assertThat(directAnswer.stream().filter(m -> !"user".equals(m.role())))
+                .allSatisfy(m -> assertThat(m.imageUrls()).isNullOrEmpty());
+    }
+
+    @Test
+    void withoutImageUrlsRequestsAreUnchanged() {
+        when(llm.chatStream(any(), eq(List.of())))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))
+                .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("回答")));
+        var model = new io.github.sukimiya.agileagent.service.TenantLlmClientResolver.ResolvedModel(llm, null, null);
+
+        orchestrator.chat(accept("问题"), "sl-tok", null, model, List.of()).collectList().block();
+
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(llm, times(2)).chatStream(captor.capture(), eq(List.of()));
+        for (List<LlmClient.Message> messages :
+                (List<List<LlmClient.Message>>) (List<?>) captor.getAllValues()) {
+            assertThat(messages).allSatisfy(m -> assertThat(m.imageUrls()).isNullOrEmpty());
+        }
+    }
+
+    @Test
     void completedReplayEmitsOneDeltaObservedUsageAndDoneWithoutCallingTheModel() {
         when(llm.chatStream(any(), eq(List.of())))
                 .thenReturn(Flux.just(new LlmClient.LlmEvent.Completed("[]")))

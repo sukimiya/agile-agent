@@ -24,8 +24,8 @@ import reactor.core.scheduler.Schedulers;
 @Service
 public class FileStorageService {
 
-    /** A stored attachment: its final file name inside the conversation directory and its size. */
-    public record Ref(String name, long size) {}
+    /** A stored attachment: final file name inside the conversation directory, size, and detected type. */
+    public record Ref(String name, long size, String contentType) {}
 
     private final UploadProperties props;
 
@@ -83,7 +83,7 @@ public class FileStorageService {
         Files.createDirectories(dir);
         var target = resolveUnique(dir, sanitize(part.filename()));
         Files.copy(temp, target, StandardCopyOption.REPLACE_EXISTING);
-        return new Ref(target.getFileName().toString(), size);
+        return new Ref(target.getFileName().toString(), size, detected);
     }
 
     /**
