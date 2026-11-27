@@ -51,6 +51,9 @@ import io.github.sukimiya.agileagent.util.NonBlockingIds;
 @TestPropertySource(properties = {
     "app.upload.dir=${java.io.tmpdir}/upload-test",
     "app.upload.allowed-content-types=image/png,application/pdf",
+    "app.cos.endpoint=https://bucket-1.cos.example.com",
+    "app.cos.secret-id=test-akid",
+    "app.cos.secret-key=test-secret",
     // R2DBC and Flyway use different embedded H2 databases in this context, so memory tables are absent;
     // session ownership is checked against the migrated fixture database below.
     "app.memory.recovery-enabled=false",
@@ -95,12 +98,16 @@ class UploadControllerTest {
     @Autowired SessionService sessionService;
     @Autowired UploadCleanupTask cleanupTask;
     @Autowired MemoryMaintenance maintenance;
+    @org.springframework.boot.test.mock.mockito.MockBean io.github.sukimiya.agileagent.service.CosClient cosClient;
 
     private final List<String> tokens = new ArrayList<>();
     private String originalDir;
 
     @BeforeEach
     void setUp() throws Exception {
+        org.mockito.Mockito.when(cosClient.put(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(reactor.core.publisher.Mono.empty());
         originalDir = props.getDir();
         var dir = Path.of(props.getDir());
         if (Files.exists(dir)) {
@@ -443,5 +450,52 @@ class UploadControllerTest {
         upload(null, NonBlockingIds.uuid(), "a.png")
                 .expectStatus().isUnauthorized()
                 .expectBody().json("{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\"}");
+    }
+
+    @Test
+    void imageUploadIsMirroredToCosWithTheDetectedType() {
+        var token = login(ALICE);
+        var conversation = ownedConversation(ALICE);
+
+        upload(token, conversation, "a.png").expectStatus().isOk();
+
+        var key = io.github.sukimiya.agileagent.service.ChatImageStore.key("chat-uploads", conversation, "a.png");
+        org.mockito.Mockito.verify(cosClient).put(org.mockito.ArgumentMatchers.eq(key),
+                org.mockito.ArgumentMatchers.eq(FileStorageServiceTestData.PNG),
+                org.mockito.ArgumentMatchers.eq("image/png"));
+    }
+
+    @Test
+    void pdfUploadIsNotMirroredToCos() {
+        var token = login(ALICE);
+        var conversation = ownedConversation(ALICE);
+        var pdf = new ByteArrayResource("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+                .getBytes(StandardCharsets.UTF_8)) {
+            @Override public String getFilename() { return "doc.pdf"; }
+        };
+        var builder = new MultipartBodyBuilder();
+        builder.part("sessionId", conversation);
+        builder.part("files", pdf).contentType(MediaType.APPLICATION_PDF);
+
+        client.post().uri("/api/files/upload")
+                .header("Authorization", "Bearer " + token)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange().expectStatus().isOk();
+
+        org.mockito.Mockito.verifyNoInteractions(cosClient);
+    }
+
+    @Test
+    void cosMirrorFailureIsStorageError() {
+        org.mockito.Mockito.when(cosClient.put(org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(reactor.core.publisher.Mono.error(
+                        new java.io.UncheckedIOException(new java.io.IOException("boom"))));
+        var token = login(ALICE);
+        var conversation = ownedConversation(ALICE);
+
+        upload(token, conversation, "a.png")
+                .expectStatus().isEqualTo(500)
+                .expectBody().jsonPath("$.code").isEqualTo("STORAGE_ERROR");
     }
 }

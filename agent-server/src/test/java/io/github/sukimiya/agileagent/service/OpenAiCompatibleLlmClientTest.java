@@ -84,6 +84,28 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
+    void messageWithImageUrlsSendsMultipartContentParts() throws Exception {
+        var message = LlmClient.Message.user("what is this?")
+                .withImageUrls(List.of("https://bucket/one.png?sig=1", "https://bucket/two.png?sig=2"));
+        JsonNode body = sendAndReadRequest(List.of(message), List.of());
+
+        var content = body.path("messages").get(0).path("content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.get(0)).isEqualTo(json.readTree("{\"type\":\"text\",\"text\":\"what is this?\"}"));
+        assertThat(content.get(1)).isEqualTo(json.readTree(
+                "{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://bucket/one.png?sig=1\"}}"));
+        assertThat(content.get(2)).isEqualTo(json.readTree(
+                "{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://bucket/two.png?sig=2\"}}"));
+    }
+
+    @Test
+    void messageWithoutImageUrlsKeepsStringContent() throws Exception {
+        JsonNode body = sendAndReadRequest(
+                List.of(LlmClient.Message.user("hello").withImageUrls(List.of())), List.of());
+        assertThat(body.path("messages").get(0).path("content").asText()).isEqualTo("hello");
+    }
+
+    @Test
     void configuredModelIsSentInStreamingRequest() throws Exception {
         JsonNode body = sendAndReadRequest(List.of(LlmClient.Message.user("hello")), List.of());
         assertThat(body.path("model").asText()).isEqualTo("configured-model");

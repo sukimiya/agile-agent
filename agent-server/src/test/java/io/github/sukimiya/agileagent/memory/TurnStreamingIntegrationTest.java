@@ -81,7 +81,9 @@ class TurnStreamingIntegrationTest {
         var orchestrator = new Orchestrator(mock(TaskDispatcher.class), new CapabilityRegistry(List.of()),
                 stack.lifecycle(), stack.history());
         var controller = new ChatController(orchestrator, stack.sessionService(), stack.lifecycle(), stack.history(),
-                resolver, mock(MemoryMaintenance.class));
+                resolver, mock(MemoryMaintenance.class),
+                mock(io.github.sukimiya.agileagent.service.ChatImageStore.class),
+                new io.github.sukimiya.agileagent.config.UploadProperties());
         client = WebTestClient.bindToController(controller)
                 .controllerAdvice(new MemoryExceptionHandler(), new AuthExceptionHandler())
                 .argumentResolvers(c -> c.addCustomResolver(new FixedUser()))

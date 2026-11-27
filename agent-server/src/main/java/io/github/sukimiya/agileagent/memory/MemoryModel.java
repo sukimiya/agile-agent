@@ -45,7 +45,7 @@ public final class MemoryModel {
      * </ul>
      */
     public record TurnCommand(MemoryScope scope, String endpoint, String conversationId, String idempotencyKey,
-            String text, List<String> attachmentIds) {
+            String text, List<String> attachmentIds, List<String> imageUrls) {
 
         /** Entry point of callers without an HTTP endpoint (internal and test callers). */
         public static final String DIRECT = "direct";
@@ -55,6 +55,13 @@ public final class MemoryModel {
             Objects.requireNonNull(endpoint, "endpoint");
             Objects.requireNonNull(text, "text");
             attachmentIds = attachmentIds == null ? List.of() : List.copyOf(attachmentIds);
+            imageUrls = imageUrls == null ? List.of() : List.copyOf(imageUrls);
+        }
+
+        /** Without image URLs (the common case; COS disabled or no image attachments). */
+        public TurnCommand(MemoryScope scope, String endpoint, String conversationId, String idempotencyKey,
+                String text, List<String> attachmentIds) {
+            this(scope, endpoint, conversationId, idempotencyKey, text, attachmentIds, List.of());
         }
 
         /** A direct request in an existing or given conversation. */
